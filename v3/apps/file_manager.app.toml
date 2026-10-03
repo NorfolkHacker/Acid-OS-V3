@@ -1,0 +1,5 @@
+name = File Manager
+w = 220
+h = 160
+desc = Browse the real filesystem
+multi = true

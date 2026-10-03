@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+acid-platform = { path = "crates/acid-platform" }
+acid-testkit = { path = "crates/acid-testkit" }
+acid-gfx = { path = "crates/acid-gfx" }
+acid-kernel = { path = "crates/acid-kernel" }
+acid-api = { path = "crates/acid-api" }
+acid-synth = { path = "crates/acid-synth" }
+acid-lua = { path = "crates/acid-lua" }
+acid-hosted = { path = "crates/acid-hosted" }
+acid-wasm = { path = "crates/acid-wasm" }
+parking_lot = "0.12"
+libc = "0.2"
+spin = "0.9"
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+winit = "0.30"
+softbuffer = "0.4"
+cpal = "0.15"
+wasmi = { version = "2", default-features = false }
+wat = "1"

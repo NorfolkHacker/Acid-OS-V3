@@ -1,0 +1,8 @@
+[package]
+name = "acid-testkit"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+acid-platform = { workspace = true, features = ["std"] }

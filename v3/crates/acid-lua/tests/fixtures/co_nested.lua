@@ -1,0 +1,5 @@
+local outer = coroutine.wrap(function()
+  local inner = coroutine.create(function() while true do end end)
+  coroutine.resume(inner)
+end)
+outer()

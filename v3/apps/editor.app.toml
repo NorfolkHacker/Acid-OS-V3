@@ -1,0 +1,6 @@
+name = Editor
+w = 420
+h = 280
+desc = Text editor for app source
+multi = true
+libs = editor/buffer.lua, editor/hl.lua, editor/layout.lua, editor/cmdbar.lua, editor/touch.lua

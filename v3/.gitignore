@@ -1,0 +1,5 @@
+target/
+apps/**/*.bak
+apps/**/*.editor-save-tmp
+fsroot/**/*.editor-save-tmp
+carts-src/target/

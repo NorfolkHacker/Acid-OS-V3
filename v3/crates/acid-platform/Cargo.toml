@@ -1,0 +1,15 @@
+[package]
+name = "acid-platform"
+version.workspace = true
+edition.workspace = true
+
+[features]
+# Hosted builds turn this on (acid-hosted, acid-testkit). Cargo's feature
+# unification then gives every no_std crate a real blocking mutex instead
+# of a spinlock, with no change to their code.
+std = ["dep:parking_lot", "dep:libc"]
+
+[dependencies]
+parking_lot = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
+spin = { workspace = true }

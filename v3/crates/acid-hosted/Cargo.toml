@@ -1,0 +1,14 @@
+[package]
+name = "acid-hosted"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+acid-platform = { workspace = true, features = ["std"] }
+acid-gfx = { workspace = true }
+winit = { workspace = true }
+softbuffer = { workspace = true }
+cpal = { workspace = true }
+
+[dev-dependencies]
+acid-synth = { workspace = true }

@@ -1,0 +1,6 @@
+name = Hello Acid
+w = 200
+h = 150
+desc = Example cart -- colour-cycling bars
+libs = lib/acid_palette.lua
+source = cart

@@ -1,0 +1,3 @@
+Acid OS v3 notes
+
+Type here. ESC opens the command strip; s saves.

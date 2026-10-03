@@ -1,0 +1,19 @@
+[package]
+name = "acid-os"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+acid-platform = { workspace = true, features = ["std"] }
+acid-gfx = { workspace = true }
+acid-kernel = { workspace = true }
+acid-lua = { workspace = true }
+acid-hosted = { workspace = true }
+acid-wasm = { workspace = true, features = ["std"] }
+winit = { workspace = true }
+
+[dev-dependencies]
+acid-testkit = { workspace = true }
+acid-api = { workspace = true }
+mlua = { workspace = true }
+wat = { workspace = true }

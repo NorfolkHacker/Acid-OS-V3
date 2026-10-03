@@ -1,0 +1,7 @@
+[package]
+name = "acid-cart"
+description = "Guest-side bindings for Acid OS WASM carts (ABI v1, module \"acid\")"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

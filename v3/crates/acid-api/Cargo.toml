@@ -1,0 +1,13 @@
+[package]
+name = "acid-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+acid-platform = { workspace = true }
+acid-gfx = { workspace = true }
+acid-kernel = { workspace = true }
+
+[dev-dependencies]
+acid-testkit = { workspace = true }
+acid-synth = { workspace = true }

@@ -1,0 +1,21 @@
+# Guest crates for WASM carts (spec §15). A workspace of its own, not a
+# member of v3/Cargo.toml's, so building the OS never needs the wasm32
+# target. Build a cart with:
+#   cargo build --manifest-path v3/carts-src/Cargo.toml --release \
+#     --target wasm32-unknown-unknown -p hello-wasm
+[workspace]
+resolver = "3"
+members = ["acid-cart", "hello-wasm"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+# Small modules: a cart is copied onto removable media and read whole by
+# Load Cart, so size matters more than speed here.
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+codegen-units = 1
+strip = true

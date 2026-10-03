@@ -1,0 +1,11 @@
+Acid OS v3
+
+Rust + Lua.
+
+Menu (top left) opens
+the app launcher.
+
+Drop a <name>.lua plus a
+<name>.app.toml into
+v3/apps -- it shows up
+in Menu, no rebuild.

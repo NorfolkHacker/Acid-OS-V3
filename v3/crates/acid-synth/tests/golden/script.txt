@@ -1,0 +1,92 @@
+# acid-synth golden script: every synth feature, rendered in chunks.
+# Played by tests/golden.rs against acid-synth; the bytes must match the
+# committed reference recording (script.u8) exactly.
+waveform 0 0
+duty 0 25
+ona 0 49
+adsr 0 5 40 60 80
+gate_on 0
+render 2048
+gate_off 0
+render 4096
+waveform 1 1
+ona 1 37
+adsr 1 0 0 100 0
+gate_on 1
+render 1024
+waveform 2 2
+waveform 3 2
+ona 2 40
+ona 3 47
+ring 2 3
+gate_on 2
+gate_on 3
+render 2048
+ring_clear 2
+render 512
+gate_off 1
+gate_off 2
+gate_off 3
+waveform 4 3
+ona 4 70
+adsr 4 1 10 50 30
+gate_on 4
+render 2048
+gate_off 4
+render 2048
+route 5 1
+waveform 5 1
+ona 5 30
+adsr 5 0 0 100 50
+cutoff 60
+resonance 12
+mode 1
+gate_on 5
+render 2048
+mode 2
+render 1024
+mode 4
+render 1024
+mode 7
+cutoff 200
+resonance 0
+render 1024
+gate_off 5
+render 4096
+arp_note 6 0 40
+arp_note 6 1 44
+arp_note 6 2 47
+arp_note 6 3 52
+arp_rate 6 30
+arp_on 6 4
+waveform 6 0
+duty 6 50
+ona 6 40
+adsr 6 2 20 70 40
+gate_on 6
+render 4096
+gate_off 6
+render 4096
+render 2048
+
+# Dry/wet mix: two routed voices (5, 7) summed into the filter while an
+# unrouted one (1) bypasses it, then the filter's tail and silence breaker
+# running under the dry voice alone.
+route 7 1
+waveform 7 2
+ona 7 52
+adsr 7 0 0 35 40
+adsr 5 0 0 35 50
+adsr 1 0 0 30 0
+cutoff 90
+resonance 4
+mode 1
+gate_on 5
+gate_on 7
+gate_on 1
+render 2048
+gate_off 5
+gate_off 7
+render 4096
+gate_off 1
+render 1024

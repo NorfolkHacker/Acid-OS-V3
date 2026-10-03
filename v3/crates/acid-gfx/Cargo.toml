@@ -1,0 +1,6 @@
+[package]
+name = "acid-gfx"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

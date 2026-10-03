@@ -1,0 +1,23 @@
+[package]
+name = "acid-wasm"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+acid-api = { workspace = true }
+acid-kernel = { workspace = true }
+acid-platform = { workspace = true }
+# The workspace pins wasmi with default features off (no_std). Two of the
+# defaults are added back, both no_std-safe:
+# - `validate`: without it wasmi offers only the unsafe `Module::new_unchecked`,
+#   and an invalid module is undefined behaviour. Carts are untrusted (§15.2).
+# - `auto-dispatch`: without it wasmi always uses tail-call dispatch, which
+#   can overflow the native stack in unoptimised (test/debug) builds.
+wasmi = { workspace = true, features = ["validate", "auto-dispatch"] }
+
+[features]
+# Hosted builds turn this on so the runner can log with eprintln (§15.2).
+std = []
+
+[dev-dependencies]
+wat = { workspace = true }

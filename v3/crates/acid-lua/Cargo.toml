@@ -1,0 +1,14 @@
+[package]
+name = "acid-lua"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+acid-platform = { workspace = true, features = ["std"] }
+acid-kernel = { workspace = true }
+acid-api = { workspace = true }
+mlua = { workspace = true }
+
+[dev-dependencies]
+acid-testkit = { workspace = true }
+acid-gfx = { workspace = true }
