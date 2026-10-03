@@ -359,8 +359,8 @@ Both paths go through the path guard and the real-location check.
 Errors:
 
 - `bad path`: either path fails those checks, is a root folder itself, or is a
-  symlink.
-- `not found`: a path doesn't exist.
+  symlink. This includes a `from` or `to` whose folder doesn't exist.
+- `not found`: there is nothing at `from`.
 - `read only`: a cart tried to rename outside its area (see below).
 
 **Cart:** both ends must be under `v3/fsroot/Home/`; otherwise
