@@ -2,10 +2,15 @@
 
 [← Apps and manifests](02-apps-and-manifests.md) · [Contents](README.md) · [Next: Graphics →](04-graphics.md)
 
-Your app is a subclass of `AcidApp` (`v3/apps/lib/acid_app.lua`), and the last
-line of your file starts it. Lua has no classes, so a "class" is a table:
-`extend` makes a new one that inherits from `AcidApp`, the name you pass is
-the class name, and `new` makes an instance.
+Every app is built on `AcidApp`, a base class you'll find in
+`v3/apps/lib/acid_app.lua`. You make your own app from it, override the parts
+you care about, and start it on the last line of your file.
+
+Lua doesn't have classes, so a "class" here is just a table:
+
+- `extend` makes a new class that inherits from `AcidApp`. The name you pass
+  becomes the class name.
+- `new` makes an instance of it.
 
 ```lua snippet
 local MyApp = AcidApp:extend("MyApp")
@@ -14,29 +19,36 @@ local MyApp = AcidApp:extend("MyApp")
 MyApp:new():start()
 ```
 
-Per-app state lives in fields on `self` (`self.count`), and methods are defined
-with a colon (`function MyApp:on_touch(x, y, pressed)`) so they receive `self`.
-Constants are fields on the class table or plain `local`s at the top of the file.
+A few conventions:
 
-`start` calls `on_create`, paints once with `redraw`, then loops until the
-window closes, dispatching events to your callbacks. When the loop ends it calls
-`on_destroy`.
+- Keep your app's state in fields on `self`, such as `self.count`.
+- Define methods with a colon, as in `function MyApp:on_touch(x, y, pressed)`,
+  so they receive `self`.
+- Put constants on the class table, or in plain `local`s at the top of the file.
 
-> **Keep off these field names.** `AcidApp` itself keeps `self.running` (the
-> loop flag, see [§3.2](#32-the-event-loop)) and `self.class_name` (the title
-> source). A field of yours with either name breaks the loop or the title. A
-> field named like a method (`self.redraw = 5`) hides that method on your
-> instance, so give state and behaviour different names.
+When you call `start`, it:
+
+1. calls `on_create`,
+2. paints the window once with `redraw`,
+3. loops until the window closes, passing each event to your callbacks,
+4. calls `on_destroy` when the loop ends.
+
+> **Keep off these field names.** `AcidApp` uses two fields of its own:
+> `self.running` (the loop flag, see [§3.2](#32-the-event-loop)) and
+> `self.class_name` (where the title comes from). If you use either name for
+> your own data, you'll break the loop or the title. Also, a field with the
+> same name as a method (`self.redraw = 5`) hides that method, so give your
+> data and your methods different names.
 
 ## 3.1 The callbacks
 
-Every one of these has an empty default (except `redraw`). Override only what
-you need.
+Each of these does nothing by default, apart from `redraw`. Override only the
+ones you need.
 
 ### `on_create`
 
-Called once, before the first paint. Set up your fields, configure synth voices,
-read `acid_launch_arg`.
+Called once, before the first paint. This is where you set up your fields,
+configure synth voices and read `acid_launch_arg`.
 
 ```lua snippet
 function MyApp:on_create()
@@ -46,31 +58,33 @@ function MyApp:on_create()
 end
 ```
 
-`acid_launch_arg()` returns the string another app passed when it launched
-yours, or `""` if there was none (File Manager opens Editor on a file this way).
+When another app launches yours, it can pass along a string.
+`acid_launch_arg()` gives you that string, or `""` if there wasn't one. This is
+how File Manager tells Editor which file to open.
 
 ### `on_touch(x, y, pressed)`
 
-`x` and `y` are **window-relative**: `(0, 0)` is your window's own top-left
-corner, not the screen's. `pressed` is `true` for a press or a drag, `false` for
-a release.
+`x` and `y` are **relative to your window**: `(0, 0)` is your window's own
+top-left corner, not the screen's. `pressed` is `true` for a press or a drag,
+and `false` when the button is released.
 
-Three things the kernel does before you see a touch:
+The system sorts out three things before a touch reaches you:
 
-- **The title bar is never yours.** A press at `y < 16` is consumed by the
-  router as a drag or a close. You never receive a touch that *starts* above
-  `y = 16`.
+- **The title bar is never yours.** A press at `y < 16` is used to drag the
+  window or close it. You never get a touch that *starts* above `y = 16`.
 - **A gesture belongs to the window it started in.** Once a press lands in your
-  window, every drag event and the final release come to you, *even after the
-  pointer leaves your window*. So `x` and `y` can be **negative or larger than
-  your window**. Clamp before you use them for a hit test.
-- **A gesture that started elsewhere never leaks in.** A drag that began on a
-  close button, in the desktop strip, or over nothing delivers nothing to
-  whichever window happens to be under the pointer now.
+  window, every drag and the final release come to you, *even after the
+  pointer leaves your window*. That means `x` and `y` can be **negative, or
+  bigger than your window**. Clamp them before you use them to work out what
+  was hit.
+- **A gesture that started somewhere else never leaks in.** If a drag began on
+  a close button, on the desktop strip or over nothing, the window that's
+  under the pointer now gets nothing from it.
 
-Lua's integer division `//` floors, so a touch above your first row gives a
-negative index, never row 0. Test the range explicitly, as this complete app
-does (it also takes keys; see the next section):
+Watch out for Lua's integer division, `//`. It rounds down, so a touch above
+your first row gives a negative row number, not row 0. Check the range
+yourself, as this complete app does (it handles keys too, which the next
+section covers):
 
 ```lua app
 -- w: 170
@@ -129,22 +143,24 @@ end
 PickerApp:new():start()
 ```
 
-Note the `+ 1` at the one place the 0-based `selected` meets a Lua sequence.
-Keeping row numbers 0-based and shifting only where you index (`ITEMS[i + 1]`)
-is the convention throughout v3's apps.
+Notice the `+ 1` in `ITEMS[i + 1]`. Row numbers start at 0, but Lua lists
+start at 1, so you add 1 only at the moment you index the list. All the
+built-in apps follow this habit.
 
-> **Presses repeat while held.** A mouse button held down delivers
-> `pressed == true` repeatedly (once per router tick, about every 16 ms), not
-> once. Anything that *acts* on a press (firing a shot, flipping a mode,
-> advancing a counter) needs a guard, or it fires on every tick the touch is
-> held. `PickerApp` gets away without one because setting `selected` is
-> idempotent. See [§3.5](#35-touch-debouncing).
+> **Presses repeat while held.** While a mouse button is held down, you get
+> `pressed == true` over and over, about every 16 ms, not just once. So
+> anything that *does* something on a press (firing a shot, switching a mode,
+> adding to a counter) needs a guard. Without one, it happens again on every
+> tick. `PickerApp` doesn't need a guard, because setting `selected` to the
+> same row twice changes nothing. See [§3.5](#35-touch-debouncing).
 
 ### `on_key(code, pressed)`
 
-Only the focused window receives key events. `code` is the character's byte for
-printable ASCII (Shift already applied: `A`, not `a` plus a modifier), or one of
-the `AcidKeys` constants:
+Only the focused window gets key events. `code` is one of two things:
+
+- for a printable ASCII character, its byte value, with Shift already applied
+  (you get `A`, not `a` plus a Shift key);
+- for a special key, one of the `AcidKeys` constants:
 
 ```lua snippet
 AcidKeys = {
@@ -153,22 +169,25 @@ AcidKeys = {
 }
 ```
 
-(That table is already defined for you by `lib/acid_keys.lua`; it is shown here
-so you can see the values.) On this hosted build `pressed` is always `true`: the
-host delivers key presses only, with no releases and no auto-repeat, so holding
-a key sends one event. Test it anyway, as `PickerApp` does, so your app keeps
-working if releases are ever added. Turn a code into a character with
+That table is already set up for you by `lib/acid_keys.lua`. It's shown here
+so you can see the values. To turn a code into a character, use
 `string.char(code)`.
 
-Events wait in a small queue, 8 deep per window. If your app is slow to poll,
-the router drops the extra events rather than blocking, so a callback that
-takes long enough can lose keys and touches. Keep callbacks short.
+On the Linux build, `pressed` is always `true`. Only key presses are sent:
+there are no releases and no auto-repeat, so holding a key down sends one
+event. Check `pressed` anyway, as `PickerApp` does, so your app keeps working
+if releases are added later.
+
+Each window has a small queue that holds up to 8 waiting events. If your app
+is slow to collect them, the extra events are dropped rather than holding up
+the system. So a slow callback can lose keys and touches. **Keep your
+callbacks short.**
 
 ### `on_idle`
 
-Fires whenever a poll times out with no event waiting, so its rate is set by
-`poll_timeout_ms`, and it fires *at most* that often. This is where an
-animating app advances a frame.
+Called whenever the app has waited for an event and none arrived. How long it
+waits is set by `poll_timeout_ms`, so `on_idle` runs *at most* that often.
+This is where an animated app moves on to its next frame.
 
 ```lua snippet
 function MyApp:on_idle()
@@ -180,8 +199,8 @@ end
 
 ### `on_destroy`
 
-Called once, after the loop ends, whichever way it ended. Use it to stop
-sounding notes, close an overlay, or flush state to disk.
+Called once, after the loop ends, however it ended. Use it to stop any notes
+that are playing, close an overlay, or save your data to disk.
 
 ```lua snippet
 function MyApp:on_destroy()
@@ -190,20 +209,21 @@ function MyApp:on_destroy()
 end
 ```
 
-> Voices your app gated on are released by the kernel when your app ends, on
-> every exit path, so a forgotten `acid_stop_note` here will not leave a note
-> droning after your app is gone. Do it anyway: it is the difference between a
-> clean fade and an abrupt cut, and it is the habit that keeps your *running*
-> app's sound correct.
+> When your app ends, the system releases any voices it was playing, whatever
+> the reason it ended. So if you forget `acid_stop_note` here, you won't leave
+> a note droning on. Do it anyway. It gives a clean fade instead of a sudden
+> cut, and it's the same habit that keeps your sound right while the app is
+> *running*.
 
-`on_destroy` does not run if your app dies of a Lua error, or is ended for
-exceeding a limit ([§2.6](02-apps-and-manifests.md#26-built-in-and-cart-level-apps)):
-those leave the loop by an error, not by an event. The kernel's own cleanup
-(window, overlay, voices) still happens.
+`on_destroy` does **not** run if your app stops because of a Lua error, or is
+shut down for going over a limit
+([§2.6](02-apps-and-manifests.md#26-built-in-and-cart-level-apps)). Those
+leave the loop through an error, not an event. The system still cleans up your
+window, overlay and voices.
 
 ### `redraw`
 
-Repaints the whole window. The default implementation draws bare chrome:
+Repaints the whole window. By default it just draws the empty window:
 
 ```lua snippet
 function AcidApp:redraw()
@@ -213,12 +233,13 @@ function AcidApp:redraw()
 end
 ```
 
-Yours should follow the same shape, **clear, frame, your content, border**, and
-the border genuinely must come last. See [§4.3](04-graphics.md#43-window-chrome).
+Yours should follow the same order: **clear, frame, your content, border**.
+The border really does have to come last. See
+[§4.3](04-graphics.md#43-window-chrome) for why.
 
 ## 3.2 The event loop
 
-This is the real loop, from `acid_app.lua`:
+Here is the loop itself, straight from `acid_app.lua`:
 
 ```lua snippet
 function AcidApp:start()
@@ -244,8 +265,9 @@ function AcidApp:start()
 end
 ```
 
-`acid_poll_event(timeout_ms)` blocks on your window's event queue and returns
-**several values**, the first of which names the event:
+`acid_poll_event(timeout_ms)` waits for the next event for your window. It
+returns **several values**, and the first one tells you what kind of event it
+is:
 
 | Returns | Meaning |
 |---|---|
@@ -255,33 +277,42 @@ end
 | `"key", code, pressed` | A key event |
 | `"touch", x, y, pressed` | A touch event |
 
-Because the first value is always the kind, `AcidApp` can read all four values
-into locals (`kind, a, b, c`) and dispatch on `kind`. You normally never call
-`acid_poll_event` yourself; `AcidApp` does it. You only reach for it when
-writing a loop of your own, as `AcidGame` does ([chapter 6](06-games.md)).
+Since the kind always comes first, `AcidApp` can read all four values into
+`kind, a, b, c` and decide what to do based on `kind`.
+
+You won't normally call `acid_poll_event` yourself, because `AcidApp` does it
+for you. You only need it if you write a loop of your own, as `AcidGame` does
+([chapter 6](06-games.md)).
 
 ### `"moved"` and `acid_notify_redraw_done`
 
-`acid_notify_redraw_done` tells the compositor a moved window has repainted.
-**Today it is a harmless no-op**: the compositor does not wait on apps, and the
-router does not send `"moved"` at all. `AcidApp` and `AcidGame` still handle the
-event and call the function, so an app is ready if `"moved"` is sent in future. If you write your own loop, handle
-the event the way `AcidApp` does and call `acid_notify_redraw_done()` after any
-repaint; `AcidGame` calls it without repainting, because it repaints everything
-on its next tick anyway.
+`acid_notify_redraw_done` tells the system that a window which was moved has
+finished repainting.
+
+**At the moment it does nothing, and does no harm.** The system doesn't wait
+for apps to repaint, and it never actually sends `"moved"`. `AcidApp` and
+`AcidGame` handle the event and call the function anyway, so apps will be
+ready if `"moved"` is sent in future.
+
+If you write your own loop, handle `"moved"` the way `AcidApp` does, and call
+`acid_notify_redraw_done()` after you repaint. `AcidGame` calls it without
+repainting, because it repaints everything on its next tick anyway.
 
 ### Errors and the loop
 
-An error in any callback leaves `start`, which ends your script: the window
-closes, the kernel frees the app's resources, and the message goes to the
-terminal as `Acid OS v3: <path>: <message>`. Nothing in `start` catches errors
-for you. If a failure in one step should not end the whole app, wrap that step
-in `pcall` yourself.
+If any of your callbacks raises an error, `start` stops and your script ends:
+
+- the window closes,
+- the system frees everything the app was using,
+- the error is printed to the terminal as `Acid OS v3: <path>: <message>`.
+
+`start` doesn't catch errors for you. If one step can fail without the whole
+app needing to stop, wrap that step in `pcall` yourself.
 
 ## 3.3 `poll_timeout_ms`
 
-How long `acid_poll_event` blocks when nothing is waiting, and therefore how
-often `on_idle` fires. The default is **200 ms**.
+This sets how long `acid_poll_event` waits when nothing is happening, and so
+how often `on_idle` runs. The default is **200 ms**.
 
 ```lua snippet
 function MyApp:poll_timeout_ms()
@@ -289,9 +320,9 @@ function MyApp:poll_timeout_ms()
 end
 ```
 
-It is a **method, not a constant**, because the right answer changes while the
-app runs. The Terminal returns a 33 ms frame interval while one of its
-easter-egg animations is in flight and drops back to 200 afterwards:
+It's a **method, not a constant**, because the right value can change while
+your app runs. For example, the Terminal waits 33 ms between frames while one
+of its easter-egg animations is playing, then goes back to 200 ms:
 
 ```lua snippet
 function TerminalApp:poll_timeout_ms()
@@ -299,8 +330,8 @@ function TerminalApp:poll_timeout_ms()
 end
 ```
 
-This complete app animates at about 25 frames a second, and only while it is
-the focused window:
+This complete app animates at about 25 frames a second, but only while its
+window is focused:
 
 ```lua app
 -- w: 160
@@ -333,29 +364,31 @@ end
 PulseApp:new():start()
 ```
 
-The loop clamps the wait to a minimum of 1 ms with `math.max(..., 1)`. The host
-treats a negative timeout as 0, and `0` does not block at all, so an unclamped
-`return 0` would spin a CPU core at 100% and fire `on_idle` as fast as the
-thread can go. The clamp prevents the spin; don't rely on it.
+The loop never waits less than 1 ms: that's what `math.max(..., 1)` is for.
+A negative timeout counts as 0, and a timeout of `0` doesn't wait at all. So
+without that minimum, `return 0` would keep one CPU core at 100% and call
+`on_idle` as fast as it possibly could. The minimum stops that from happening,
+but don't rely on it.
 
-**Pick the largest number that still looks right.** Every app is an OS thread
-with its own VM, and a 200 ms poll that wakes five times a second costs almost
-nothing.
+**Pick the largest number that still looks right.** Every app runs in its own
+thread with its own Lua interpreter. An app that waits 200 ms and wakes five
+times a second costs almost nothing.
 
-The "stopped responding" limit ([§2.6](02-apps-and-manifests.md#26-built-in-and-cart-level-apps))
-is measured from the last time your app *returned* from `acid_poll_event`, so a
-long poll timeout never trips it. Only a single callback that computes for more
-than 2 seconds (1 second for a cart) does.
+There's also a "stopped responding" limit
+([§2.6](02-apps-and-manifests.md#26-built-in-and-cart-level-apps)). It counts
+from the last time your app got control back from `acid_poll_event`, so a long
+poll timeout will never trip it. Only a single callback that keeps working for
+more than 2 seconds (1 second for a cart) will.
 
 ## 3.4 Focus, titles and quitting
 
 ### `focused()`
 
-True when your window holds keyboard focus, which in this OS also means it is
-the topmost visible window, because focus and z-order always change together.
-It is a method: `self:focused()`.
+Returns true when your window has keyboard focus. In Acid OS that also means
+it's the top window, because focus and stacking order always change together.
+It's a method, so call it as `self:focused()`.
 
-Use it to skip work you cannot see:
+Use it to skip work nobody can see:
 
 ```lua snippet
 function MyApp:on_idle()
@@ -365,15 +398,18 @@ function MyApp:on_idle()
 end
 ```
 
-This matters most for apps that paint **outside** the compositor's z-order-aware
-repaint; see [§6.3](06-games.md#63-focus-and-the-z-order-trap).
+This matters most for apps that redraw themselves **every tick**, like games,
+instead of waiting to be asked. See
+[§6.3](06-games.md#63-focus-and-the-z-order-trap).
 
 ### `window_title`
 
-Derived from your class name automatically: `DemoTouchApp` → `"Demo Touch"`
-(trailing `App` dropped, camel case split, capped at 16 characters). The name is
-the string you gave `extend`, so pick it with the title in mind. Override the
-method for something custom:
+Your window's title comes from your class name automatically. For example,
+`DemoTouchApp` becomes `"Demo Touch"`: a trailing `App` is dropped, the words
+are split apart, and the result is cut to 16 characters. The class name is the
+string you gave `extend`, so choose it with the title in mind.
+
+To show something else, override the method:
 
 ```lua snippet
 function CounterApp:window_title()
@@ -381,8 +417,8 @@ function CounterApp:window_title()
 end
 ```
 
-16 characters is a real limit, not a style note: narrow windows are around 140px
-and the title is **not clipped against the close button**, so an overlong title
+**Keep titles to 16 characters.** Narrow windows are about 140 pixels wide,
+and the title is **not cut off at the close button**. A title that's too long
 runs straight into it.
 
 ### `quit`
@@ -395,20 +431,22 @@ function MyApp:on_key(code, pressed)
 end
 ```
 
-The other two ways the loop ends, the title-bar close button and the kernel
-ending your app, both arrive as the `"close"` event, not through this method.
+The loop can also end in two other ways: the close button in the title bar,
+or the system shutting your app down. Both of those arrive as the `"close"`
+event, not through `quit`.
 
 > `quit` only sets `self.running`. `AcidGame` runs its own loop with its own
-> local flag and deliberately ignores that field, so **`quit` does nothing in a
+> flag and ignores that field on purpose, so **`quit` does nothing in a
 > game**. See [§6.1](06-games.md#61-acidgame).
 
 ## 3.5 Touch debouncing
 
-The single most common bug in an Acid OS app.
+This is the most common bug in Acid OS apps.
 
-A held touch delivers `pressed == true` on **every router tick**, not once per
-press. Anything that acts on a press therefore needs to fire once per *hold*, not
-once per event:
+While a touch is held down, you get `pressed == true` on **every tick**, not
+once per press. So anything that *does* something on a press needs to happen
+once per *hold*, not once per event. "Debouncing" just means filtering out
+those repeats:
 
 ```lua snippet
 function MyApp:on_create()
@@ -426,8 +464,9 @@ function MyApp:on_touch(x, y, pressed)
 end
 ```
 
-Some interactions genuinely *want* the repeat: dragging a paddle, painting,
-scrubbing a slider. Those read `x`/`y` on every event and hold no state:
+Some things *should* repeat: dragging a paddle, painting, moving a slider.
+Those just read `x` and `y` on every event and don't need to remember
+anything:
 
 ```lua snippet
 function MyApp:on_touch(x, y, pressed)
@@ -436,13 +475,13 @@ function MyApp:on_touch(x, y, pressed)
 end
 ```
 
-The rule is about **acting**, not about moving. Ask: "if the user rests their
+The rule is about **doing**, not moving. Ask yourself: "If someone rests their
 finger here for a second, should this happen sixty times?" If not, guard it.
 
-A second pattern does the same job without a flag, when the action is a state
-change: compare against what is already true. This complete app is a four-key
-keyboard that sounds one note per key press, even as a pointer slides across the
-keys:
+There's a second way to do this without a flag, when the action changes some
+state: compare against the state you're already in. This complete app is a
+four-key keyboard. It plays one note per key, even when you slide the pointer
+across the keys:
 
 ```lua app
 -- w: 180
@@ -502,10 +541,11 @@ end
 KeysApp:new():start()
 ```
 
-That is how `piano.lua` gets one note per key press while a pointer slides across
-the keyboard, retriggering correctly at each boundary. Note `offset == nil`
-compares fine with `self.active_offset == nil` in Lua, so the "no key" state
-needs no special case in the guard.
+The built-in Piano (`piano.lua`) works the same way. It plays one note per
+key, and starts a new note each time the pointer slides onto a different key.
+
+You don't need a special case for "no key": in Lua, `nil == nil` is true, so
+the check `offset == self.active_offset` handles it already.
 
 ---
 

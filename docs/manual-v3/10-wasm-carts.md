@@ -3,52 +3,68 @@
 [← API reference](09-api-reference.md) · [Contents](README.md)
 
 A **WASM cart** is an app written as a WebAssembly module instead of a Lua
-script. The kernel runs it under `wasmi`, an interpreter, in the same kind of
-window as a Lua app, and it calls the same operations: drawing, sound, windows,
-files. What changes is the shape of the program. A Lua app owns its event loop
-and calls `acid_poll_event`; a WASM cart is a set of **callbacks** that the host
-calls, and the `acid_*` operations reach it as **imports** from a module named
-`"acid"`. This is ABI **version 1**.
+script. WebAssembly ("WASM") is a compact program format that many languages,
+such as Rust and C, can compile to.
 
-This chapter covers the callbacks, how values cross the boundary, the limits,
-the header and installing, writing a cart in Rust with the `acid-cart` crate,
-and a cart written by hand in the WebAssembly text format. The full import
-table is at the end, in [The import table](#the-import-table).
+A WASM cart gets the same kind of window as a Lua app and can do the same
+things: draw, play sound, manage windows, use files. Acid OS runs it with
+`wasmi`, a WebAssembly interpreter.
+
+What changes is the shape of the program:
+
+- A Lua app runs its own event loop and calls `acid_poll_event`.
+- A WASM cart is a set of **callbacks**. The host (Acid OS) runs the loop and
+  calls them.
+- The operations reach the cart as **imports** from a module named `"acid"`,
+  instead of Lua globals.
+
+This chapter describes **version 1** of that interface (the ABI, or
+application binary interface).
+
+You'll learn about the callbacks, how values pass between the cart and the
+host, the limits, the header and installing, writing a cart in Rust with the
+`acid-cart` crate, and writing one by hand in the WebAssembly text format. The
+full list of imports is at the end, in [The import table](#the-import-table).
 
 ## 10.1 What a WASM cart is
 
-- **It is always cart-level.** The kernel grants built-in trust only to `.lua`
-  scripts, so every `.wasm` module runs under the cart rules of
+- **It is always cart-level.** Only `.lua` scripts can be trusted as built-in
+  apps, so every `.wasm` module follows the cart rules of
   [§2.6](02-apps-and-manifests.md#26-built-in-and-cart-level-apps) and
-  [§7.11](07-system-apis.md#711-what-a-cart-is-refused), however it was started.
-  It writes only under `v3/fsroot/Home/`, cannot close or raise other windows,
-  and cannot open the overlay.
-- **It installs like a `.cart`**, through Load Cart, as `v3/apps/<slug>.wasm`
-  with a manifest that says `runtime = wasm`
+  [§7.11](07-system-apis.md#711-what-a-cart-is-refused), however it was
+  started. It can write only under `v3/fsroot/Home/`, can't close or raise
+  other windows, and can't open the overlay.
+- **It installs like a `.cart`**, through Load Cart. It lands as
+  `v3/apps/<slug>.wasm`, with a manifest that says `runtime = wasm`
   ([§2.7](02-apps-and-manifests.md#27-wasm-carts)).
-- **It is sandboxed by the module format**, not by a Lua VM: it can touch only
-  its own linear memory and the imports in the table. A module that imports
-  anything else is refused before it runs.
+- **The module format itself is the sandbox.** A WASM cart can touch only its
+  own block of memory (its "linear memory") and the imports in the table. A
+  module that imports anything else is refused before it runs.
 
 **When to choose WASM over Lua.** Lua is the default, and the right choice for
-almost every app: there is no toolchain, an app is a text file, the libraries
-(`AcidApp`, `AcidGame`, `AcidPalette`) do the bookkeeping, and the Editor can
-change it in the running OS. Choose WASM when:
+almost every app:
+
+- there is nothing to install or compile, because an app is just a text file;
+- the libraries (`AcidApp`, `AcidGame`, `AcidPalette`) do the bookkeeping for
+  you;
+- you can change the app with the Editor while the OS is running.
+
+Choose WASM when:
 
 - you already have the code in Rust, C or another language that targets
   WebAssembly;
 - you want a compiled language's types and tooling;
 - you want a cart whose source is not shipped with it.
 
-WASM is not a way to escape the cart rules (it is always cart-level), and under
-an interpreter it is not automatically faster than Lua.
+WASM is not a way around the cart rules, since it is always cart-level. And
+because it runs in an interpreter, it isn't automatically faster than Lua.
 
 ## 10.2 The callbacks
 
-A cart **exports** these. The host resolves and type-checks them all before
-any callback runs (a start function, if the module has one, has already run),
-and refuses the module if a required one is missing or has the wrong
-signature.
+Your cart **exports** these functions so the host can call them. Before calling
+any of them, the host checks they all exist and have the right types. If a
+required one is missing or has the wrong signature, the module is refused. (If
+the module has a start function, that has already run by this point.)
 
 | Export | Required | Purpose |
 |---|---|---|
@@ -72,11 +88,11 @@ All parameters and results are `i32`.
 | 3 | moved | 0, 0, 0 | the host calls `acid_redraw` |
 | 4 | close | 0, 0, 0 | the host calls `acid_on_destroy`, if exported, and the cart ends |
 
-Touch coordinates are window-relative and key codes are the ones a Lua app
-gets ([§3.1](03-app-lifecycle.md#31-the-callbacks)). A kind the cart does not
-know should be ignored: a later ABI version may add some.
+Touch coordinates are relative to your window, and key codes are the same ones
+a Lua app gets ([§3.1](03-app-lifecycle.md#31-the-callbacks)). Ignore any kind
+you don't recognise, because a later version of the ABI may add new ones.
 
-**The host owns the loop.** In order, it:
+**The host runs the loop.** In order, it:
 
 1. instantiates the module (running its start function, if it has one);
 2. calls `acid_abi_version`, and refuses the cart unless it returns 1;
@@ -85,41 +101,51 @@ know should be ignored: a later ABI version may add some.
    for an event, and calls `acid_on_event` for an event or `acid_on_idle` for a
    timeout.
 
-The poll timeout is clamped to **1–60,000 ms**: values below 1 count as 1, and
-anything longer than a minute counts as a minute. A cart never polls, and
-nothing is redrawn for it: after a touch that changes what the window shows,
-the cart draws it itself (usually by calling its own redraw).
+The poll timeout is clamped to **1–60,000 ms**. Anything below 1 counts as 1,
+and anything over a minute counts as a minute.
 
-As in Lua, `notify_redraw_done` is a harmless no-op in v3 and the router does
-not send "moved" today
+A cart never polls for events itself. **Nothing is redrawn for it, either.**
+After a touch that changes what the window shows, the cart must draw the change
+itself, usually by calling its own redraw.
+
+As in Lua, `notify_redraw_done` does nothing in this version, and "moved"
+events are not sent
 ([§3.2](03-app-lifecycle.md#moved-and-acid_notify_redraw_done)). `acid-cart`
-still calls it after the redraw that follows a move, so a cart written against
-it needs no change if the event returns.
+still calls it after the redraw that follows a move, so a cart built with it
+won't need changing if "moved" events come back.
 
 ## 10.3 Passing values
 
-Every import lives in module `"acid"` and has the name and meaning of the Lua
-call without its `acid_` prefix: `fill_rect` is `acid_fill_rect`. The one Lua
-call with no import is `acid_poll_event`, because the host owns the loop.
-`acid_get_volume` keeps its name as `get_volume`.
+Every import lives in the module `"acid"`. Each one has the same name and
+meaning as the Lua call, minus the `acid_` prefix, so `fill_rect` is
+`acid_fill_rect` and `get_volume` is `acid_get_volume`. The only Lua call with
+no import is `acid_poll_event`, because the host runs the loop.
 
-**Numbers.** Integers and colours are `i32`; a colour's low 24 bits are read as
-`0xRRGGBB`. Booleans are `i32` `0` or `1`. Three results are `i64`: `now_ms`,
-`mem_used_kb` and `fs_size`. Window, launcher and task indexes are zero-based,
-as in Lua.
+**Numbers.**
 
-**Strings in** are passed as **`(ptr, len)`**: a byte offset into the cart's
-memory and a length. If the range is not inside memory, or the bytes are not
-valid UTF-8, the import **traps**, and the cart ends. File contents passed to
-`fs_write` are raw bytes, so the UTF-8 rule does not apply to them.
+- Integers and colours are `i32` (32-bit integers). For a colour, the low 24
+  bits are read as `0xRRGGBB`.
+- Booleans are `i32` `0` or `1`.
+- Three results are `i64` (64-bit): `now_ms`, `mem_used_kb` and `fs_size`.
+- Window, launcher and task indexes start at 0, as in Lua.
 
-**Strings out** are written into a cart-supplied buffer **`(buf, cap)`**. The
-call writes `min(len, cap)` bytes at `buf` and **returns the full length**
-`len`, so a result longer than `cap` arrives truncated and the cart can retry
-with a bigger buffer. A negative return is an error code. The whole
-`(buf, cap)` range must be inside memory, even when the result would fit in
-less, or the call traps. `fs_read` and `cart_read` write file bytes, which need
-not be UTF-8.
+**Strings going in** are passed as **`(ptr, len)`**: where the string starts
+in the cart's memory (a byte offset), and how many bytes long it is. If that
+range isn't inside memory, or the bytes aren't valid UTF-8, the import
+**traps**: it stops with an error, and the cart ends. File contents passed to
+`fs_write` are raw bytes, so they don't have to be UTF-8.
+
+**Strings coming out** are written into a buffer the cart provides,
+**`(buf, cap)`**: where the buffer starts and how big it is.
+
+- The call writes `min(len, cap)` bytes at `buf`, and **returns the full
+  length** `len`.
+- So if the result is longer than `cap`, you get the first `cap` bytes, and
+  you can try again with a bigger buffer.
+- A negative return is an error code.
+- The whole `(buf, cap)` range must be inside memory, even when the result
+  would fit in less. Otherwise the call traps.
+- `fs_read` and `cart_read` write file bytes, which don't have to be UTF-8.
 
 **Records.** Calls that answer with several values (`window_info`,
 `local_time`, `network_info`, `task_info`, `cart_stat`) write a record:
@@ -130,19 +156,20 @@ not be UTF-8.
 > when there is no such thing (for example, no window at that index). Numbers
 > are written in decimal and booleans as `0` or `1`.
 
-For example, `window_info` for the focused window of the sample cart installed
-from Load Cart, 200 × 150 at (40, 60), writes
-`v3/apps/hello_wasm.wasm\t40\t60\t200\t150\t1` and returns 39. The first field
-is the window's script path, not its title. `launcher_path` and
-`launcher_name` follow the same rule with a single field: −1 means no app at
-that index.
+For example, say the sample cart from Load Cart is open, focused, 200 × 150,
+at (40, 60). `window_info` for it writes
+`v3/apps/hello_wasm.wasm\t40\t60\t200\t150\t1` and returns 39. Note that
+the first field is the window's script path, not its title.
 
-**Lists.** `fs_list`, `cart_roots` and `cart_list` write their names joined by
-`\n`, with no trailing newline. An empty directory is an empty string (length
-0).
+`launcher_path` and `launcher_name` follow the same rule with a single field.
+−1 means there's no app at that index.
 
-**Error codes.** File and host-cart-folder calls return a negative code where the
-Lua call would return `nil, message`:
+**Lists.** `fs_list`, `cart_roots` and `cart_list` write their names
+separated by `\n` (newline), with no newline at the end. An empty folder gives
+an empty string (length 0).
+
+**Error codes.** Where the Lua version of a file or host-cart-folder call would
+return `nil, message`, the import returns a negative code:
 
 | Code | Lua message | Meaning |
 |---|---|---|
@@ -153,28 +180,38 @@ Lua call would return `nil, message`:
 | −5 | `too big` | a host cart file over 256 KB |
 | −6 | anything else | any other failure (the platform's own message) |
 
-`fs_write`, `fs_rename` and `fs_delete` return 0 on success. `fs_size` returns
-the size as an `i64`, or a code.
+`fs_write`, `fs_rename` and `fs_delete` return 0 when they succeed. `fs_size`
+returns the size as an `i64`, or an error code.
 
 **Refusals that are not error codes.** The cart rules of
 [§7.11](07-system-apis.md#711-what-a-cart-is-refused) apply exactly as in Lua.
-Where the Lua call returns `false`, so does the import, as `0`:
-`overlay_open` always returns 0, `launcher_register` always returns 0, and
-`spawn_app` returns 0 for a path outside `v3/apps/`. `spawn_app` and
-`launcher_spawn` also return 0 when the app is single-instance and already
-open: a built-in would raise that window, but a cart may not, so nothing is
-raised or focused, while 4 or more cart-level windows are open (the
-cart's own included), and once the cart's own window has been closed. An app a
-cart starts runs cart-level, even a `.lua` under `v3/apps/` that would
-otherwise be built-in. A built-in caller never raises a copy of a singleton that a cart started: it opens a trusted window of its own instead. `activate_window` does
-nothing unless the index is the cart's own window. The exception is
-`close_window`: a cart can never close a window, and it returns **−4**, not 0.
-`set_volume` and `set_wallpaper_enabled` work as they do for any app.
+Where the Lua call returns `false`, the import returns `0`:
+
+- `overlay_open` always returns 0.
+- `launcher_register` always returns 0.
+- `spawn_app` returns 0 for a path outside `v3/apps/`.
+- `spawn_app` and `launcher_spawn` also return 0:
+  - when the app is single-instance and already open (a built-in app would
+    raise that window, but a cart may not, so nothing is raised or focused);
+  - while 4 or more cart-level windows are open, counting the cart's own;
+  - once the cart's own window has been closed.
+
+An app that a cart starts runs cart-level, even a `.lua` under `v3/apps/` that
+would otherwise be built-in. A built-in caller never raises a copy of a
+singleton that a cart started. It opens a trusted window of its own instead.
+
+`activate_window` does nothing unless the index is the cart's own window.
+
+**The one exception is `close_window`.** A cart can never close a window, and
+it gets **−4**, not 0.
+
+`set_volume` and `set_wallpaper_enabled` work just as they do for any app.
 
 ## 10.4 Limits
 
-A WASM cart has no Lua memory limit and no "stopped responding" clock. It is held
-instead by **fuel** and by **linear-memory pages**.
+A WASM cart has no Lua memory limit and no "stopped responding" clock. Instead,
+it is kept in check by **fuel** (a budget of work per callback) and by a cap on
+its **memory pages**.
 
 | Limit | Value |
 |---|---|
@@ -186,55 +223,64 @@ instead by **fuel** and by **linear-memory pages**.
 
 ### Fuel
 
-Every callback starts with a **fresh budget of 200,000,000 fuel**, on the order
-of a second of interpreted code. Each WebAssembly instruction burns fuel, and
-running out ends the cart. Instantiation is fuelled too: a start function gets
-a budget of its own, so an endless loop there ends the cart like one in any
-callback.
+Every callback starts with a **fresh budget of 200,000,000 fuel**, roughly a
+second of interpreted code. Each WebAssembly instruction uses up some fuel, and
+**running out ends the cart**.
 
-**Host work is fuel as well**, at **1 fuel per 8 bytes** (rounded up). Without
-this, one import call would cost the same whether it moved one byte or 16 MB,
-and a cart could keep the host busy far longer than its budget. The host
-charges:
+Starting the module up costs fuel too. A start function gets a budget of its
+own, so an endless loop there ends the cart just like one in a callback.
 
-- **every byte copied across the boundary**: a string or data argument
-  read in, and the whole result of a strings-out call. The whole result is
-  charged even when `cap` is smaller, because the host has already produced it,
-  so asking for a length with `cap` 0 costs as much as reading it;
-- **every draw, by its clipped area**, at 2 bytes per pixel with each side
-  clamped to the 640 × 360 screen, before drawing:
+**Work the host does for you costs fuel as well**, at **1 fuel per 8 bytes**
+(rounded up). Without this, an import call would cost the same whether it
+moved one byte or 16 MB, and a cart could keep the host busy far longer than
+its budget allows. The host charges for:
+
+- **every byte copied between the cart and the host**: any string or data
+  you pass in, and the whole result of a strings-out call. You pay for the
+  whole result even when `cap` is smaller, because the host has already made
+  it. So asking for just the length with `cap` 0 costs as much as reading it;
+- **every draw, by the area it covers**, at 2 bytes per pixel. Each side is
+  first clamped to the 640 × 360 screen, and the charge is made before
+  drawing:
   - `fill_rect`, `overlay_fill_rect` and `repaint_region`: `w × h`;
   - `fill_circle`: the bounding square, `(2r + 1)²`;
   - `draw_text`: one 6 × 8 glyph cell per byte, on top of the string's bytes;
   - `draw_window_frame`: a 640 × 16 title bar;
   - `draw_window_border`: the screen's perimeter;
   - `clear_user_area` and `overlay_clear`: the whole screen, **57,600 fuel**;
-- **every file-system and spawn call**, a flat **1 MiB-equivalent (131,072
-  fuel)** on top of its bytes: `fs_list`, `fs_read`, `fs_size`, `fs_write`,
-  `fs_rename`, `fs_delete`, `launcher_spawn` and `spawn_app`. A syscall's real
-  cost (a disk round trip, a new task) does not show in its byte count. About
-  1,500 such calls fit in one callback, far more than a real cart makes.
+- **every file system and spawn call**, a flat **131,072 fuel** (the cost of
+  1 MiB) on top of its bytes. These are `fs_list`, `fs_read`, `fs_size`,
+  `fs_write`, `fs_rename`, `fs_delete`, `launcher_spawn` and `spawn_app`. They
+  cost more because their real work, such as a trip to the disk or starting a
+  new task, doesn't show in the byte count. About 1,500 of these calls fit in
+  one callback, far more than a real cart needs.
 
 If a charge is more than the budget has left, the budget is emptied and the
-call ends the cart as out of fuel, exactly as an instruction would.
+cart ends as out of fuel, just as if an instruction had run out.
 
-The budget is per callback, so the way to do a lot of work is the way it is in
-Lua: in slices, one per `acid_on_idle`.
+**The budget is per callback.** So, as in Lua, the way to do a lot of work is
+in small slices, one per `acid_on_idle`.
 
 ### Memory
 
-Linear memory is capped at **256 pages (16 MB)**. A module that declares more
-than that ends as out of memory before it runs. Growing past the cap with
-`memory.grow` does **not** return −1 to the cart: it **ends the cart as out of
-memory**, so a cart cannot ignore a failed allocation and carry on. Tables are
-capped the same way (their elements live in host memory outside the 16 MB): one
-table of at most 65,536 elements, and growing it past that ends the cart. A
-module asking for a second table or memory is refused.
+A cart's memory is capped at **256 pages (16 MB)**.
+
+- A module that asks for more than that up front ends as out of memory before
+  it runs.
+- Growing past the cap with `memory.grow` does **not** return −1 to the cart.
+  It **ends the cart as out of memory**, so a cart can't ignore a failed
+  allocation and carry on.
+
+Tables (WebAssembly's lists of function references) are capped the same way.
+A cart gets one table of at most 65,536 elements, and growing it past that
+ends the cart. Table elements are stored in host memory, outside the 16 MB.
+
+A module that asks for a second table or a second memory is refused.
 
 ### How a cart ends
 
-In every case the window is removed and the cart's resources are freed. All but
-the first print one line to the terminal:
+However a cart ends, its window is removed and its resources are freed. Every
+case except a normal close prints one line to the terminal:
 
 | End | Why | Terminal line |
 |---|---|---|
@@ -244,13 +290,14 @@ the first print one line to the terminal:
 | trap | a trap: `unreachable`, a division by zero, a bad string range, a Rust panic | `Acid OS v3: <path>: <trap message>` |
 | out of memory | memory or a table declared or grown past its cap | `Acid OS v3: <path>: out of memory` |
 
-A trap or a fuel overrun cannot be caught inside the cart. Other apps are
-unaffected: each cart runs on its own thread with its own store.
+A cart can't catch a trap or a fuel overrun. Other apps carry on unaffected,
+because each cart runs on its own thread with its own separate state.
 
 ## 10.5 The header and installing
 
-A `.wasm` cart's header is a **custom section named `acid`**. Its UTF-8 text is
-lines of `key: value`, with the keys of a `.cart` header
+A `.wasm` cart keeps its header in a **custom section named `acid`** (a named
+block of extra data inside the module). It holds UTF-8 text, as lines of
+`key: value`, using the same keys as a `.cart` header
 ([§2.5](02-apps-and-manifests.md#the-header)):
 
 ```text
@@ -260,35 +307,37 @@ h: 150
 desc: Example WASM cart -- colour-cycling bars
 ```
 
-`libs` is ignored, since a WASM module loads no Lua. A module with no `acid`
-section, or a malformed one, installs under its filename at the default size
-(220 × 160) with no description.
+`libs` is ignored, because a WASM module doesn't load any Lua. If a module has
+no `acid` section, or a broken one, it still installs, but under its filename,
+at the default size (220 × 160), with no description.
 
 To install:
 
 1. Put the `.wasm` in `v3/carts/`, `~/carts` or a removable drive's `carts/`.
-2. Open **Load Cart** from the Menu. It lists `.wasm` files beside `.cart` ones
-   and reads each header from the custom section.
-3. Install it. Load Cart writes `v3/apps/<slug>.app.toml` (with
-   `runtime = wasm` before `source = cart`) and then `v3/apps/<slug>.wasm`, the
-   manifest first, as for any cart
+2. Open **Load Cart** from the Menu. It lists `.wasm` files alongside `.cart`
+   ones, and reads each header from the custom section.
+3. Install it. As for any cart, Load Cart writes the manifest first,
+   `v3/apps/<slug>.app.toml` (with `runtime = wasm` before `source = cart`),
+   and then `v3/apps/<slug>.wasm`
    ([§2.8](02-apps-and-manifests.md#28-where-an-installed-cart-lands)).
 4. Press **RUN**, or open it from the Menu at the next boot.
 
-The sample is `v3/carts/hello_wasm.wasm`.
+There's a sample to try: `v3/carts/hello_wasm.wasm`.
 
 ## 10.6 Writing a cart in Rust with `acid-cart`
 
-The guest crates live in `v3/carts-src/`, a Cargo workspace of their own, so
-the OS build never needs the wasm target. `acid-cart` is `no_std`. It gives you:
+The Rust crates for carts live in `v3/carts-src/`. That folder is a Cargo
+workspace of its own, so building the OS itself never needs the WebAssembly
+target. `acid-cart` is `no_std` (it doesn't use Rust's standard library). It
+gives you:
 
-- **safe wrappers** over every import, at the crate root: `acid_cart::fill_rect`,
-  `acid_cart::draw_text(text, x, y, fg, bg)` with a `&str`,
-  `acid_cart::fs_read(path, &mut buf)` returning a `Result`, and so on. The raw
-  imports are in `acid_cart::sys`;
+- **safe wrappers** for every import, at the top of the crate:
+  `acid_cart::fill_rect`, `acid_cart::draw_text(text, x, y, fg, bg)` taking a
+  `&str`, `acid_cart::fs_read(path, &mut buf)` returning a `Result`, and so
+  on. The raw imports are in `acid_cart::sys`;
 - the **`Cart` trait**, the **`Event`** and **`Error`** enums;
-- the **`acid_cart!`** macro, which defines every export;
-- a panic handler, so a panic traps the cart and ends it.
+- the **`acid_cart!`** macro, which defines every export for you;
+- a panic handler, so a panic traps and ends the cart.
 
 ### The `Cart` trait
 
@@ -309,9 +358,9 @@ pub trait Cart: Sized + 'static {
 }
 ```
 
-Only `new` and `redraw` are required. The host calls `new` and then `on_create`
-once (both from `acid_on_create`), then `redraw`, then `on_event` and `on_idle`
-until close.
+You only have to write `new` and `redraw`. The host calls `new` and then
+`on_create` once (both from `acid_on_create`), then `redraw`, then `on_event`
+and `on_idle` until the window closes.
 
 ### `Event` and `Error`
 
@@ -335,11 +384,14 @@ pub enum Error {
 }
 ```
 
-`acid_on_event` decodes its four integers into an `Event`, and drops a kind it
-does not know. The file and cart-folder wrappers return `Result<_, Error>`.
-Indexed records (`window_info`, `launcher_path`, `task_info`) return
-`Option<usize>`, `None` for −1. Every buffer call returns the **full** length,
-which may be more than the buffer you passed:
+`acid_on_event` turns its four integers into an `Event`, and drops any kind it
+doesn't know.
+
+- The file and cart-folder wrappers return `Result<_, Error>`.
+- Indexed records (`window_info`, `launcher_path`, `task_info`) return
+  `Option<usize>`, with `None` for −1.
+- **Every buffer call returns the full length**, which may be more than the
+  buffer you passed. Check for that:
 
 ```rust cart
 let mut buf = [0u8; 256];
@@ -354,12 +406,11 @@ match acid_cart::fs_read("v3/fsroot/Home/score.txt", &mut buf) {
 }
 ```
 
-`acid-cart` has no allocator, and neither does `hello-wasm`: fixed buffers on
-the stack or in the cart's struct are the norm.
+`acid-cart` has no memory allocator, and neither does `hello-wasm`. Use
+fixed-size buffers, on the stack or in your cart's struct.
 
-`acid_cart::close_window` returns `true` only when a window was closed. A
-cart is always refused (the import returns −4), so for a cart it is always
-`false`.
+`acid_cart::close_window` returns `true` only when a window was closed. A cart
+is always refused (the import returns −4), so for a cart it is always `false`.
 
 ### `acid_cart!`
 
@@ -369,18 +420,20 @@ Name your type once, at the crate root:
 acid_cart!(HelloWasm);
 ```
 
-It defines `acid_abi_version` (returning `acid_cart::ABI_VERSION`, 1),
-`acid_on_create`, `acid_on_event`, `acid_on_idle`, `acid_redraw`,
-`acid_poll_timeout_ms` and `acid_on_destroy`. The cart instance lives in a
-`static`, created in `acid_on_create` and dropped after `on_destroy`. That is
-sound because a wasm32 module without threads has one thread, and the host
-calls one export at a time and never re-enters the cart from an import.
+It defines `acid_abi_version` (returning `acid_cart::ABI_VERSION`, which is
+1), `acid_on_create`, `acid_on_event`, `acid_on_idle`, `acid_redraw`,
+`acid_poll_timeout_ms` and `acid_on_destroy`.
+
+Your cart lives in a `static`. It is created in `acid_on_create` and dropped
+after `on_destroy`. That is safe because a wasm32 module without threads has
+only one thread, and the host calls one export at a time. It never calls back
+into the cart from inside an import.
 
 ### The header
 
-The header is a `static` placed in the `acid` custom section. `#[used]` keeps it
-through link-time optimisation, since nothing in the code refers to it. The
-array's length must match the text exactly:
+The header is a `static` placed in the `acid` custom section. Nothing in the
+code refers to it, so `#[used]` stops the optimiser throwing it away. **The
+array's length must match the text exactly:**
 
 ```rust cart
 #[used]
@@ -390,9 +443,10 @@ static HEADER: [u8; 78] = *b"name: Hello WASM\nw: 200\nh: 150\ndesc: Example WAS
 
 ### `hello-wasm`, walked through
 
-`v3/carts-src/hello-wasm` is a port of `v3/apps/hello_acid.lua`: colour-cycling
-bars. After the header it keeps its window size in constants that must match
-the header's `w` and `h`, as a Lua app's constants match its manifest:
+`v3/carts-src/hello-wasm` is `v3/apps/hello_acid.lua` rewritten in Rust: it
+draws colour-cycling bars. After the header, it keeps its window size in
+constants. These must match the header's `w` and `h`, just as a Lua app's
+constants match its manifest:
 
 ```rust cart
 const WINDOW_W: i32 = 200;
@@ -402,8 +456,8 @@ const BAR_H: i32 = 8;
 const TEXT_Y: i32 = 70;
 ```
 
-A `hue(step)` function ports `AcidPalette.hue` with its default 256 steps; it
-returns `0xRRGGBB`. The cart's state is one counter:
+A `hue(step)` function does the same job as `AcidPalette.hue` with its default
+256 steps, and returns `0xRRGGBB`. The cart's whole state is one counter:
 
 ```rust cart
 struct HelloWasm {
@@ -429,10 +483,12 @@ impl Cart for HelloWasm {
     }
 ```
 
-`poll_timeout_ms` asks for an idle every 40 ms. `on_idle` animates only while
-the window has focus, as `hello_acid` does, and draws the new frame itself:
-nothing redraws a cart for it. `wrapping_add` matters, because an overflowing
-`+` would panic, and a panic ends the cart.
+`poll_timeout_ms` asks for an idle call every 40 ms. `on_idle` only animates
+while the window has focus, as `hello_acid` does. It draws the new frame
+itself, because nothing redraws a cart for it.
+
+`wrapping_add` matters here. A plain `+` that overflowed would panic, and a
+panic ends the cart.
 
 ```rust cart
     fn redraw(&mut self) {
@@ -456,32 +512,34 @@ nothing redraws a cart for it. `wrapping_add` matters, because an overflowing
 acid_cart!(HelloWasm);
 ```
 
-`redraw` is a Lua `redraw` in Rust: clear, frame, the bars, a label on the bar
-it covers, and the border last. Each frame costs about 70,000 fuel of host
-work (the clear is 57,600, each bar 400), a tiny fraction of the budget.
+`redraw` works just like a Lua `redraw`: clear, title bar, the bars, a label
+on top of its bar, and the border last. Each frame costs about 70,000 fuel of
+host work (57,600 for the clear, 400 for each bar), a tiny fraction of the
+budget.
 
 ## 10.7 Building
 
-You need the `wasm32-unknown-unknown` standard library for the system Rust. On
+You need Rust's standard library for the `wasm32-unknown-unknown` target. On
 Arch:
 
 ```sh
 sudo pacman -S rust-wasm
 ```
 
-From the repository root, build the example and copy it where Load Cart looks:
+From the top folder of the repository, build the example and copy it to where
+Load Cart looks:
 
 ```sh
 cargo build --manifest-path v3/carts-src/Cargo.toml --release --target wasm32-unknown-unknown -p hello-wasm
 cp v3/carts-src/target/wasm32-unknown-unknown/release/hello_wasm.wasm v3/carts/hello_wasm.wasm
 ```
 
-Then install `hello_wasm.wasm` from Load Cart. The test suite builds the example
-from source too, and checks that the fresh module runs.
+Then install `hello_wasm.wasm` from Load Cart. (The test suite also builds the
+example from source and checks that it runs.)
 
-A cart of your own is a new crate in `v3/carts-src/`: add it to the workspace's
-`members`, and give it a `cdylib` target and the `acid-cart` dependency, as
-`hello-wasm` does:
+To make a cart of your own, create a new crate in `v3/carts-src/`. Add it to
+the workspace's `members`, and give it a `cdylib` target and the `acid-cart`
+dependency, as `hello-wasm` does:
 
 ```toml
 [lib]
@@ -493,15 +551,17 @@ acid-cart = { path = "../acid-cart" }
 
 Build it with `-p <crate>`. The output is
 `target/wasm32-unknown-unknown/release/<crate>.wasm`, with any `-` in the crate
-name turned into `_`. The workspace's release profile (`opt-level = "s"`, LTO,
-`panic = "abort"`, stripped) keeps modules small: `hello_wasm.wasm` is about
-1 KB, well under the 256 KB cap.
+name turned into `_`.
+
+The workspace's release settings (`opt-level = "s"`, LTO, `panic = "abort"`,
+stripped) keep modules small. `hello_wasm.wasm` is about 1 KB, well under the
+256 KB cap.
 
 ## 10.8 A cart by hand
 
-A cart does not need Rust. Here is a complete one in the WebAssembly text
-format. It draws a coloured panel, and a tap flips its colour and plays a note
-for as long as you hold it:
+You don't need Rust to write a cart. Here is a complete one written by hand in
+the WebAssembly text format (WAT). It draws a coloured panel. Tap it and the
+colour flips, and a note plays for as long as you hold it:
 
 ```wat
 (module
@@ -552,28 +612,34 @@ for as long as you hold it:
     (call $redraw)))
 ```
 
-Every string is a `(ptr, len)` into the cart's own memory: the title is the 8
-bytes at offset 0, the label the 6 bytes at 16. The panel's colour lives in a
-global, and the touch handler redraws after changing it, because the host will
-not. A held touch delivers "pressed" on every router tick, so `$down` makes the
-flip happen once per hold, the pattern of
-[§3.5](03-app-lifecycle.md#35-touch-debouncing). A note sounds until it is
-stopped, so the release stops it.
+How it works:
 
-Turn it into a module with a WAT assembler that understands the `@custom`
-annotation, such as the Rust `wat` crate, which the OS's own tests use to
-assemble this very example. `wasm-tools parse cart.wat -o cart.wasm` is built
-on the same parser and should work too, but it is an optional tool and is not
-tested here. An assembler that drops the annotation still
-makes a working cart; it just installs under its filename at the default size.
-Then install the `.wasm` from Load Cart as above.
+- Every string is a `(ptr, len)` pointing into the cart's own memory. The
+  title is the 8 bytes at offset 0, and the label is the 6 bytes at 16.
+- The panel's colour lives in a global. The touch handler redraws after
+  changing it, because the host won't.
+- A held touch sends "pressed" on every tick, so `$down` makes the flip happen
+  only once per hold. This is the pattern from
+  [§3.5](03-app-lifecycle.md#35-touch-debouncing).
+- A note sounds until it is stopped, so letting go stops it.
+
+To turn it into a module, use a WAT assembler that understands the `@custom`
+annotation. The Rust `wat` crate does, and the OS's own tests use it to build
+this very example. `wasm-tools parse cart.wat -o cart.wasm` uses the same
+parser and should work too, but it is an optional tool and isn't tested here.
+An assembler that drops the annotation still makes a working cart; it just
+installs under its filename at the default size.
+
+Then install the `.wasm` from Load Cart, as above.
 
 ## The import table
 
-Every import in module `"acid"`, ABI version 1, in order. All values are `i32`
-unless marked `i64`. "len" is a strings-out result: the full length, or a
-negative error code where the table says so. The last column is the Lua call it
-mirrors, in [chapter 9](09-api-reference.md).
+Here is every import in the module `"acid"`, for ABI version 1, in order.
+
+- All values are `i32` unless marked `i64`.
+- "len" is a strings-out result: the full length, or a negative error code
+  where the table says so.
+- The last column is the matching Lua call in [chapter 9](09-api-reference.md).
 
 | Import | Signature (params → result) | Notes | Lua call |
 |---|---|---|---|
@@ -636,8 +702,8 @@ mirrors, in [chapter 9](09-api-reference.md).
 
 A WASM cart is always cart-level, so `launcher_register`, `overlay_open` and
 `close_window` never succeed for it, and the `cart_*` calls always return −4.
-They stay in the table so that it mirrors the Lua calls, and so that one ABI
-serves any future trust level.
+They are still in the table so that it matches the Lua calls, and so that the
+same ABI can serve other trust levels later.
 
 ---
 

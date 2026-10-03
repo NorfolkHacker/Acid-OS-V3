@@ -2,19 +2,23 @@
 
 [← Contents](README.md) · [Next: Apps and manifests →](02-apps-and-manifests.md)
 
-You develop against the **hosted build**: the whole OS as one native program
-that runs in a window on your desktop. It is the real kernel, the real
-compositor, the real synthesiser and the real Lua VMs; only the display, the
-mouse and keyboard, and the sound device are your computer's. Nothing in this
-manual needs anything but a Rust toolchain and a Linux desktop.
+You write and test apps on the **hosted build**: the whole OS as one ordinary
+program that runs in a window on your desktop. It isn't a simulator. The
+kernel, the window system, the synthesiser and the Lua VMs are all the real
+thing. Only the screen, the mouse and keyboard, and the sound device are
+borrowed from your computer.
+
+All you need is a Rust toolchain and a Linux desktop.
 
 ## 1.1 Build and run
 
 ### Dependencies
 
-You need a Rust toolchain (the workspace uses edition 2024, so a current stable release) and, on Linux, the ALSA
-development package and `pkg-config`, because the sound output uses `cpal`,
-which builds against `alsa-sys`.
+You need:
+
+- a current stable Rust (1.85 or newer, because the code uses the 2024 edition)
+- `pkg-config` and the ALSA development package, because the sound output is
+  built on ALSA (through the `cpal` and `alsa-sys` crates)
 
 ```sh
 # Debian / Ubuntu
@@ -23,41 +27,47 @@ sudo apt install build-essential pkg-config libasound2-dev
 sudo pacman -S base-devel alsa-lib
 ```
 
-There are no submodules and no C toolchain to set up: the Lua VM and the
-WebAssembly runtime are both Rust crates that Cargo fetches and builds.
+That's it. There are no submodules and no C toolchain to set up. The Lua VM
+and the WebAssembly runtime are both Rust crates, so Cargo fetches and builds
+them for you.
 
 ### Build and run
 
-From the repository root:
+From the top folder of the repository:
 
 ```sh
 cargo run --manifest-path v3/Cargo.toml -p acid-os
 ```
 
-A 640×360 window titled "Acid OS v3" opens onto the desktop. **Menu** is at the
+A 640×360 window titled "Acid OS v3" opens on the desktop. **Menu** is at the
 top left.
 
-> **Run it from the repository root.** The kernel loads app scripts by
-> root-relative path (`v3/apps/<name>.lua`), so the working directory has to be
-> the repo root or nothing launches.
+> **Run it from the top folder of the repository.** Acid OS finds app scripts
+> by a path relative to that folder (`v3/apps/<name>.lua`). Run it from
+> anywhere else and no app will launch.
 
 ### Opening one app directly: `--app`
 
-The binary takes one flag. `--app <name>` boots the desktop and then also opens
-`v3/apps/<name>.lua`, sized and configured from `v3/apps/<name>.app.toml`,
-raised and focused:
+There is one command-line flag. `--app <name>` boots the desktop as usual and
+then opens `v3/apps/<name>.lua` as well, raised and focused. Its size and
+settings come from `v3/apps/<name>.app.toml`.
 
 ```sh
 cargo run --manifest-path v3/Cargo.toml -p acid-os -- --app tetris
 ```
 
-The name is the file's base name, not the Menu name, so it is `file_manager`,
-not "File Manager". It reaches apps whose manifest says `menu = false` too,
-which is the quickest way to run a game while you work on it. An unknown name,
-one whose manifest lacks `w` or `h`, or one whose window cannot be opened (a
-size outside 1 to 640 by 1 to 360, or all eight window slots taken) prints
-`Acid OS v3: --app <name>: no such app` to the terminal and boots normally.
-There are no other flags, and `--app` takes exactly one name.
+A few things to know:
+
+- Use the file's base name, not the name in the Menu: `file_manager`, not
+  "File Manager".
+- It works for apps whose manifest says `menu = false` too. That makes it the
+  quickest way to run a game you're working on.
+- If it can't open the app, it prints
+  `Acid OS v3: --app <name>: no such app` to the terminal and boots normally.
+  That happens when the name is unknown, when the manifest has no `w` or `h`,
+  or when the window can't be opened (a size outside 1 to 640 by 1 to 360, or
+  all eight window slots already in use).
+- `--app` takes exactly one name, and there are no other flags.
 
 ### Driving the window
 
@@ -69,10 +79,10 @@ There are no other flags, and `--app` takes exactly one name.
 | Keyboard | Delivered to the focused window as key events (presses only, no auto-repeat) |
 | Closing the host window | Ends the process |
 
-Keys arrive already resolved: Shift gives you the character that would be typed
-(`A`, `!`), and the arrows, Enter, Backspace, Escape, Tab and Delete become the
-`AcidKeys` constants ([chapter 3](03-app-lifecycle.md#31-the-callbacks)). Ctrl, Alt
-and the function keys are ignored.
+Keys arrive already worked out for you. Shift gives you the character that
+would be typed (`A`, `!`). The arrows, Enter, Backspace, Escape, Tab and Delete
+arrive as `AcidKeys` constants ([chapter 3](03-app-lifecycle.md#31-the-callbacks)).
+Ctrl, Alt and the function keys are ignored.
 
 ### Running the tests
 
@@ -80,23 +90,25 @@ and the function keys are ignored.
 cargo test --manifest-path v3/Cargo.toml --workspace
 ```
 
-The suite builds the example WASM cart from source, so it needs the
-`wasm32-unknown-unknown` standard library (on Arch, `sudo pacman -S rust-wasm`);
-without it that one test fails and says why. The manual you are reading is part
-of the suite: `cargo test --manifest-path v3/Cargo.toml -p acid-os --test
-manual` runs every complete example in these chapters and parses every
-fragment.
+The tests build the example WASM cart from source, so you also need the
+`wasm32-unknown-unknown` target installed (on Arch, `sudo pacman -S rust-wasm`).
+Without it, that one test fails and tells you why.
+
+This manual is tested too. `cargo test --manifest-path v3/Cargo.toml -p acid-os
+--test manual` runs every complete example in these chapters and checks that
+every shorter fragment parses.
 
 ## 1.2 There is no hardware build
 
-This is the hosted x64 build only, and nothing in the manual depends on a
-device. The system is still shaped for small hardware (a 640×360 screen, an
-8-window limit, one task per app), and that gives you one rule to keep in mind:
-an app should be small and polite. See [§8](08-cookbook.md) for the conventions.
+This build only runs hosted, on an x64 desktop, and nothing in the manual needs
+a device. But Acid OS is still designed for small hardware: a 640×360 screen,
+at most 8 windows, one task per app. So keep one rule in mind: **an app should
+be small and polite.** [§8](08-cookbook.md) covers the conventions.
 
 ## 1.3 Your first app
 
-An app is **two files** in `v3/apps/`, sharing a base name.
+An app is **two files** in `v3/apps/` with the same base name: a Lua script and
+a manifest.
 
 ### The script
 
@@ -142,11 +154,13 @@ end
 CounterApp:new():start()
 ```
 
-`WINDOW_H` is declared to match the manifest below even though this app only
-lays out against the width; [§2.2](02-apps-and-manifests.md#keeping-the-constants-in-sync)
-explains why you keep the pair. The two leading `-- w:` and `-- h:` comment
-lines are not part of the app. They are how this manual's test tells its runner
-what size window to open for the example; delete them from your own copy.
+Two notes on this script:
+
+- `WINDOW_H` matches the manifest below, even though this app only uses the
+  width for its layout. [§2.2](02-apps-and-manifests.md#keeping-the-constants-in-sync)
+  explains why you keep both.
+- The `-- w:` and `-- h:` comments at the top aren't part of the app. They tell
+  this manual's test what size window to open. Leave them out of your own copy.
 
 ### The manifest
 
@@ -165,52 +179,61 @@ desc = Counts taps
 cargo run --manifest-path v3/Cargo.toml -p acid-os -- --app counter
 ```
 
-or restart the OS and pick **Menu → Counter**. The launcher rescans
-`v3/apps/` for `*.app.toml` files at every boot, so a new app needs a restart (or
-`--app`) but never a rebuild: Cargo has nothing to recompile, because the app
-is not part of the Rust program.
+Or restart the OS and pick **Menu → Counter**.
+
+The Menu looks in `v3/apps/` for `*.app.toml` files each time Acid OS starts.
+So a new app needs a restart (or `--app`), but never a rebuild. Your app isn't
+part of the Rust program, so Cargo has nothing to recompile.
 
 ## 1.4 What just happened
 
-1. At boot, `desktop.lua` scanned `v3/apps/` for `*.app.toml` manifests and
-   registered each one it could parse as launchable.
-2. Picking **Counter** made the kernel start a **new OS thread** with its
-   **own Lua VM** and its own 180×120 drawing canvas.
+1. When Acid OS started, `desktop.lua` looked in `v3/apps/` for `*.app.toml`
+   manifests and registered each one it could read as launchable.
+2. When you picked **Counter**, the kernel started a **new OS thread** with its
+   **own Lua VM** and its own 180×120 canvas to draw on.
 3. That VM loaded the framework libraries (`acid_keys.lua`, `acid_palette.lua`,
    `acid_waveform.lua`, `acid_app.lua`, `acid_game.lua`), then any modules your
    manifest asked for, then `counter.lua`.
-4. The last line, `CounterApp:new():start()`, entered `AcidApp`'s event loop,
-   which blocks on the window's event queue and dispatches to your callbacks.
-5. Your drawing went to a private canvas. The compositor blits every window's
-   canvas to the screen in z-order.
+4. The last line, `CounterApp:new():start()`, started `AcidApp`'s event loop.
+   It waits for events on your window and calls your callbacks.
+5. Your drawing went to your own private canvas. The compositor (the part that
+   builds the screen) then copies every window's canvas to the screen, back to
+   front.
 
-Because each app is its own VM on its own thread, a Lua error in your app takes
-down your app and nothing else: its window disappears and the kernel carries on.
-The message goes to the terminal you launched the OS from, as
-`Acid OS v3: v3/apps/counter.lua: <message>`. **Keep that terminal visible while
-developing**; it is your only error console.
+Because each app has its own VM on its own thread, a Lua error in your app
+stops your app and nothing else. Its window disappears and the rest of the
+system carries on.
 
-Two limits are watched for you, and each ends the app with a line in the same
-terminal: more than 64 MB of Lua memory (`out of memory`), or a callback that
-runs for more than 2 seconds without returning to the event loop
-(`stopped responding`). Apps installed as carts get 16 MB and 1 second. See
+The error message goes to the terminal you started Acid OS from, like this:
+`Acid OS v3: v3/apps/counter.lua: <message>`. **Keep that terminal visible
+while you work**: it's the only place errors show up.
+
+Two limits are also watched for you. Going over either one ends the app, with
+a line in the same terminal:
+
+- more than 64 MB of Lua memory (`out of memory`)
+- a callback that runs for more than 2 seconds without returning to the event
+  loop (`stopped responding`)
+
+Apps installed as carts get tighter limits: 16 MB and 1 second. See
 [§2.6](02-apps-and-manifests.md#26-built-in-and-cart-level-apps).
 
 ## 1.5 The development loop
 
-Each start loads your script **from disk**, so:
+Your script is loaded **from disk** every time the app starts. So:
 
-- **Changing an existing app's Lua**: close its window and launch it again
-  (Menu, or `--app`). No restart, no rebuild.
-- **Adding a new app, or changing a `.app.toml`**: restart the OS. The launcher
-  registry is built once, at boot, by `desktop.lua`'s manifest scan. (`--app`
-  reads the manifest fresh, so it sees changes at once.)
-- **Changing Rust**: `cargo run` rebuilds what changed and restarts.
+- **Changed an existing app's Lua?** Close its window and launch it again
+  (from the Menu, or with `--app`). No restart, no rebuild.
+- **Added a new app, or changed a `.app.toml`?** Restart the OS. The Menu's
+  list of apps is only built once, when `desktop.lua` reads the manifests at
+  startup. (`--app` reads the manifest fresh, so it sees changes straight
+  away.)
+- **Changed Rust?** `cargo run` rebuilds what changed and starts it again.
 
-There is also an **Editor** app inside the OS (Menu → Editor) that opens app
-source from the running system, and a **File Manager** that launches an app by
-clicking its `.app.toml`. Editing an app from inside the OS it runs in is a
-perfectly good way to work.
+You can also work from inside Acid OS itself. The **Editor** app (Menu →
+Editor) opens app source from the running system, and the **File Manager**
+launches an app when you click its `.app.toml`. Editing an app inside the OS
+it runs in is a perfectly good way to work.
 
 ---
 

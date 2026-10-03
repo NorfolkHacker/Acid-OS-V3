@@ -2,14 +2,17 @@
 
 [← Sound](05-sound.md) · [Contents](README.md) · [Next: System APIs →](07-system-apis.md)
 
-`AcidApp` is event-driven: it sits blocked on its queue and wakes when something
-happens. That is right for a text editor and wrong for anything with a ball in
-it. `AcidGame` (`v3/apps/lib/acid_game.lua`, always loaded) replaces the event
-loop with a **fixed-tick** one.
+An `AcidApp` sleeps until something happens, such as a key press or a touch,
+and then wakes up to deal with it. That's ideal for a text editor, but no good
+for anything with a ball in it.
+
+`AcidGame` swaps that for a loop that runs on a **fixed tick**: it wakes up
+regularly, many times a second, whether anything happened or not. It lives in
+`v3/apps/lib/acid_game.lua` and is always loaded.
 
 ## 6.1 `AcidGame`
 
-`AcidGame` is itself a subclass of `AcidApp`, so a game extends it the same way:
+`AcidGame` is a subclass of `AcidApp`, so you extend it in the same way:
 
 ```lua snippet
 local Snake = AcidGame:extend("Snake")
@@ -24,26 +27,28 @@ function Snake:on_destroy() end
 Snake:new():start()
 ```
 
-`on_tick` fires every `TICK_MS` milliseconds regardless of whether anything
-happened. Everything else works as in `AcidApp`, with three differences:
+`on_tick` runs every `TICK_MS` milliseconds, whether anything happened or not.
+Everything else works as it does in `AcidApp`, with three differences:
 
-1. **`on_idle` is never called.** `on_tick` replaces it.
-2. **`redraw` is never called automatically.** Not at startup, not on `"moved"`.
-   A game repaints its whole scene from `on_tick`; that is the contract. (The
-   default `AcidGame` paints nothing at all, so a game that never draws has no
-   window border.)
-3. **`quit` does nothing.** `AcidGame` runs its own loop with a local flag and
-   deliberately ignores `AcidApp`'s `self.running`. The only thing that ends a
-   game is the close event (the close dot, or the kernel ending the app). If you
-   want a self-close you have to write your own `start`, as in the next section.
+1. **`on_idle` is never called.** `on_tick` takes its place.
+2. **`redraw` is never called for you**, not at startup and not on `"moved"`.
+   Your game is expected to repaint its whole scene from `on_tick`. The default
+   `AcidGame` draws nothing at all, so a game that never draws won't even have a
+   window border.
+3. **`quit` does nothing.** `AcidGame` runs its own loop and ignores `AcidApp`'s
+   `self.running` on purpose. The only thing that ends a game is the close
+   event: the user clicking the close dot, or the kernel ending the app. If you
+   want your game to close itself, you'll need to write your own `start`, based
+   on the loop in the next section.
 
-`TICK_MS` is a **field on your class**, read through `self.TICK_MS` once, after
-`on_create` has run. Unlike `poll_timeout_ms`, which is a method because it
-changes at runtime, the tick length is fixed for the life of the game.
+`TICK_MS` is a **field on your class**. It is read once, through
+`self.TICK_MS`, after `on_create` has run, and the tick length then stays the
+same for the life of the game. (Compare `poll_timeout_ms` in `AcidApp`, which is
+a method because it can change while the app runs.)
 
 ## 6.2 The tick loop
 
-This is the real loop, from `acid_game.lua`:
+This is the actual loop from `acid_game.lua`:
 
 ```lua snippet
 function AcidGame:start()
@@ -76,34 +81,35 @@ function AcidGame:start()
 end
 ```
 
-`acid_now_ms()` is the platform clock in milliseconds.
-Two details worth understanding:
+`acid_now_ms()` gives you the clock in milliseconds. A few things worth knowing
+about this loop:
 
-**The poll timeout is whatever is left of this tick.** Events are still handled
-promptly (a touch in the middle of a tick is dispatched immediately) but the
-tick itself stays on schedule.
+**It waits for events only until the next tick is due.** So events are still
+handled straight away (a touch halfway through a tick is passed to you
+immediately), and the ticks stay on schedule.
 
-**Missed ticks resync rather than burst.** If something put the loop more than a
-whole tick behind, `next_tick_at` is reset to *now plus one tick* instead of
-catching up. A catch-up burst would look like the game briefly speeding up,
-which is worse than a dropped frame.
+**If it falls behind, it skips ahead rather than catching up.** If the loop gets
+more than a whole tick behind, it sets the next tick to *now plus one tick*.
+Running all the missed ticks in a burst would make the game look like it briefly
+sped up, which is worse than a dropped frame.
 
-**`"moved"` is acknowledged but not repainted.** A game redraws its whole scene
-next tick anyway. In v3 the acknowledgement is a no-op and the router does not
-send `"moved"` at all today ([§3.2](03-app-lifecycle.md#32-the-event-loop)), but
-the branch is kept so a game keeps working if it ever does.
+**`"moved"` is acknowledged, but nothing is repainted.** The game will redraw its
+whole scene on the next tick anyway. Acid OS doesn't currently send `"moved"` at
+all, and the acknowledgement does nothing
+([§3.2](03-app-lifecycle.md#32-the-event-loop)). The branch is there so games
+keep working if that ever changes.
 
 ### Picking `TICK_MS`
 
 | `TICK_MS` | Rate | Suits |
 |---|---|---|
 | 33 | 30 Hz | Fast action, smooth motion |
-| 50 | 20 Hz | The default across this OS's games: arcade action |
+| 50 | 20 Hz | Arcade action; what all of Acid OS's games use |
 | 100 | 10 Hz | Puzzle games, turn-based movement |
 | 500 | 2 Hz | Tetris-style gravity (or use a counter on a faster tick) |
 
-Prefer a fast tick with a counter over a slow tick, when different things in
-your game move at different rates:
+If different things in your game move at different speeds, use a fast tick and
+count frames, rather than a slow tick:
 
 ```lua snippet
 MyGame.TICK_MS = 50
@@ -118,24 +124,28 @@ end
 
 ## 6.3 Focus and the z-order trap
 
-A game repaints itself **directly, every tick**, rather than waiting to be
-asked. That is safe: **a game cannot corrupt another window.** Every window
-draws into its own canvas and the kernel composites the canvases in z-order, so
-a covered game paints only into pixels nobody can see. Even so, a game should
-stop drawing while it is not focused, for three reasons:
+A game repaints itself **every tick**, without waiting to be asked. That's
+safe, because **a game can't draw over another window.** Each window draws onto
+its own canvas, and the kernel stacks the canvases in order (the "z-order") to
+build the screen. A game that is covered just paints pixels nobody can see.
 
-- **Cost.** Every drawing call marks the screen dirty, so a covered game that
-  repaints 20 times a second forces a full recomposite of the screen 20 times a
-  second for nothing.
-- **Honesty about what "covered" means.** Focus implies topmost, not
-  the reverse: a newly opened window is in front but not yet focused
-  ([§3.4](03-app-lifecycle.md#34-focus-titles-and-quitting)). A
-  game that draws only while focused stops moving on screen the moment you click
-  a window beside it, even though it is fully visible, while its simulation
-  keeps running. That is the trade the shipped games make; a game that wants to
-  keep animating while merely unfocused can draw regardless and accept the cost.
-- **Habit.** A full repaint when focus comes back, below, keeps your habits
-  right for apps that do share state with what is on screen.
+Even so, a game should stop drawing when it isn't focused. There are three
+reasons:
+
+- **Cost.** Every drawing call tells the kernel the screen has changed. A covered
+  game that repaints 20 times a second makes the kernel rebuild the whole screen
+  20 times a second, for nothing.
+- **Focused and visible aren't the same thing.** A focused window is always on
+  top, but a window on top isn't always focused: a newly opened window is in
+  front before it gets focus
+  ([§3.4](03-app-lifecycle.md#34-focus-titles-and-quitting)). And if you click a
+  window beside your game, the game loses focus while still fully visible. A
+  game that only draws while focused will freeze on screen at that point, though
+  the game itself keeps running underneath. The built-in games accept that
+  trade-off. If you'd rather keep animating while unfocused, draw regardless and
+  accept the cost.
+- **Good habits.** Repainting fully when focus comes back (shown below) is the
+  right habit for apps whose state really does depend on what's on screen.
 
 So every game's tick ends with a focus check:
 
@@ -149,13 +159,13 @@ function MyGame:on_tick()
 end
 ```
 
-Note what is *inside* the guard and what is not. The world keeps turning while
-you are covered; only the painting stops.
+Notice what is *inside* the check and what isn't. The game world keeps going
+while you're covered; only the drawing stops.
 
-It is a good habit to force a full repaint when focus comes *back*. A canvas you
-stopped drawing to keeps its last frame, so partial-redraw state stays valid,
-but the window shows a picture that is behind the world; one full repaint lets
-it catch up at once:
+It's a good idea to force a full repaint when focus comes *back*. Your canvas
+keeps its last frame while you're not drawing, so anything you were tracking for
+partial redraws is still correct. But that frame is out of date, and one full
+repaint brings it straight up to date:
 
 ```lua snippet
 function MyGame:on_tick()
@@ -172,17 +182,18 @@ end
 
 ## 6.4 The sound-effect lifecycle
 
-**Nothing stops a note but an explicit `acid_stop_note`.** Not a short envelope,
-not a finished arpeggio, not the end of a tick. A gated-on voice sustains, and a
-triggered arpeggio cycles, until you gate it off.
+**Only `acid_stop_note` stops a note.** A short envelope doesn't, a finished
+arpeggio doesn't, and the end of a tick doesn't. A note keeps holding, and an
+arpeggio keeps repeating, until you stop it.
 
-That makes sound effects a *bookkeeping* problem, and this OS's games all solve
-it the same way. Learn the pattern; it is the source of the two most annoying
-bugs you can ship.
+So with sound effects, the job is keeping track of what's playing. All of Acid
+OS's games do it the same way. It's worth learning the pattern, because getting
+it wrong causes the two most annoying bugs you can ship.
 
 ### The pattern
 
-Register every sound you start, count it down, and stop it in exactly one place.
+Record every sound you start, count it down each tick, and stop it in exactly
+one place.
 
 ```lua snippet
 -- 1. Starting a sound registers it with a tick countdown.
@@ -212,7 +223,8 @@ function MyGame:on_tick()
 end
 ```
 
-Iterate **backwards** when deleting during a walk, as above.
+When you remove items from a list while looping over it, loop **backwards**, as
+above.
 
 ### Rule 1: a reset must stop voices before it clears the bookkeeping
 
@@ -231,20 +243,19 @@ function MyGame:stop_all_sfx()
 end
 ```
 
-A restart tap arrives while the game-over sting is usually still playing.
-`tick_sfx` is the only thing that ever sends a note-off, so clearing `self.sfx`
-without first stopping its voices leaves them with **no note-off ever coming**.
-The arpeggio cycles forever and the envelope sustains forever, for as long as
-the app is open.
+The player usually taps to restart while the game-over sound is still playing.
+`tick_sfx` is the only thing that ever stops a note. So if you clear `self.sfx`
+without stopping its voices first, **nothing will ever stop them**. The
+arpeggio repeats and the note holds for as long as the app is open.
 
-Both shipped arcade games had exactly this bug. A short envelope only made it
-rarer to hit, not impossible.
+Both of the built-in arcade games had exactly this bug. A short envelope only
+made it rarer, not impossible.
 
 ### Rule 2: an arpeggio's gate must not outlast one pass
 
-A four-note arp at 110 ms takes 440 ms for one pass and then starts over. If you
-meant it as a one-shot run, compute the tick count from the arp itself rather
-than guessing:
+A four-note arpeggio at 110 ms takes 440 ms for one pass, then starts over. If
+you want it to play once, work out the tick count from the arpeggio's own
+numbers rather than guessing:
 
 ```lua snippet
 local OVER_NOTES = { 30, 27, 23, 18 }
@@ -255,13 +266,13 @@ local OVER_TICKS = (OVER_RATE_MS * OVER_COUNT + TICK_MS - 1) // TICK_MS   -- rou
 self:trigger_sfx(OVER_VOICE, OVER_NOTES, OVER_COUNT, OVER_RATE_MS, 50, OVER_TICKS)
 ```
 
-Derive it and the sound stays correct when you retune the effect. Hard-code it
-and it drifts the first time you change `rate_ms`.
+Work it out like this and the sound stays right when you tweak the effect.
+Hard-code the number and it goes wrong the first time you change `rate_ms`.
 
 ### Rule 3: `tick_sfx` runs even when nothing else does
 
-Put it *outside* every guard. A game that stops calling `tick_sfx` while paused,
-while game-over, or while unfocused has just invented a stuck note.
+Keep it *outside* every `if`. If your game stops calling `tick_sfx` while it's
+paused, on the game-over screen or unfocused, you've just created a stuck note.
 
 ```lua snippet
 function MyGame:on_tick()
@@ -281,9 +292,9 @@ function MyGame:on_destroy()
 end
 ```
 
-The kernel releases your voices when your task exits either way, so this is not
-about leaks: it is about the difference between a clean fade and an abrupt cut,
-and about keeping the habit while the app is still running.
+The kernel releases your voices when your app exits anyway, so this isn't about
+leaks. It's about getting a clean fade instead of an abrupt cut, and about
+keeping good habits while the app is running.
 
 ## 6.5 A minimal game
 
@@ -420,12 +431,15 @@ end
 DodgeApp:new():start()
 ```
 
-Things worth noticing: `tick_sfx` is never behind the focus guard; `reset_game`
-stops the voices before it clears the list; the hit sound's tick count is derived
-from its arp; and both touch paths are debounced with `touch_down`, so a held
-tap restarts the game once instead of every tick. `on_touch` clamps the paddle
-because `x` can arrive negative or past the window edge
-([§3.1](03-app-lifecycle.md#31-the-callbacks)).
+Things to notice:
+
+- `tick_sfx` is never inside the focus check.
+- `reset_game` stops the voices before it clears the list.
+- The hit sound's tick count is worked out from its arpeggio.
+- Both touch paths use `touch_down`, so holding a tap restarts the game once,
+  not every tick.
+- `on_touch` keeps the paddle inside the window, because `x` can be negative or
+  past the window edge ([§3.1](03-app-lifecycle.md#31-the-callbacks)).
 
 With `v3/apps/dodge.app.toml`:
 
@@ -437,10 +451,10 @@ desc = Dodge the falling rocks
 menu = false
 ```
 
-`menu = false` keeps a game out of the Menu dropdown, the convention every
-shipped game follows. They are launched instead from the Terminal (`run tetris`)
-or by clicking their `.app.toml` in File Manager. Drop the line if you want
-yours in the Menu.
+`menu = false` keeps a game out of the Menu, as all the built-in games do. You
+start them from the Terminal instead (`run tetris`), or by clicking their
+`.app.toml` in the File Manager. Leave the line out if you want yours in the
+Menu.
 
 ---
 

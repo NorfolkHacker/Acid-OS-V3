@@ -2,24 +2,33 @@
 
 [← Games](06-games.md) · [Contents](README.md) · [Next: Cookbook →](08-cookbook.md)
 
-Beyond drawing and sound, an app can inspect and manipulate the running system:
-the window list, the launcher registry, task and memory statistics, the clock,
-the network, the master volume and the file system. These are what the Config,
-System Monitor, Network, File Manager, Terminal and desktop apps are built out
-of, and they are available to any app, subject to the cart-level rules in
-[§7.11](#711-what-a-cart-is-refused).
+Your app can do more than draw and play sound. It can also look at, and change,
+the system around it:
 
-The Lua standard library an app sees has no `io`, `os` or `package`, and
-`dofile` and `loadfile` are removed. Everything that touches the outside world
-goes through an `acid_*` call, which is what lets the kernel check it.
+- the window list
+- the launcher registry (the list of installed apps)
+- task and memory statistics
+- the clock
+- the network
+- the master volume
+- the file system
+
+The Config, System Monitor, Network, File Manager, Terminal and desktop apps
+are all built from these calls. Any app can use them, though carts get a few
+extra rules, listed in [§7.11](#711-what-a-cart-is-refused).
+
+Your app's Lua has no `io`, `os` or `package` library, and `dofile` and
+`loadfile` are removed. Anything that reaches the outside world has to go
+through an `acid_*` call. That's what lets the kernel check it.
 
 ## 7.1 Launching other apps
 
 ### By registry index
 
-The launcher registry is built at boot from `v3/apps/*.app.toml` (see
+The launcher registry is built when the system boots, from the
+`v3/apps/*.app.toml` files (see
 [§2.4](02-apps-and-manifests.md#24-how-the-launcher-finds-your-app)). You can
-walk it:
+walk through it like this:
 
 ```lua snippet
 local count = acid_launcher_count()       -- number of registered apps
@@ -28,18 +37,27 @@ local path  = acid_launcher_path(index)   -- "v3/apps/sysmon.lua", or nil
 local ok    = acid_launcher_spawn(index)  -- true / false
 ```
 
-Indexes are **zero-based**: walk `0` to `count - 1`.
-`acid_launcher_spawn` uses the width, height, `multi` flag and `libs` recorded
-in the manifest, so the app opens exactly as it would from the Menu. It returns
-`true` on success, including when the app was a singleton and already open, in
-which case the existing window is raised and focused instead. It returns
-`false` for an index with no entry, or when the window could not be made (all
-eight window slots are taken, for one). A cart gets `false` for an open
-singleton (nothing is raised) and while 4 or more cart-level windows are open,
-and an app a cart starts runs cart-level
-([§7.11](#711-what-a-cart-is-refused)).
+Indexes are **zero-based**, so you walk from `0` to `count - 1`.
 
-This is the shape of the Terminal's `run` command, which finds an app by name:
+`acid_launcher_spawn` uses the width, height, `multi` flag and `libs` from the
+app's manifest, so the app opens exactly as it would from the Menu.
+
+It returns `true` when it works. That includes the case where the app is a
+singleton that's already open: then the existing window is raised and focused
+instead.
+
+It returns `false` when:
+
+- there's no app at that index, or
+- the window couldn't be made, for example because all eight window slots are
+  taken.
+
+Carts get a few more `false` cases. A cart gets `false` for a singleton that's
+already open (and nothing is raised), and while 4 or more cart-level windows
+are open. Any app a cart starts also runs cart-level. See
+[§7.11](#711-what-a-cart-is-refused).
+
+Here's roughly how the Terminal's `run` command finds an app by name:
 
 ```lua snippet
 function TerminalApp:cmd_run(args)
@@ -54,13 +72,15 @@ function TerminalApp:cmd_run(args)
 end
 ```
 
-The registry includes apps hidden from the Menu with `menu = false`, so a
-launcher of your own can reach every app on the system, not just the visible
-ones. It holds at most **48** apps; `acid_launcher_register` returns `false`
-once it is full.
+The registry also includes apps hidden from the Menu with `menu = false`. So a
+launcher you write yourself can reach every app on the system, not just the
+visible ones.
 
-This complete app is a launcher of exactly that kind. It lists every registered
-app and starts the one you tap:
+The registry holds at most **48** apps. Once it's full,
+`acid_launcher_register` returns `false`.
+
+This complete app is a simple launcher. It lists every registered app and
+starts the one you tap:
 
 ```lua app
 -- w: 200
@@ -110,52 +130,60 @@ LauncherApp:new():start()
 local ok = acid_spawn_app(path, w, h, arg)    -- true / false
 ```
 
-Launch by script path instead of registry index. The `multi` flag and `libs`
-still come from the registry (looked up by exact path), so an app launched this
-way gets its modules exactly as the Menu would give them. A path with no
-registry entry defaults to singleton and no modules. `arg` is an optional
-startup string; leave it out, pass `nil` or pass `""` for none.
+This launches an app by its script path instead of its registry index.
+
+The `multi` flag and `libs` still come from the registry, which is searched for
+that exact path. So an app launched this way gets the same modules the Menu
+would give it. If the path isn't in the registry, the app is treated as a
+singleton with no modules.
+
+`arg` is an optional startup string. For none, leave it out or pass `nil` or
+`""`.
 
 ```lua snippet
 -- Open the Editor on a specific file
 acid_spawn_app("v3/apps/editor.lua", 420, 280, "v3/fsroot/Home/notes.txt")
 ```
 
-What `false` means, exactly:
+It returns `false` when:
 
-- The size is not 1 to 640 wide and 1 to 360 high.
-- All eight window slots are in use.
-- You are a cart and the path does not start with `v3/apps/`
-  ([§7.11](#711-what-a-cart-is-refused)).
-- You are a cart and the app is a singleton that is already open: a built-in
-  app would raise its window, a cart may not ([§7.11](#711-what-a-cart-is-refused)).
-- You are a cart and 4 or more cart-level windows are open, your own included
-  ([§7.11](#711-what-a-cart-is-refused)).
-- You are a cart and your own window has been closed, even if you are still
-  running ([§7.11](#711-what-a-cart-is-refused)).
+- the size isn't 1 to 640 wide and 1 to 360 high
+- all eight window slots are in use
+- you're a cart and the path doesn't start with `v3/apps/`
+  ([§7.11](#711-what-a-cart-is-refused))
+- you're a cart and the app is a singleton that's already open. A built-in app
+  would raise its window here, but a cart isn't allowed to
+  ([§7.11](#711-what-a-cart-is-refused))
+- you're a cart and 4 or more cart-level windows are open, counting your own
+  ([§7.11](#711-what-a-cart-is-refused))
+- you're a cart and your own window has been closed, even if you're still
+  running ([§7.11](#711-what-a-cart-is-refused))
 
-An app a cart starts runs cart-level, even one under `v3/apps/` that would
-otherwise be built-in.
+Any app a cart starts runs cart-level, even one under `v3/apps/` that would
+normally be built-in.
 
-A **bad path is not one of them.** The window is created first and the app
-started second, so a path that is neither a `.lua` nor a `.wasm` file under
-`v3/apps` or `v3/fsroot` returns `true` and the new app then ends at once, logging
-`Acid OS v3: refused unsafe script path <path>` and taking its window with it.
-Check a path with `acid_fs_size` first if you are launching something a user
-typed.
+A **bad path is not on that list.** The window is made first and the app is
+started second. So if the path isn't a `.lua` or `.wasm` file under `v3/apps`
+or `v3/fsroot`, you still get `true`. The new app then ends straight away,
+taking its window with it, and logs:
 
-> **Canonicalise paths that came from the filesystem.** `v3/fsroot/App` is a
-> symlink to `v3/apps`, and the registry and the singleton check both match by
-> exact string. A path that arrived through the symlink matches nothing: the app
-> spawns with none of its modules, and a singleton opens a second time. Use the
-> helper on `AcidApp`:
+`Acid OS v3: refused unsafe script path <path>`
+
+If you're launching something a user typed, check the path with `acid_fs_size`
+first.
+
+> **Canonicalise paths that came from the file system.** `v3/fsroot/App` is a
+> symlink to `v3/apps`. The registry and the singleton check both match paths
+> as exact strings, so a path that came in through the symlink matches
+> nothing. The app then opens with none of its modules, and a singleton can
+> open a second time. Use the helper on `AcidApp`:
 >
 > ```lua snippet
 > acid_spawn_app(self:canonical_app_path(path), w, h, "")
 > ```
 >
-> It maps `v3/fsroot/App/x.lua` back to `v3/apps/x.lua` and leaves every other
-> path alone.
+> It turns `v3/fsroot/App/x.lua` back into `v3/apps/x.lua` and leaves every
+> other path alone.
 
 ### Reading your own launch argument
 
@@ -166,22 +194,29 @@ function MyApp:on_create()
 end
 ```
 
-Safe to read more than once; it is plain context state, not consumed.
+You can read it as many times as you like. Reading it doesn't use it up.
 
 ### Singletons
 
-By default an app is a **singleton**: launching one that is already open raises
-and focuses the existing window instead of spawning a second. The match is on
-the window's script path. `multi = true` in the manifest opts out. A cart
-cannot raise another app's window this way: for a cart, launching an open
-singleton returns `false` and changes nothing. A built-in caller never raises a copy of a singleton that a cart started: it opens a trusted window of its own instead. Editor, File
-Manager and Terminal are the multi-window apps in the tree.
+By default an app is a **singleton**. If it's already open, launching it again
+raises and focuses the existing window instead of opening a second one. The
+match is made on the window's script path. Put `multi = true` in the manifest
+to turn this off.
 
-Remember that two windows of a `multi` app are **two separate Lua VMs**, each on
-its own OS thread. They share no globals, no tables and no variables, and
-neither can see the other. Anything that must be true system-wide, such as "only
-one of these animations at a time", has to be enforced by the kernel, not by
-your Lua. See [§4.5](04-graphics.md#45-the-overlay).
+There are two exceptions:
+
+- A cart can't raise another app's window this way. For a cart, launching an
+  open singleton returns `false` and changes nothing.
+- A built-in app never raises a copy of a singleton that a cart started.
+  Instead it opens a trusted window of its own.
+
+Editor, File Manager and Terminal are the apps that allow more than one window.
+
+Remember that two windows of a `multi` app are **two separate Lua VMs**, each
+on its own OS thread. They share no globals, tables or variables, and neither
+can see the other. So if something must hold system-wide, like "only one of
+these animations at a time", the kernel has to enforce it. Your Lua can't. See
+[§4.5](04-graphics.md#45-the-overlay).
 
 ## 7.2 The window list
 
@@ -192,7 +227,7 @@ acid_activate_window(index)      -- raise and focus that window
 acid_close_window(index)         -- true / false
 ```
 
-`acid_window_info` returns **six values**, or nothing for an empty slot, so walk
+`acid_window_info` returns **six values**, or nothing for an empty slot. So walk
 the whole range and skip the gaps. Indexes are zero-based, from `0` to
 `acid_window_max() - 1`:
 
@@ -209,31 +244,36 @@ local function active_windows()
 end
 ```
 
-The values are the window's **name**, its screen coordinates, its size, and
-whether it currently holds focus. The name is the script path the app was
-started from (`"v3/apps/sysmon.lua"`), which is also what the singleton check
-compares. A negative or out-of-range index returns nothing, never an error.
+The six values are:
+
+- the window's **name**, which is the script path the app was started from
+  (`"v3/apps/sysmon.lua"`). The singleton check compares this too.
+- its screen position, `x` and `y`
+- its size, `w` and `h`
+- whether it has focus right now
+
+A negative or out-of-range index returns nothing. It never raises an error.
 
 `acid_close_window` closes **another** app's window and returns `true`. It
-refuses to close the calling app's own window and returns `false`, as it does
-for an empty or out-of-range slot. A monitor ending itself from its own window
-list is a confusing way to quit; the title-bar close button, or `self:quit()`,
-is the normal route. System Monitor's windows page uses this call, behind a
-two-tap confirmation.
+won't close your own window: it returns `false` for that, and for an empty or
+out-of-range slot. A monitor that closes itself from its own window list is a
+confusing way to quit. Use the title-bar close button or `self:quit()`
+instead. System Monitor's windows page uses this call, behind a two-tap
+confirmation.
 
 `acid_activate_window` raises and focuses the window at that index. An empty or
 out-of-range index does nothing.
 
-`acid_send_self_to_back` drops your own window to the back of the z-order. It
-always targets the caller, so there is no way to send someone else's window
-back. The desktop uses it when closing its dropdown, having temporarily raised
-itself to show it.
+`acid_send_self_to_back` drops your own window behind all the others. It
+only ever moves your window, so you can't send someone else's window back. The
+desktop uses it to tidy up after closing its dropdown, because it raises itself
+for a moment to show the dropdown.
 
-A **cart** cannot close any window, and can raise only its own: see
+A **cart** can't close any window, and can only raise its own. See
 [§7.11](#711-what-a-cart-is-refused).
 
-This complete app is a small window manager's list. It shows every window and
-raises the one you tap:
+This complete app is a small window list. It shows every window and raises the
+one you tap:
 
 ```lua app
 -- w: 220
@@ -287,10 +327,11 @@ WindowListApp:new():start()
 local focused = acid_am_i_focused()    -- true / false
 ```
 
-`AcidApp:focused()` wraps this. In this OS, focus and being the topmost window
-always change together, so it doubles as "am I the window actually visible on
-top". See [§6.3](06-games.md#63-focus-and-the-z-order-trap) for why a game must
-check it.
+`AcidApp:focused()` wraps this call. In Acid OS, having focus and being the top
+window always go together. So this also tells you "is my window the one
+actually showing on top?" See
+[§6.3](06-games.md#63-focus-and-the-z-order-trap) for why a game needs to check
+it.
 
 ## 7.4 Tasks and memory
 
@@ -301,8 +342,8 @@ local name, state, cpu = acid_task_info(index)   -- or nothing
 local kb = acid_mem_used_kb()      -- kilobytes in use, or -1
 ```
 
-`acid_refresh_tasks` takes a snapshot; `acid_task_info` reads from it, with a
-zero-based index. Call refresh first, then walk:
+`acid_refresh_tasks` takes a snapshot, and `acid_task_info` reads from that
+snapshot using a zero-based index. So refresh first, then walk:
 
 ```lua snippet
 local function sample()
@@ -315,25 +356,25 @@ local function sample()
 end
 ```
 
-On the hosted build a "task" is an **OS thread of the OS process**: the kernel's
-own threads and one per running app. The details worth knowing:
+When Acid OS runs on Linux (the "hosted" build), a task is an **OS thread of
+the Acid OS process**. That means the kernel's own threads, plus one for each
+running app. Worth knowing:
 
-- `name` is the thread name, which Linux **truncates to 15 characters**, so
+- `name` is the thread name. Linux **cuts thread names to 15 characters**, so
   `v3/apps/sysmon.lua` arrives as `v3/apps/sysmon.`. System Monitor's
   `short_name` strips that trailing dot.
-- `state` is a string: `"running"`, `"blocked"`, `"suspended"`, `"deleted"` or
-  `"?"`.
-- `cpu` is an integer percentage: the thread's CPU time since the previous
-  refresh, over the wall time since the previous refresh. It is **0** on the
-  first sample and for a task not seen last time, so sample at least twice,
-  a second or so apart.
+- `state` is one of these strings: `"running"`, `"blocked"`, `"suspended"`,
+  `"deleted"` or `"?"`.
+- `cpu` is a whole-number percentage: the thread's CPU time since the last
+  refresh, divided by the real time since the last refresh. It's **0** on the
+  first sample, and for any task that wasn't there last time. So sample at
+  least twice, a second or so apart.
 - Only the **first 16** threads are tracked.
-- `acid_mem_used_kb` is the resident size of the **whole OS process**, not of
-  your app: every app shares it. It returns `-1` when the platform cannot tell,
-  and so should any check you write for it.
+- `acid_mem_used_kb` is the memory used by the **whole Acid OS process**, not
+  just your app. Every app shares that number. It returns `-1` when the
+  platform can't tell, so any check you write should handle `-1` too.
 
-An app that reads these once per second is cheap; reading them every frame is
-not.
+Reading these once a second is cheap. Reading them every frame isn't.
 
 ## 7.5 Compositor and audio statistics
 
@@ -343,11 +384,16 @@ acid_skipped_frames()       -- frames it skipped because nothing was dirty
 acid_active_voice_count()   -- voices with a sounding envelope, 0-8
 ```
 
-Exposed for a system monitor to show what is actually distinctive about this
-build: its own compositor, its own synthesiser. They are also the fastest way
-to answer "is my app repainting far more than it needs to?" (watch
-`acid_composited_frames` climb while nothing moves) and "did I leave a note
-gated on?" (watch `acid_active_voice_count` fail to return to zero).
+These are here so a system monitor can show off what makes Acid OS different:
+its own compositor (the part that paints windows to the screen) and its own
+synthesiser.
+
+They're also the quickest way to answer two common questions:
+
+- "Is my app repainting far more than it needs to?" Watch
+  `acid_composited_frames` climb while nothing on screen moves.
+- "Did I leave a note playing?" Watch whether `acid_active_voice_count` goes
+  back to zero.
 
 ## 7.6 Network
 
@@ -355,17 +401,22 @@ gated on?" (watch `acid_active_voice_count` fail to return to zero).
 local hostname, ip, connected = acid_network_info()
 ```
 
-Returns **three values**: the host name, an IP address string and a boolean.
+This returns **three values**: the host name, an IP address string and a
+boolean.
 
-On the hosted build the host name is the machine's, and the address is the
-**first non-loopback IPv4 address** found on any interface, as a dotted string
-(`"192.168.1.20"`), with `connected` `true`. If there is none, you get the host
-name, the string `"none"` and `false`. If the platform cannot say at all, the
-values are `"unknown"`, `"none"` and `false`.
+On the hosted build:
 
-`connected` means **an address was found**, not that anything is reachable.
-There is no live reachability check, no sockets, no HTTP client. This is
-information for a status display, not a networking API.
+- Normally you get the machine's host name, the **first non-loopback IPv4
+  address** on any network interface as a dotted string (`"192.168.1.20"`),
+  and `true`.
+- If there's no such address, you get the host name, the string `"none"` and
+  `false`.
+- If the platform can't tell at all, you get `"unknown"`, `"none"` and
+  `false`.
+
+`connected` only means **an address was found**. It doesn't mean anything is
+reachable. There's no live connection check, no sockets and no HTTP client.
+This is information for a status display, not a networking API.
 
 ## 7.7 Master volume and the wallpaper
 
@@ -376,17 +427,22 @@ acid_set_wallpaper_enabled(true)
 local on = acid_get_wallpaper_enabled()   -- true / false
 ```
 
-Both are **system-wide settings that the Config app owns**. Read them freely;
-think twice before writing them. An app that turns the user's volume down
-because it is loud, or switches their wallpaper off because it wants a plain
-background, is misbehaving. Scale your own note volumes and draw your own
-background instead. (Both calls stay available to carts: the user's settings are
-the user's to protect, not the kernel's.)
+Both of these are **system-wide settings that belong to the Config app**. Read
+them as much as you like, but think twice before changing them.
+
+An app that turns the user's volume down because it's loud, or turns their
+wallpaper off because it wants a plain background, is misbehaving. Scale your
+own note volumes and draw your own background instead.
+
+Carts can still use both calls. These are the user's settings to protect, so
+the kernel doesn't block them.
 
 ## 7.8 The file system
 
-Lua has no `io` library here, so apps use the file system calls below. Every call that
-can fail reports it by returning **`nil, message`** rather than raising an error, so you check the first value:
+There's no `io` library here, so apps use the calls below instead.
+
+Any call that can fail reports it by returning **`nil, message`**. It doesn't
+raise an error. So always check the first value:
 
 ```lua snippet
 local names = acid_fs_list(dir)           -- a sequence of names, or nil, err
@@ -397,41 +453,44 @@ local ok    = acid_fs_rename(from, to)    -- true, or nil, err
 local ok    = acid_fs_delete(path)        -- true, or nil, err
 ```
 
-- `acid_fs_list` returns the entry names **sorted**, without `.` and `..`, and
-  does not say which are directories. `acid_fs_size` returns a number for a
-  directory too, so it cannot tell you either; list the path and see whether it
-  answers.
-- `acid_fs_read` returns the whole file as one Lua string, which may hold any
-  bytes.
-- `acid_fs_write` creates the file or replaces it entirely. There is no append:
-  read, join and write back.
-- `acid_fs_rename` moves a file or directory; an existing file at the target is
-  replaced.
+- `acid_fs_list` returns the names in the folder, **sorted**, without `.` and
+  `..`. It doesn't say which are folders. `acid_fs_size` returns a number for
+  a folder too, so it can't tell you either. To find out, list the path and
+  see whether it answers.
+- `acid_fs_read` returns the whole file as one Lua string. The string can hold
+  any bytes, not just text.
+- `acid_fs_write` creates the file, or replaces it completely. There's no
+  append. To add to a file, read it, join the new part on, and write it back.
+- `acid_fs_rename` moves a file or folder. If a file is already at the target,
+  it's replaced.
 - `acid_fs_delete` deletes **files only**.
-- "Does it exist?" is `acid_fs_size(path) ~= nil`, true for a directory as
-  well.
+- To ask "does it exist?", use `acid_fs_size(path) ~= nil`. That's true for a
+  folder as well.
 
 ### The path guard
 
-Every path passes through one check **before** anything touches the disk. A path
-is accepted only if it is:
+Every path goes through one check **before** anything touches the disk. A path
+is only accepted if it:
 
-- under one of the two roots, **`v3/apps`** or **`v3/fsroot`**: either exactly
-  that root or `root/...` (so `v3/appsx` is out);
-- relative: no leading `/`;
-- free of **empty segments** (`v3/apps//x`, or a trailing `/`), **`..`
-  segments** and **`.` segments** (`v3/apps/./x.lua`, `./v3/apps`);
-- free of NUL characters and backslashes.
+- is under one of the two roots, **`v3/apps`** or **`v3/fsroot`**. It must be
+  exactly that root or `root/...`, so `v3/appsx` doesn't count.
+- is relative, with no leading `/`
+- has no **empty parts** (`v3/apps//x`, or a trailing `/`), no **`..` parts**
+  and no **`.` parts** (`v3/apps/./x.lua`, `./v3/apps`)
+- has no NUL characters and no backslashes
 
-Anything else returns `nil, "bad path"`: the crates, `v3/carts`, an absolute
-path, a path with `..` in it. Paths are relative to the repository root, so the
-process's working directory has to be the repository root, as for the simulator
-([§1.1](01-getting-started.md#11-build-and-run)). The guard is a text check, so
-it is the same on every platform.
+Anything else gets `nil, "bad path"`. That includes the Rust source in
+`v3/crates`, `v3/carts`, absolute paths and anything with `..` in it.
+
+Paths are relative to the top folder of the repository. So Acid OS has to be
+started from there, just like the simulator
+([§1.1](01-getting-started.md#11-build-and-run)). The guard only looks at the
+text of the path, so it works the same on every platform.
 
 ### Error messages
 
-The messages are plain strings you can show or compare:
+The messages are plain strings that you can show to the user or compare
+against:
 
 | Message | Meaning |
 |---|---|
@@ -443,35 +502,42 @@ The messages are plain strings you can show or compare:
 | `too big` | A host cart file over 256 KB |
 | anything else | The operating system's own text, such as `Not a directory (os error 20)` from listing a file, or `Is a directory (os error 21)` from reading one |
 
-So the portable reading is: `not found` is an ordinary absence, `bad path` and
-`read only` are rules, and anything else is worth showing to the user.
+In short:
+
+- `not found` just means nothing is there.
+- `bad path` and `read only` mean you broke a rule.
+- Anything else is worth showing to the user.
 
 ### Writes check where a path really points
 
-Reads only run the text check above. A **write, rename or delete** also resolves
-where the path *really* leads (the file itself if it exists, otherwise its parent
-directory) and refuses unless that lies inside the real `v3/apps` or the real
-`v3/fsroot`:
+Reads only get the text check above. A **write, rename or delete** also works
+out where the path *really* leads, following any symlinks. It looks at the file
+itself if it exists, or at its parent folder if it doesn't. The change is
+refused unless that real location is inside the real `v3/apps` or the real
+`v3/fsroot`.
 
-- `v3/fsroot/App` is a symlink to `v3/apps`. Writing to
-  `v3/fsroot/App/x.lua` **works** and lands in `v3/apps/x.lua`, because its real
-  target is the apps directory.
-- A symlink to anywhere outside the two roots is refused with `bad path`: writes
-  can't escape through one.
-- Because the parent has to exist to be resolved, **writing into a directory
-  that does not exist fails** with `bad path`. There is no call to make a
-  directory.
-- `acid_fs_rename` refuses to move a root itself, and refuses when either end is
-  a symlink (it would move the link, not what it points at).
-- Reads follow symlinks freely: `acid_fs_list("v3/fsroot/App")` lists the apps.
+What this means in practice:
 
-A built-in app may therefore write anywhere under the two roots, including
-`v3/apps`. Do not: write your own data under **`v3/fsroot/Home`**. A cart can
-write nowhere else.
+- `v3/fsroot/App` is a symlink to `v3/apps`. Writing to `v3/fsroot/App/x.lua`
+  **works** and lands in `v3/apps/x.lua`, because it really points into the
+  apps folder.
+- A symlink to anywhere outside the two roots is refused with `bad path`. So
+  writes can't escape through a symlink.
+- The parent folder has to exist to be checked. So **writing into a folder that
+  doesn't exist fails** with `bad path`. There's no call to make a folder.
+- `acid_fs_rename` won't move a root itself. It also refuses if either end is a
+  symlink, because it would move the link, not the thing it points at.
+- Reads follow symlinks freely, so `acid_fs_list("v3/fsroot/App")` lists the
+  apps.
+
+So a built-in app can write anywhere under the two roots, `v3/apps` included.
+Please don't. Keep your own data under **`v3/fsroot/Home`**. A cart can't
+write anywhere else anyway.
 
 ### The layout
 
-`v3/fsroot/` is the OS's own file system root, browsable from File Manager:
+`v3/fsroot/` is Acid OS's own file system root. You can browse it in File
+Manager:
 
 | Path | Holds |
 |---|---|
@@ -481,10 +547,12 @@ write nowhere else.
 | `v3/fsroot/Help` | Help text |
 | `v3/fsroot/Tmp` | Temporary files; anything here can vanish |
 
-On the hosted build these are real directories relative to the repository root.
+On the hosted build these are real folders, relative to the top of the
+repository.
 
-This complete app keeps a launch counter in a file under Home, the way an app
-should store a setting, and shows the error if the write is refused:
+This complete app counts how many times it's been launched, keeping the count
+in a file under Home. That's how an app should store a setting. If the write is
+refused, it shows the error:
 
 ```lua app
 -- w: 200
@@ -513,8 +581,8 @@ CounterApp:new():start()
 
 ### Host cart folders
 
-Four more calls exist for **Load Cart**, and only for built-in apps. A cart
-calling them gets `nil, "not allowed"`:
+There are four more calls, made for the **Load Cart** app. Only built-in apps
+can use them. A cart that calls them gets `nil, "not allowed"`.
 
 ```lua snippet
 local roots = acid_cart_roots()            -- the cart folders that exist, or nil, err
@@ -523,11 +591,18 @@ local kind, size = acid_cart_stat(path)    -- "dir" or "file", and bytes; or nil
 local text = acid_cart_read(path)          -- up to 256 KB, or nil, err
 ```
 
-They are read only and look **outside** the OS's two roots, at `v3/carts`,
-`$HOME/carts`, and `/media`, `/mnt` and `/run/media`. They never follow a
-symlink out of those folders, and leave symlinks out of listings. Reading a file
-over 256 KB gives `nil, "too big"`. You will only need them if you write a
-replacement for Load Cart ([§2.5](02-apps-and-manifests.md#25-carts)).
+They're read-only, and they look **outside** Acid OS's two roots, in these
+folders:
+
+- `v3/carts`
+- `$HOME/carts`
+- `/media`, `/mnt` and `/run/media`
+
+They never follow a symlink out of those folders, and they leave symlinks out
+of listings. Reading a file over 256 KB gives `nil, "too big"`.
+
+You'll only need these if you're writing a replacement for Load Cart
+([§2.5](02-apps-and-manifests.md#25-carts)).
 
 ## 7.9 The clock
 
@@ -536,17 +611,19 @@ local year, month, day, hour, min, sec = acid_local_time()
 local ms = acid_now_ms()
 ```
 
-Two clocks, for two jobs.
+There are two clocks, for two different jobs.
 
-`acid_local_time()` is the **wall-clock local time**, six integers: year, month
-(1 to 12), day, hour (0 to 23), minute and second. The desktop's clock reads it.
-A platform with no clock reports the epoch, `1970, 1, 1, 0, 0, 0`.
+`acid_local_time()` is the **local time of day**, as six whole numbers: year,
+month (1 to 12), day, hour (0 to 23), minute and second. The desktop clock uses
+it. On a platform with no clock, you get `1970, 1, 1, 0, 0, 0`.
 
-`acid_now_ms()` is **milliseconds since the platform started**. It only moves
-forward, and it is the clock to use for anything you measure: animation timing,
-"once a second" sampling, how long a button was held. `AcidGame` paces its ticks
-with it. Do not use `acid_local_time` for that, since it can jump when the user
-changes the time.
+`acid_now_ms()` is **milliseconds since the platform started**. It only ever
+goes forward. Use it for anything you measure: animation timing, doing
+something "once a second", how long a button was held. `AcidGame` uses it to
+pace its ticks.
+
+Don't use `acid_local_time` for measuring. It can jump when the user changes
+the time.
 
 This complete app shows both:
 
@@ -578,53 +655,61 @@ ClockApp:new():start()
 
 ## 7.10 Limits
 
-Each app is held to a memory limit and a responsiveness limit, set by its trust
-level ([§2.6](02-apps-and-manifests.md#26-built-in-and-cart-level-apps)):
+Every app has a memory limit and a "stopped responding" limit. Both depend on
+whether the app is built-in or cart-level
+([§2.6](02-apps-and-manifests.md#26-built-in-and-cart-level-apps)):
 
 | | Lua memory | "Stopped responding" |
 |---|---|---|
 | Built-in | 64 MB | 2 s |
 | Cart-level | 16 MB | 1 s |
 
-**Memory.** The cap counts everything the app's Lua VM allocates, **including the
-core libraries and the manifest's `libs`**, which are loaded first. An allocation
-past the cap fails, and the app ends.
+**Memory.** The limit covers everything your app's Lua VM allocates. That
+**includes the core libraries and the `libs` from your manifest**, which are
+loaded before your code. If an allocation would go over the limit, it fails and
+the app ends.
 
-**Stopped responding.** The kernel checks every 10,000 Lua instructions how long
-it has been since your app last returned from `acid_poll_event` (or since it
-started, before its first poll). If that is more than the limit, a Lua error is
-raised. `AcidApp` and `AcidGame` poll constantly, so this only matters when one
-callback computes for longer than the limit. A long poll *timeout* never trips
-it, because the clock restarts as the poll returns. If your app has to do
-something that takes a while, do it in slices across several callbacks.
+**Stopped responding.** Every 10,000 Lua instructions, the kernel checks how
+long it's been since your app last came back from `acid_poll_event` (or since
+it started, if it hasn't polled yet). If that's longer than the limit, a Lua
+error is raised.
+
+`AcidApp` and `AcidGame` poll all the time, so this only bites when a single
+callback keeps working for longer than the limit. A long poll *timeout* never
+trips it, because the clock restarts when the poll returns. If your app has
+something slow to do, split it into slices across several callbacks.
 
 **What happens at a limit.** The app ends, its window is removed and its
-resources are freed, and the terminal gets one line:
+resources are freed. The terminal gets one line:
 
 ```text
 Acid OS v3: <path>: out of memory
 Acid OS v3: <path>: stopped responding
 ```
 
-Neither can be caught. `pcall`, `xpcall` and `coroutine.resume` all re-raise a
-timeout or an out-of-memory error rather than hand it back, and the error
-handler of an `xpcall` is skipped once the limit has tripped, so a script cannot
-swallow its own watchdog. Other apps are unaffected: each is its own VM on its
-own thread.
+**Your app can't catch either one.** `pcall`, `xpcall` and `coroutine.resume`
+all pass a timeout or out-of-memory error straight back up instead of handing
+it to you. Once a limit has tripped, the error handler of an `xpcall` is
+skipped too. So a script can't swallow its own watchdog. Other apps aren't
+affected, because each one is its own VM on its own thread.
 
-The same hardening closes a few other doors a runaway script might try:
-`string.dump` is gone, `load` reads only text, `setmetatable` refuses a
-metatable with `__gc`, `table.insert`, `table.remove` and `table.move` refuse a
-table or range of more than 16,777,216 entries, and repeating an empty string
-costs nothing.
+A few other doors a runaway script might try are also closed:
 
-A **WASM** cart is limited differently: by fuel and linear-memory pages, not by
+- `string.dump` is gone.
+- `load` only reads text.
+- `setmetatable` refuses a metatable with `__gc`.
+- `table.insert`, `table.remove` and `table.move` refuse a table or range of
+  more than 16,777,216 entries.
+- Repeating an empty string costs nothing.
+
+A **WASM** cart has different limits: fuel and linear-memory pages, rather than
 Lua memory and a clock. See [chapter 10](10-wasm-carts.md).
 
 ## 7.11 What a cart is refused
 
-Everything above applies to a cart-level app, with these exceptions. Each refusal
-fails cleanly: the call returns its failure value and the app carries on.
+Everything above applies to cart-level apps too, apart from the exceptions
+below. Each refusal fails cleanly: the call returns its failure value and the
+app carries on.
 
 | Call | Cart-level behaviour |
 |---|---|
@@ -641,22 +726,31 @@ fails cleanly: the call returns its failure value and the app carries on.
 | `acid_activate_window` | does nothing unless the index is the cart's own window |
 | `acid_overlay_open` | returns `false`, so a cart can never hold the full-screen overlay |
 
-The path guard runs first, so a malformed path is `bad path` even for a cart,
-and `read only` is what a *well-formed* path outside Home gets. The `Home/`
-rule is a prefix match: the directory `v3/fsroot/Home` itself is not a path a
-cart may change, only what is inside it.
+The path guard runs first. So a badly formed path gets `bad path` even from a
+cart, and `read only` is what a *well-formed* path outside Home gets.
 
-Reading, drawing on your own window, sound, the clock, task and network
-information, `acid_launcher_spawn` and `acid_spawn_app` for installed apps that
-are not already open (they run cart-level, and only while fewer than 4
-cart-level windows are open), and
-`acid_set_volume` and `acid_set_wallpaper_enabled` all work exactly as they do
-for a built-in app. The overlay drawing calls and `acid_repaint_region` stay
-callable: they act only for the task that holds the overlay or only on the
-caller's own canvas, and a cart never holds the overlay.
+The `Home/` rule matches on what the path starts with. That means a cart can
+change what's inside `v3/fsroot/Home`, but not the `v3/fsroot/Home` folder
+itself.
 
-Because a cart's own window ends when its run loop ends, `acid_close_window` is
-simply always `false` for it.
+Everything else works for a cart exactly as it does for a built-in app:
+
+- reading files
+- drawing on its own window
+- sound
+- the clock
+- task and network information
+- `acid_launcher_spawn` and `acid_spawn_app`, for installed apps that aren't
+  already open. The new app runs cart-level, and only while fewer than 4
+  cart-level windows are open.
+- `acid_set_volume` and `acid_set_wallpaper_enabled`
+
+The overlay drawing calls and `acid_repaint_region` can still be called too.
+They only act for the task that holds the overlay, or only on the caller's own
+window, and a cart never holds the overlay.
+
+A cart's own window closes when its run loop ends, so a cart never needs
+`acid_close_window`. That's why it simply always returns `false`.
 
 ---
 

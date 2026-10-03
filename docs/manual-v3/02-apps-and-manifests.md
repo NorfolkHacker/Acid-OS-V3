@@ -4,29 +4,38 @@
 
 ## 2.1 The two files
 
-Every app in `v3/apps/` is a pair sharing a base name:
+Every app in `v3/apps/` is a pair of files with the same base name:
 
 ```text
 v3/apps/tetris.lua         the Lua source
 v3/apps/tetris.app.toml    the manifest
 ```
 
-The manifest is what makes the app *exist* as far as the OS is concerned. A
-`.lua` with no manifest beside it is never registered and never launchable
-from the Menu. A manifest with no matching `.lua` registers a path that fails to
-load when picked. (`--app` and Terminal's `run` go through the manifest as well.)
+**The manifest is what makes an app exist** as far as the OS is concerned:
 
-A WASM cart is the same pair with `.wasm` in place of `.lua`; see
+- A `.lua` file with no manifest beside it is never registered, so you can't
+  launch it from the Menu.
+- A manifest with no matching `.lua` still registers, but the app fails to
+  load when you pick it.
+- `--app` and Terminal's `run` go through the manifest too.
+
+A WASM cart is the same pair, with a `.wasm` file in place of the `.lua`. See
 [§2.7](#27-wasm-carts).
 
 ## 2.2 The manifest format
 
-Despite the extension, this is **not** real TOML. The kernel (and `desktop.lua`,
-which reads the same format) trims each line, skips blank lines and lines
-starting with `#`, splits at the **first** `=`, trims both sides, and keeps the
-rest as a raw string. A line with no `=` is ignored. There are no quotes, no
-arrays, no tables, and a `#` comment must be on a line of its own. If a key
-appears twice, the **later** one wins.
+Despite the `.toml` extension, a manifest is **not** real TOML. It's a much
+simpler format. Acid OS reads it line by line:
+
+- Each line is trimmed. Blank lines, and lines starting with `#`, are skipped.
+- The line is split at the **first** `=`. Both sides are trimmed, and the value
+  is kept exactly as written, as a plain string.
+- A line with no `=` is ignored.
+- There are no quotes, arrays or tables. A `#` comment must be on a line of its
+  own.
+- If a key appears twice, the **later** one wins.
+
+The kernel and `desktop.lua` both read manifests this way.
 
 ```toml
 name = System Monitor
@@ -40,25 +49,25 @@ libs = lib/acid_sprite.lua, lib/acid_eggs.lua
 
 | Key | Required | Meaning |
 |---|---|---|
-| `name` | **yes** | Display name in the Menu, the taskbar and window lists. Keep it short: the Menu truncates at 22 characters, and `AcidApp`'s default window title is cut at 16. |
+| `name` | **yes** | The name shown in the Menu, the taskbar and window lists. Keep it short: the Menu cuts it off at 22 characters, and `AcidApp`'s default window title at 16. |
 | `w` | **yes** | Window width in pixels, including the 1px border. 1 to 640. |
 | `h` | **yes** | Window height in pixels, including the 16px title bar. 1 to 360. |
-| `desc` | no | One line shown alongside the app. Has no effect on behaviour. |
-| `menu` | no | `menu = false` hides the app from the Menu dropdown. It stays launchable by path (File Manager, `acid_spawn_app`, `--app`, Terminal's `run`). Anything other than the exact string `false`, including omitting the key, means visible. |
-| `multi` | no | `multi = true` allows several windows of this app at once. Default is **singleton**: launching an already-open app raises and focuses the existing window instead of opening a second (a cart that launches it gets `false`, and nothing is raised). A built-in caller never raises a copy that a cart started: it opens a trusted window of its own instead. |
-| `libs` | no | Comma-separated module paths to load into this app's VM before its own script. Relative to `v3/apps/`. |
+| `desc` | no | A one-line description shown alongside the app. It doesn't change how the app behaves. |
+| `menu` | no | `menu = false` hides the app from the Menu. You can still launch it by path (File Manager, `acid_spawn_app`, `--app`, Terminal's `run`). Any other value, or leaving the key out, means the app is shown. Only the exact string `false` hides it. |
+| `multi` | no | `multi = true` lets several windows of this app be open at once. By default an app is **single-instance**: launching it again raises and focuses the window that's already open instead of opening a second one. If a cart tries to launch it, the cart gets `false` and nothing is raised. And if a cart started the open copy, a built-in app launching it gets a new, trusted window of its own instead of raising the cart's copy. |
+| `libs` | no | A comma-separated list of extra modules to load before the app's own script, relative to `v3/apps/` ([§2.3](#23-loading-modules)). |
 | `source` | no | `source = cart` marks an app installed by Load Cart, and makes it run with cart-level trust ([§2.6](#26-built-in-and-cart-level-apps)). Only Load Cart should write this. |
-| `runtime` | no | `runtime = wasm` says the app is `<name>.wasm` rather than `<name>.lua` ([§2.7](#27-wasm-carts)). Any other value, or no key, means Lua. |
+| `runtime` | no | `runtime = wasm` means the app is `<name>.wasm` rather than `<name>.lua` ([§2.7](#27-wasm-carts)). Any other value, or leaving the key out, means Lua. |
 
-If `name`, `w` or `h` is missing, or `w` or `h` is outside the screen, the
-manifest is **silently skipped** and the app never appears in the Menu. A
-manifest that fails to register does not stop the scan: the other apps still
-register. So a missing app usually means a typo in its own manifest, not a
-broken system.
+**A broken manifest is skipped without a word.** If `name`, `w` or `h` is
+missing, or `w` or `h` is bigger than the screen, the app simply never appears
+in the Menu. The other apps still load fine. So if your app is missing, look
+for a typo in its own manifest first; the rest of the system is probably fine.
 
 ### Sizing a window
 
-The screen is **640×360**. `w`/`h` are the whole window:
+The screen is **640×360**. `w` and `h` are the size of the whole window,
+frame included:
 
 ```text
 +--------------------------------------+  <- y = 0, 1px THEME_HARD border
@@ -70,21 +79,25 @@ The screen is **640×360**. `w`/`h` are the whole window:
 +--------------------------------------+
 ```
 
-Usable content therefore runs from `(1, 16)` to `(w - 2, h - 2)`. In practice
-apps draw from `(0, 16)` to `(w, h)` and let the clipping and the border
-overdraw sort out the edges; see [§4.2](04-graphics.md#42-coordinates-and-clipping).
+So the space you can use runs from `(1, 16)` to `(w - 2, h - 2)`. In practice,
+apps draw from `(0, 16)` to `(w, h)` and let clipping and the border tidy up
+the edges. See [§4.2](04-graphics.md#42-coordinates-and-clipping).
 
-New windows cascade from the top left as more open, and the kernel clamps the
-cascade so a window always lands fully on screen below the desktop strip. A
-window bigger than the screen is not clamped: it is **refused**, and so is a
-manifest that asks for one. At most **eight** windows can be open at once,
-including the desktop's own; once they are all taken, a launch quietly fails.
+Where windows go:
+
+- New windows cascade down from the top left as more of them open. The cascade
+  is kept in bounds, so a window always lands fully on screen, below the
+  desktop strip.
+- A window bigger than the screen isn't shrunk to fit. It's **refused**, and so
+  is a manifest that asks for one.
+- At most **eight** windows can be open at once, and that includes the
+  desktop's own. Once they're all in use, launching another app quietly fails.
 
 ### Keeping the constants in sync
 
-The kernel gets `w`/`h` from the manifest; your Lua needs them too, for layout.
-Nothing links the two, so every app in the tree declares them again and keeps
-them matched by convention:
+The kernel gets `w` and `h` from the manifest, but your Lua needs them too, for
+layout. Nothing connects the two, so every app declares them again in its own
+code and keeps them matching by hand:
 
 ```lua snippet
 local CounterApp = AcidApp:extend("CounterApp")
@@ -92,17 +105,20 @@ CounterApp.WINDOW_W = 180   -- must match `w =` in counter.app.toml
 CounterApp.WINDOW_H = 120   -- must match `h =` in counter.app.toml
 ```
 
-Get them out of step and your app draws to the wrong size. The canvas is the
-manifest's size, and whatever your code draws outside it is clipped away, so the
-symptom is content mysteriously cut off or a stripe of unpainted background, not
-a crash.
+If they get out of step, your app lays itself out for the wrong size. It won't
+crash. Your canvas is always the manifest's size, and anything drawn outside it
+is clipped away. So what you'll see is content that's mysteriously cut off, or
+a stripe of unpainted background.
 
 ## 2.3 Loading modules
 
-Lua here has **no `require`**, and no `io`, `os`, `package` or `dofile`: the VM
-is built with only the `string`, `table`, `math`, `utf8` and `coroutine`
-libraries, and everything else an app can reach is an `acid_*` function. The VM
-host loads files for you, in this exact order, before your script runs:
+Lua in Acid OS has **no `require`**. It also has no `io`, `os`, `package` or
+`dofile`. Each VM only has the `string`, `table`, `math`, `utf8` and
+`coroutine` libraries. Everything else your app can reach is an `acid_*`
+function.
+
+Instead of `require`, Acid OS loads files for you before your script runs, in
+exactly this order:
 
 1. `v3/apps/lib/acid_keys.lua`: `AcidKeys` key codes
 2. `v3/apps/lib/acid_palette.lua`: `AcidPalette.hue`
@@ -112,63 +128,73 @@ host loads files for you, in this exact order, before your script runs:
 6. everything in your manifest's `libs`, left to right
 7. your own `<name>.lua`
 
-**Those first five are always available.** You never list them in `libs`, and
-listing one anyway is harmless but redundant (it is simply run a second time).
-`libs` is for *extra* modules:
+**The first five are always there.** You never need to list them in `libs`. If
+you do, no harm is done; they just run a second time. `libs` is for *extra*
+modules:
 
 ```toml
 libs = lib/acid_sprite.lua, lib/acid_eggs.lua
 ```
 
-Everything is loaded into one flat global namespace: a module defines a global
-table (`AcidSprite = {}`) and your script uses it. A module you write for your
-own app goes in `v3/apps/lib/` (or a subdirectory of `v3/apps/`, as Editor does
-with `editor/buffer.lua`) and gets named in `libs`. A module that fails to
-load, or does not exist, is logged to the terminal and skipped; the next module
-and your own script still run, and your script then fails on the first use of
-what was missing.
+Everything shares one global namespace. A module defines a global table (for
+example `AcidSprite = {}`), and your script uses it.
+
+If you write a module for your own app, put it in `v3/apps/lib/` and name it in
+`libs`. A subfolder of `v3/apps/` works too; Editor does this with
+`editor/buffer.lua`.
+
+If a module fails to load, or doesn't exist, the error goes to the terminal and
+that module is skipped. The next module and your own script still run. Your
+script will then fail the first time it uses whatever was missing.
 
 ### What `libs` will not accept
 
-Each entry is validated before loading. Rejected entries are skipped with
-`Acid OS v3: rejected unsafe lib path <entry>` on stderr and the app still
-starts:
+Each entry in `libs` is checked before it's loaded. A rejected entry is
+skipped, the app still starts, and this goes to the terminal (stderr):
+`Acid OS v3: rejected unsafe lib path <entry>`.
 
-- must end in `.lua`
-- must be relative: a leading `/` is rejected
+An entry is rejected unless it follows all of these rules:
+
+- it must end in `.lua`
+- it must be relative: a leading `/` is rejected
 - no `\` anywhere
-- no empty path components (`a//b.lua`, or a trailing `/`)
-- no `..` as a whole component (`a/../../x.lua` is rejected; a file genuinely
-  named `weird..name.lua` is fine)
+- no empty path parts (`a//b.lua`, or a trailing `/`)
+- no `..` as a whole path part (`a/../../x.lua` is rejected, but a file
+  really named `weird..name.lua` is fine)
 
 ## 2.4 How the launcher finds your app
 
-At boot, `desktop.lua`:
+When Acid OS starts, `desktop.lua`:
 
-1. lists `v3/apps/`, keeps every entry ending in `.app.toml`, and **sorts them**
+1. lists `v3/apps/`, keeps every file ending in `.app.toml`, and **sorts them**
    by file name;
-2. parses each one, and for each manifest with `name`, `w` and `h` calls
+2. reads each one, and for every manifest that has `name`, `w` and `h`, calls
    `acid_launcher_register(path, name, w, h, multi, libs)`, where `path` is the
-   `.lua` (or, for `runtime = wasm`, the `.wasm`) beside the manifest;
-3. records whether `menu ~= "false"`, which is what the dropdown filters on.
+   `.lua` beside the manifest (or the `.wasm`, for `runtime = wasm`);
+3. notes whether `menu ~= "false"`, which is what the Menu uses to decide
+   what to show.
 
-The registry is a fixed-size table of **48** entries. Registration is refused
-once it is full, and it refuses the manifests that sort *last*, so if apps start
-disappearing from the Menu, check the count before assuming your manifest is
-wrong. The dropdown itself lists the first **ten** visible apps in registry
-order; any further ones are registered, and launchable by path, but not shown.
+There are two limits to know about:
 
-`v3/fsroot/App` is a symlink to `v3/apps`. The registry matches launch paths by
-exact string, so a path that arrives through the symlink matches nothing and
-spawns a VM with none of its modules. Worse, a script started from
-`v3/fsroot/...` is cart-level ([§2.6](#26-built-in-and-cart-level-apps)).
-`AcidApp:canonical_app_path` converts one form to the other; use it whenever you
-take a path from the filesystem and pass it to `acid_spawn_app`.
+- **The registry holds 48 apps.** Once it's full, further apps are refused, and
+  it's the manifests that sort *last* that miss out. So if apps start vanishing
+  from the Menu, count them before you blame your manifest.
+- **The Menu shows the first ten** visible apps, in registry order. Any more are
+  still registered, and you can launch them by path, but they don't appear in
+  the Menu.
+
+One trap: `v3/fsroot/App` is a symlink to `v3/apps`. The registry matches
+launch paths as exact strings, so a path that goes through the symlink matches
+nothing. The app starts in a VM with none of its modules loaded. Worse, a
+script started from `v3/fsroot/...` runs at cart level
+([§2.6](#26-built-in-and-cart-level-apps)). `AcidApp:canonical_app_path`
+converts one form of path to the other. Use it whenever you take a path from
+the filesystem and pass it to `acid_spawn_app`.
 
 ## 2.5 Carts
 
-A **cart** is a whole app in one file, written outside the OS and carried in.
-It is ordinary app Lua with a header comment block on top:
+A **cart** is a whole app in one file, written outside the OS and brought in.
+It's ordinary app Lua with a block of header comments at the top:
 
 ```lua snippet
 -- name: Hello Acid
@@ -184,85 +210,115 @@ local HelloAcidApp = AcidApp:extend("HelloAcidApp")
 HelloAcidApp:new():start()
 ```
 
-The **Load Cart** app (Menu → Load Cart) browses `v3/carts/`, `~/carts`, and the
-host's `/media`, `/mnt` and `/run/media` mount points, so a cart on a USB stick
-or an SD card appears in the same list (only the folders that exist are
-offered). Installing writes `v3/apps/<slug>.lua` plus a generated
-`v3/apps/<slug>.app.toml` carrying `source = cart`. `v3/carts/hello_acid.cart`
-is the sample, and `v3/carts/README.txt` describes the format.
+You install carts with the **Load Cart** app (Menu → Load Cart). It looks for
+carts in:
+
+- `v3/carts/`
+- `~/carts`
+- your computer's `/media`, `/mnt` and `/run/media` mount points, so a cart on
+  a USB stick or SD card shows up in the same list
+
+Only the folders that exist are offered.
+
+Installing a cart writes `v3/apps/<slug>.lua`, plus a generated
+`v3/apps/<slug>.app.toml` that includes `source = cart`. (The slug is the
+installed file's base name; see below.) There's a sample at
+`v3/carts/hello_acid.cart`, and `v3/carts/README.txt` describes the format.
 
 ### The header
 
-All five keys are optional. Only the **first comment block** in the file is
-scanned: it ends at the first line that is neither blank nor a `--` comment, so
-a `-- name:` further down, inside a comment among real code, is ignored. Keys
-are matched in lower case, a line without a `:` is just a comment, and the
-first value for a key wins.
+All five keys are optional. The rules for reading them:
+
+- Only the **first comment block** in the file is read. It ends at the first
+  line that is neither blank nor a `--` comment. So a `-- name:` further down,
+  in a comment among real code, is ignored.
+- Keys are matched in lower case.
+- A line without a `:` is just a comment.
+- If a key appears twice, the first value wins.
 
 | Key | Default if absent, and limits |
 |---|---|
-| `name` | derived from the filename (`my_game.cart` → "My Game"). At most 40 characters. |
+| `name` | Made from the filename (`my_game.cart` → "My Game"). At most 40 characters. |
 | `w` | 220, clamped to 80–640 |
 | `h` | 160, clamped to 48–336 |
-| `desc` | empty. At most 40 characters. |
-| `libs` | none. Only entries naming modules that exist in `v3/apps/lib/` (written `lib/<file>.lua`) are kept, and at most eight. |
+| `desc` | Empty. At most 40 characters. |
+| `libs` | None. Only entries naming modules that exist in `v3/apps/lib/` (written `lib/<file>.lua`) are kept, and at most eight. |
 
-Every value is cleaned: anything outside printable ASCII becomes a space, so a
-header can never smuggle a second line into the generated manifest. A cart file
-must be 1 byte to 256 KB. The slug (the installed file's base name) comes from
-the filename: only lower-case letters and digits survive, runs of anything else
-become a single `_`, it is at most 24 characters, and it can never contain a
-path separator or a traversal component.
+A few more rules keep installs safe:
+
+- Every value is cleaned: anything that isn't printable ASCII becomes a space.
+  That way a header can never sneak an extra line into the generated manifest.
+- A cart file must be between 1 byte and 256 KB.
+- The slug comes from the filename. Only lower-case letters and digits are
+  kept, and any run of other characters becomes a single `_`. It's at most 24
+  characters, and it can never contain a path separator or a `..`-style
+  traversal part.
 
 ### What a cart may and may not overwrite
 
-A cart can replace an app that was *itself* installed from a cart, which is what
-`source = cart` in the generated manifest marks. It can never overwrite a
-hand-written app in `v3/apps/`, including ones with no manifest at all (such as
-`desktop.lua`): Load Cart's confirm screen reads "REFUSED: <slug> is a built-in
-app", and if the install is attempted anyway it reports "that slot belongs to a
-built-in app".
+A cart can replace an app that was *itself* installed from a cart. That's what
+the `source = cart` line in the generated manifest marks.
 
-If the cart's *display name* matches an app that is already registered, Load
-Cart warns before you install, because Terminal's `run` takes the first
-case-insensitive match in registry order.
+A cart can never overwrite a hand-written app in `v3/apps/`, including ones
+with no manifest at all, such as `desktop.lua`. Load Cart's confirm screen says
+"REFUSED: <slug> is a built-in app". If the install is attempted anyway, it
+reports "that slot belongs to a built-in app".
 
-An installed cart joins the Menu at the **next boot**; Load Cart's own **RUN**
-button starts it immediately in the meantime.
+If the cart's *display name* matches an app that's already registered, Load
+Cart warns you before installing. That's because Terminal's `run` launches the
+first case-insensitive match in registry order, which might not be the one you
+expect.
+
+An installed cart joins the Menu at the **next boot**. Until then, Load Cart's
+own **RUN** button starts it straight away.
 
 ### Carts are sandboxed, but only lightly
 
-Once installed, a cart runs at **cart level** ([§2.6](#26-built-in-and-cart-level-apps)):
-smaller limits, no writes outside `Home`, and no say over other apps' windows.
-That is a real fence, but a fence around a cart's *reach*, not around what it
-may draw or play on its own window. The header validation stops a *malformed*
-cart; the cart-level rules limit a hostile one. Read a cart before you install
-it all the same.
+Once installed, a cart runs at **cart level**
+([§2.6](#26-built-in-and-cart-level-apps)). That means smaller limits, no
+writing outside `Home`, and no control over other apps' windows.
 
-An installed cart also shows up as a new untracked file in `git status`. Commit
-it or delete it like any other file.
+That's a real fence, but it limits what a cart can *reach*, not what it can
+draw or play in its own window. The header checks stop a *badly formed* cart.
+The cart-level rules limit a *hostile* one. Even so, read a cart before you
+install it.
+
+An installed cart also shows up as a new untracked file in `git status`.
+Commit it or delete it like any other file.
 
 ## 2.6 Built-in and cart-level apps
 
-The kernel decides an app's **trust level** at the moment it starts it, and
-the app cannot change it. There are two:
+Every app runs at one of two **trust levels**. The kernel decides which when it
+starts the app, and the app can't change it.
 
-- **Built-in:** the script path starts with `v3/apps/` and ends in `.lua`, and
-  the app's own manifest (the script path with `.lua` replaced by `.app.toml`)
-  does not say `source = cart`. A missing manifest is built-in; that is why
-  Load Cart writes the manifest *before* the script when it installs.
-- **Cart-level:** everything else. That covers installed carts (their generated
-  manifests say `source = cart`), any script started from `v3/fsroot/...`, any
-  `.wasm` module (always, with no manifest lookup), and a script whose manifest
-  exists but cannot be read. The key and value are matched leniently
-  (`Source = "Cart"` counts), so a spelling trick does not buy trust back.
-  Any app a cart starts, with `acid_spawn_app` or `acid_launcher_spawn`, is
-  cart-level too, even `v3/apps/editor.lua`: a cart cannot borrow a built-in
-  app's rights by launching it. A built-in caller never raises a copy of a singleton that a cart started: it opens a trusted window of its own instead.
+**Built-in** apps meet all of these:
 
-The manifest is read when the app starts, not taken from the launcher registry,
-so the level holds however the app was started: Menu, File Manager, Terminal's
-`run`, Load Cart's RUN, `--app`.
+- the script path starts with `v3/apps/` and ends in `.lua`
+- the app's own manifest (the script path with `.lua` replaced by `.app.toml`)
+  doesn't say `source = cart`
+
+A script with no manifest at all counts as built-in. That's why Load Cart
+writes the manifest *before* the script when it installs.
+
+**Cart-level** is everything else. That includes:
+
+- installed carts (their generated manifests say `source = cart`)
+- any script started from `v3/fsroot/...`
+- any `.wasm` module, always (no manifest is even checked)
+- a script whose manifest exists but can't be read
+
+The `source` key and its value are matched loosely (`Source = "Cart"` counts),
+so you can't get trust back with a spelling trick.
+
+Any app that a cart starts, with `acid_spawn_app` or `acid_launcher_spawn`, is
+cart-level too. That's true even for `v3/apps/editor.lua`: a cart can't borrow
+a built-in app's rights by launching it. And if a cart started an open copy of
+a single-instance app, a built-in app launching it never raises the cart's
+copy. It gets a new, trusted window of its own instead.
+
+The manifest is read at the moment the app starts, not taken from the Menu's
+registry. So the level is the same however the app was started: from the Menu,
+File Manager, Terminal's `run`, Load Cart's RUN, or `--app`.
 
 ### Limits
 
@@ -271,17 +327,20 @@ so the level holds however the app was started: Menu, File Manager, Terminal's
 | Built-in | 64 MB | 2 s |
 | Cart-level | 16 MB | 1 s |
 
-The second limit measures the time since your app last returned from
-`acid_poll_event` (or since it started, before its first poll). `AcidApp`'s loop
-polls constantly, so it only matters if one callback computes for longer than
-the limit. Either limit ends the app, and the terminal gets
+The "stopped responding" limit is the time since your app last returned from
+`acid_poll_event` (or since it started, before its first poll). `AcidApp`'s
+event loop polls all the time, so this only matters if one of your callbacks
+keeps computing for longer than the limit.
+
+Going over either limit ends the app, and the terminal shows
 `Acid OS v3: <path>: out of memory` or `Acid OS v3: <path>: stopped responding`.
-WASM carts are limited differently ([chapter 10](10-wasm-carts.md)).
+
+WASM carts have different limits ([chapter 10](10-wasm-carts.md)).
 
 ### What a cart is refused
 
-Every refusal fails cleanly. The call returns the failure value and your app
-carries on:
+Every refusal fails cleanly: the call returns its failure value and your app
+carries on.
 
 | Call | Cart-level behaviour |
 |---|---|
@@ -298,65 +357,76 @@ carries on:
 | `acid_activate_window` | does nothing unless the index is the cart's own window |
 | `acid_overlay_open` | returns `false`, so a cart can never hold the full-screen overlay |
 
-The ordinary path guard ([§7](07-system-apis.md)) still applies first. Reading
-files, drawing, sound, your own window, launching installed apps that are not
-already open with `acid_spawn_app` (they run cart-level, and only while fewer
-than 4 cart-level windows are open), and `acid_set_volume` and `acid_set_wallpaper_enabled` all work
-exactly as they do for a built-in app.
+The ordinary path checks ([§7](07-system-apis.md)) still apply first.
 
-An app cannot close its own window with `acid_close_window` anyway: it ends its
+Everything else works for a cart exactly as it does for a built-in app,
+including:
+
+- reading files
+- drawing and sound
+- its own window
+- launching installed apps that aren't already open with `acid_spawn_app`
+  (they run cart-level, and only while fewer than 4 cart-level windows are
+  open)
+- `acid_set_volume` and `acid_set_wallpaper_enabled`
+
+`acid_close_window` always returning `false` costs a cart nothing. No app can
+close its own window with it anyway: an app closes its window by ending its
 run loop (`self:quit()`, [§3.4](03-app-lifecycle.md#34-focus-titles-and-quitting)).
-So for a cart that call is simply always `false`.
 
 ## 2.7 WASM carts
 
-A cart can also be a **WebAssembly module**, written in Rust (or anything that
-targets WebAssembly) and run by the same kernel behind a stricter sandbox. It
-installs exactly like a `.cart`, with these differences:
+A cart can also be a **WebAssembly module**, written in Rust or anything else
+that targets WebAssembly. It runs on the same kernel, in a stricter sandbox. It
+installs just like a `.cart`, with these differences:
 
-- The file is `.wasm`, and installs as `v3/apps/<slug>.wasm`. Its generated
-  manifest carries **`runtime = wasm`** (before the final `source = cart` line),
-  which is what tells the Menu, File Manager, Terminal's `run` and `--app` to
-  run `<slug>.wasm` rather than `<slug>.lua`.
-- It is **always cart-level**.
-- Its header is not a comment block but a **custom section named `acid`** inside
-  the module. The section's text is the same `key: value` lines as a `.cart`
-  header, without the `-- ` prefix, and the same keys apply except that `libs`
-  is ignored (a WASM module loads no Lua). A module with no `acid` section, or
-  with a malformed one, installs under its filename at the default size
-  (220×160) with no description: a hostile module can only lose its own
-  metadata.
-- The 256 KB size cap is the same.
+- The file ends in `.wasm`, and installs as `v3/apps/<slug>.wasm`. Its
+  generated manifest includes **`runtime = wasm`** (just before the final
+  `source = cart` line). That line is what tells the Menu, File Manager,
+  Terminal's `run` and `--app` to run `<slug>.wasm` instead of `<slug>.lua`.
+- It always runs at **cart level**.
+- Its header isn't a comment block. It's a **custom section named `acid`**
+  inside the module. The section holds the same `key: value` lines as a
+  `.cart` header, without the `-- ` at the start. The same keys apply, except
+  `libs`, which is ignored because a WASM module loads no Lua.
+- A module with no `acid` section, or a broken one, still installs: under its
+  filename, at the default size (220×160), with no description. A hostile
+  module can only lose its own details.
+- The 256 KB size limit is the same.
 
-The callback ABI, the import table, the fuel and memory limits and the
-`acid-cart` crate are all in [chapter 10](10-wasm-carts.md); `v3/carts/hello_wasm.wasm`
-is the sample. Here is only what the manifest side needs to know: a WASM app
-is launched, sized and shown in the Menu from its `.app.toml`, exactly like a
-Lua one.
+[Chapter 10](10-wasm-carts.md) covers the rest: the callback ABI, the import
+table, the fuel and memory limits, and the `acid-cart` crate. The sample is
+`v3/carts/hello_wasm.wasm`. All the manifest side needs to know is that a WASM
+app is launched, sized and shown in the Menu from its `.app.toml`, exactly like
+a Lua one.
 
 ## 2.8 Where an installed cart lands
 
-An install writes a **slot**: the pair `<slug>.app.toml` plus one script,
-`<slug>.lua` or `<slug>.wasm`. The rules:
+An install fills a **slot**: the manifest `<slug>.app.toml` plus one script,
+either `<slug>.lua` or `<slug>.wasm`. Load Cart sorts every slot into one of
+three cases:
 
-- A slot is **occupied** if *either* `<slug>.lua` *or* `<slug>.wasm` already
-  exists. This closes a hole: a `desktop.wasm` cart must not find the slot free
-  just because only `desktop.lua` is there.
-- An occupied slot with a manifest saying `source = cart` is a **replace**. The
-  install writes the new manifest, then the new script, and then **removes the
-  other runtime's script**, if there is one. Installing `snake.wasm` over an
-  installed `snake.lua` cart leaves `snake.wasm` and deletes `snake.lua`, so
-  the manifest's `runtime` line and the file that is there always agree.
-- Anything else is **protected**, and Load Cart refuses it: an occupied slot
-  whose manifest does not say `source = cart`, an occupied slot with no manifest
-  at all (any `.lua` the loader did not install), and a leftover manifest with
-  no script.
-- A slot with neither a script nor a manifest is a **fresh** install.
+- **Fresh install:** there's no script and no manifest yet.
+- **Replace:** the slot is occupied and its manifest says `source = cart`. The
+  install writes the new manifest, then the new script, and then **deletes the
+  other runtime's script** if there is one. For example, installing
+  `snake.wasm` over an installed `snake.lua` cart leaves `snake.wasm` and
+  deletes `snake.lua`. That way the manifest's `runtime` line always matches
+  the file that's there.
+- **Protected:** anything else, and Load Cart refuses it. That covers an
+  occupied slot whose manifest doesn't say `source = cart`, an occupied slot
+  with no manifest at all (any `.lua` that Load Cart didn't install), and a
+  leftover manifest with no script.
 
-The order (manifest first, script second) is deliberate. A `.lua` in `v3/apps/`
-with no manifest runs as built-in, so the cart's code must never land before the
-line that makes it cart-level. If the script write fails after the manifest
-landed, Load Cart says "wrote manifest but not source -- not installed".
+A slot counts as **occupied** if *either* `<slug>.lua` *or* `<slug>.wasm`
+already exists. This matters: a `desktop.wasm` cart mustn't find the slot free
+just because only `desktop.lua` is there.
+
+**The manifest is always written first, and the script second.** That's on
+purpose. A `.lua` in `v3/apps/` with no manifest runs as built-in, so the
+cart's code must never land before the line that makes it cart-level. If the
+script fails to write after the manifest is in place, Load Cart says
+"wrote manifest but not source -- not installed".
 
 ---
 

@@ -2,43 +2,48 @@
 
 [← The app lifecycle](03-app-lifecycle.md) · [Contents](README.md) · [Next: Sound →](05-sound.md)
 
-There are three drawing primitives (rectangle, circle, text) plus the window
-chrome and a separate full-screen overlay. That is the whole graphics API. There
-is no line, no arc, no rounded rectangle, no alpha, no image loading. Everything
-in this OS, from Tetris pieces to the rounded window corners to the sprites that
-fly across the screen, is built from filled rectangles.
+Drawing in Acid OS is deliberately simple. You get:
 
-Lean into it. The look is deliberate.
+- three shapes: filled rectangles, filled circles and text,
+- calls to draw the window's title bar and border,
+- a separate full-screen "overlay" for effects that cross the whole screen.
 
-The screen is **640×360**. Every window has a canvas of its own, exactly as big
-as the `w` and `h` in its manifest, and the kernel composites those canvases onto
-the screen in z-order. Your drawing calls only ever touch your own canvas.
+That's the whole graphics API. There are no lines, arcs, rounded rectangles,
+transparency or image files. Everything you see, from Tetris pieces to the
+rounded window corners to the sprites flying across the screen, is built from
+filled rectangles.
+
+Lean into it. The blocky look is on purpose.
+
+The screen is **640×360** pixels. Each window has its own canvas, exactly the
+size of the `w` and `h` in its manifest. The system stacks those canvases onto
+the screen in order, with the top window last. Your drawing calls only ever
+touch your own canvas.
 
 ## 4.1 Colours
 
-Colours are plain **24-bit RGB integers**: `0xRRGGBB`.
+A colour is a plain **24-bit RGB number**, written `0xRRGGBB`.
 
 ```lua snippet
 acid_fill_rect(10, 20, 50, 30, 0xFF00AA)
 ```
 
-> The canvas stores colour as RGB565 internally, and a 24-bit value is
-> converted by **truncation**: the low 3 bits of red and blue and the low 2 of
-> green are dropped. Two colours that differ only in those bits come out the
-> same. Early bring-up code used RGB565-style literals like `0xF800` and they
-> rendered as near-black. If a colour comes out wrong and dark, check that it
-> is a full 24-bit value.
+> Behind the scenes, colours are stored with fewer bits (a format called
+> RGB565). Converting just **drops** the lowest bits: the bottom 3 bits of red
+> and blue, and the bottom 2 of green. So two colours that differ only in those
+> bits look the same. A short value like `0xF800` (the RGB565 way of writing
+> red) comes out nearly black. If a colour looks wrong and dark, check that
+> you've written all six hex digits.
 
-All coordinates, sizes and radii are integers. Divide with `//`, as
-[chapter 3](03-app-lifecycle.md) does for touch rows, so you never hand a
+Coordinates, sizes and radii are all whole numbers. Divide with `//`, as
+[chapter 3](03-app-lifecycle.md) does for touch rows, so you never pass a
 fraction to a drawing call.
 
 ### The theme palette
 
-Six colours define the OS's identity. They are Rust constants in the kernel
-(`acid-kernel`'s `theme.rs`) and are **not** exposed to Lua, so apps declare the
-ones they use as their own constants, which is why you see the same literals
-across the tree:
+Six colours give Acid OS its look. They're built into the system, but Lua
+**can't read them**, so apps copy the values they need into their own
+constants. That's why you'll see the same numbers in lots of apps:
 
 | Constant | Value | Used for |
 |---|---|---|
@@ -59,22 +64,24 @@ Use the theme for **UI**: anything that should look like part of the system.
 
 ### `AcidPalette`: the hue wheel
 
-For **content**, use the 256-colour hue wheel. `AcidPalette` is always loaded;
-you never list it in `libs`.
+For **content**, such as game pieces and pictures, use the 256-colour hue
+wheel instead. `AcidPalette` is always loaded, so you never need to list it in
+`libs`.
 
 ```lua snippet
 AcidPalette.hue(step)            -- 256 steps around the wheel
 AcidPalette.hue(step, steps)     -- a wheel of `steps` divisions
 ```
 
-A full HSV hue wheel at maximum saturation and value, walked in even increments:
-a real continuous rainbow, integer-only, no `math` needed. `step` wraps (a
-negative step wraps too), so you can feed it a counter that grows forever. It
-returns a plain `0xRRGGBB` integer.
+It walks round a full rainbow of bright, fully saturated colours in even
+steps, using only whole-number maths. `step` wraps round, and negative steps
+wrap too, so you can feed it a counter that keeps growing forever. It returns
+a plain `0xRRGGBB` number.
 
-This complete app draws one bar per hue and cycles them over time. Note that
-`poll_timeout_ms` is overridden to set the frame rate ([§3.3](03-app-lifecycle.md#33-poll_timeout_ms)),
-and that the animation sits in `on_idle`:
+This complete app draws one bar per colour and makes them drift over time. It
+sets its frame rate by overriding `poll_timeout_ms`
+([§3.3](03-app-lifecycle.md#33-poll_timeout_ms)), and does the animation in
+`on_idle`:
 
 ```lua app
 -- w: 200
@@ -113,21 +120,22 @@ end
 HueApp:new():start()
 ```
 
-This exists because apps used to draw *content* from the five theme colours too,
-and everything ended up looking like the same few shades of green.
+Why have both? When apps drew their content in theme colours too, everything
+ended up looking like the same few shades of green.
 
 ## 4.2 Coordinates and clipping
 
-All window drawing is in **window-relative** coordinates. `(0, 0)` is your
-window's own top-left corner. Your window is `w × h` as declared in your
-manifest; the title bar is the top 16 pixels and the border is 1 pixel all
-round.
+All window drawing is **relative to your window**: `(0, 0)` is its own
+top-left corner. Your window is `w × h` pixels, as set in your manifest. The
+title bar takes up the top 16 pixels, and the border is 1 pixel wide all the
+way round.
 
 ### `acid_fill_rect(x, y, w, h, color)`
 
-The workhorse. **Clipped against your window's bounds**: a rectangle that runs
-off an edge is trimmed, and one entirely outside draws nothing. You cannot paint
-onto the desktop or another app's window by miscalculating a coordinate.
+The call you'll use most. It's **clipped to your window**: any part of a
+rectangle that runs off the edge is cut off, and a rectangle that's completely
+outside draws nothing. So a wrong coordinate can never paint over the desktop
+or another app's window.
 
 ```lua snippet
 acid_fill_rect(0, 16, WINDOW_W, WINDOW_H - 16, BG_COLOR)  -- fill the body
@@ -135,57 +143,65 @@ acid_fill_rect(x, y, 1, h, LINE_COLOR)                    -- a 1px vertical line
 acid_fill_rect(x, y, w, 1, LINE_COLOR)                    -- a 1px horizontal line
 ```
 
-Clipping is genuinely useful, not just a safety net. Piano draws a divider line
-at `x = 0` for every white key and lets the first one clip harmlessly onto the
-border, instead of special-casing index 0.
+Clipping isn't just a safety net, it can save you work. Piano draws a divider
+line at `x = 0` for every white key, including the first one. That first line
+just lands harmlessly on the border, so there's no need to treat key 0 as a
+special case.
 
 ### `acid_fill_circle(x, y, r, color)`
 
-`x, y` is the **centre**, `r` the radius.
+`x, y` is the **centre**, and `r` is the radius.
 
 ```lua snippet
 acid_fill_circle(ball_x, ball_y, 2, 0x00FF66)
 ```
 
-Like the rectangle it is clipped to your canvas, so a ball that drifts off an
-edge is trimmed, not an error. (A game still wants to clamp its own positions
-so the ball stays in play.) A negative radius draws nothing.
+Like rectangles, circles are clipped to your canvas. A ball that drifts off
+the edge is just cut off, not an error. (A game still needs to keep its own
+positions in range so the ball stays in play.) A negative radius draws
+nothing.
 
 ### `acid_draw_text(str, x, y, fg, bg)`
 
-Fixed-width bitmap font, **6×8 pixels per glyph**, drawn with an opaque background.
-`bg` must be the colour that is already behind the text, or you get a box.
+Draws text in a fixed-width font. Each character is **6×8 pixels**, drawn
+with a solid background. Set `bg` to whatever colour is already behind the
+text, or you'll get a box around it.
 
 ```lua snippet
 acid_draw_text("SCORE " .. self.score, 6, 20, TEXT_COLOR, BG_COLOR)
 ```
 
-`x, y` is the **top-left** of the first glyph, not a baseline.
+`x, y` is the **top-left corner** of the first character, not the baseline.
 
-Text is **clipped to your canvas glyph by glyph**: a glyph that is partly outside
-the window is trimmed, glyphs wholly off the left edge are skipped, drawing stops
-at the right edge, and a string whose row lies wholly above or below the window
-draws nothing. Clipping to the *window* is all it does, though. A long string
-still runs across your own border and over whatever you drew beside it, so cut
+Text is **clipped to your canvas one character at a time**:
+
+- a character that's partly outside the window is cut off,
+- characters wholly off the left edge are skipped,
+- drawing stops at the right edge,
+- a line of text that's completely above or below the window draws nothing.
+
+That only keeps text inside your *window*, though. A long string will still
+run over your border and over anything else you've drawn next to it. Cut
 strings to length yourself:
 
 ```lua snippet
 acid_draw_text(name:sub(1, 22), 6, y, TEXT_COLOR, BG_COLOR)
 ```
 
-A string of `n` characters is `6 * n` pixels wide and 8 tall: the arithmetic
-you need for centring and for deciding where to truncate.
+A string of `n` characters is `6 * n` pixels wide and 8 pixels tall. That's
+all the maths you need to centre text or work out where to cut it.
 
-If `fg` and `bg` are the **same colour**, the glyph cell's background is not
-painted at all: only the lit pixels are drawn, in `fg`. That is the one way to
-draw text over a picture without a box behind it.
+If `fg` and `bg` are the **same colour**, the background isn't painted at all.
+Only the character's own pixels are drawn, in `fg`. That's the one way to put
+text over a picture without a box behind it.
 
-The font covers character codes up to 255; a character past that draws as an
+The font covers character codes up to 255. Anything above that shows as an
 outlined box. Stick to ASCII.
 
 ## 4.3 Window chrome
 
-Three calls draw the parts of the window that belong to the system.
+"Chrome" means the parts of the window that belong to the system: the title
+bar, the close button and the border. Three calls draw them.
 
 ```lua snippet
 function MyApp:redraw()
@@ -204,30 +220,34 @@ end
 
 ### The border must come last
 
-Your content is drawn in coordinates running from `(0, 0)` to the window's full
-width and height, which is exactly where the border's own pixels sit. Draw the
-border first and your content paints straight over it. This is why it is a
-separate call rather than part of `acid_draw_window_frame`.
+You draw your content anywhere from `(0, 0)` to the full width and height of
+the window, and that includes the pixels where the border goes. If you draw
+the border first, your content paints right over it. That's why the border is
+its own call, separate from `acid_draw_window_frame`.
 
-The rounded corners are a 3-pixel staircase, the technique classic low-resolution
-GUIs used before anti-aliased curves were affordable. They must be cut *after*
-the straight border lines, which `acid_draw_window_border` handles internally.
-(On a window under 6 pixels in either direction the radius shrinks to half the
-smaller side.)
+The rounded corners are a 3-pixel staircase, the trick old low-resolution
+screens used before smooth curves were practical. They have to be cut *after*
+the straight border lines are drawn, and `acid_draw_window_border` does that
+for you. On a window smaller than 6 pixels in either direction, the corner
+size shrinks to half the shorter side.
 
 ### Titles
 
-`acid_draw_window_frame` does **not** clip the title against the close button.
-Keep titles short: `AcidApp:window_title` caps at 16 characters for exactly
-this reason.
+`acid_draw_window_frame` does **not** stop the title at the close button.
+Keep titles short. That's exactly why `AcidApp:window_title` cuts them to 16
+characters.
 
 ## 4.4 Partial redraws and flicker
 
-`acid_clear_user_area` + full repaint is correct and simple, and it is what you
-want for the initial paint. It is **not** what you want on every keystroke or
-button press: clearing the whole body to blank and redrawing it flashes visibly.
+Clearing with `acid_clear_user_area` and then repainting everything is simple
+and correct. It's what you want for the first paint.
 
-The fix is to repaint only what changed. `piano.lua` is the model:
+It's **not** what you want on every key press or button press, though.
+Clearing the whole window to blank and then redrawing it causes a visible
+flash.
+
+The fix is to repaint only what changed. `piano.lua` is a good example to
+copy:
 
 ```lua snippet
 -- Full repaint: the initial paint.
@@ -245,18 +265,20 @@ function Piano:redraw_offset(offset)
 end
 ```
 
-Two things to watch when repainting a region:
+When you repaint just one area, watch out for two things:
 
-- **Overlap.** If something is drawn on top of your region, repainting the
-  region alone erases it. Piano repaints a white key *and* any black keys that
-  straddle its edges.
-- **The border.** If your region touches the window edge, call
-  `acid_draw_window_border` again afterwards, or redraw a stripe shy of the edge.
+- **Overlap.** If something else is drawn on top of that area, repainting the
+  area alone wipes it out. Piano repaints a white key *and* any black keys
+  that overlap its edges.
+- **The border.** If the area touches the edge of the window, call
+  `acid_draw_window_border` again afterwards, or stop your repaint just short
+  of the edge.
 
-A third technique, for apps that redraw on a timer: keep a **state signature**:
-a plain comparable value of everything that affects the picture, and skip the
-repaint entirely when it has not changed. Lua tables compare by identity, so
-build the signature as a string:
+There's a third trick for apps that redraw on a timer: skip the repaint when
+nothing has changed. Keep a **state signature**, a single value that captures
+everything that affects the picture, and only redraw when it's different.
+Lua compares tables by identity, not by contents, so build the signature as a
+string:
 
 ```lua snippet
 function MyApp:state_signature()
@@ -273,13 +295,17 @@ end
 
 ## 4.5 The overlay
 
-The overlay is **one screen-sized canvas owned by the kernel**, composited last,
-with magenta `0xFF00FF` treated as transparent. It is the only way to draw
-across the *whole* screen: over the wallpaper, the desktop strip and every open
-window, including your own.
+The overlay is **a single screen-sized canvas that belongs to the system**. It
+is drawn on top of everything else, and magenta (`0xFF00FF`) counts as
+see-through. It's the only way to draw across the *whole* screen: over the
+wallpaper, the desktop strip and every open window, your own included.
 
-It is not a window. It owns no task, is never hit-tested (clicks land on whatever
-is really underneath), never takes focus, and never appears in the taskbar.
+It isn't a window:
+
+- it doesn't belong to any app,
+- clicks pass straight through it to whatever is underneath,
+- it never takes focus,
+- it never shows up in the taskbar.
 
 ```lua snippet
 acid_overlay_open()        -- claim it; true on success, false if refused
@@ -288,24 +314,27 @@ acid_overlay_fill_rect(x, y, w, h, color)   -- screen-absolute coordinates
 acid_overlay_close()       -- release the claim
 ```
 
-The transparency test is made on the stored RGB565 value, so any colour that
-truncates to the same value as `0xFF00FF` is transparent too. Keep real colours
-well away from magenta.
+The see-through check happens after the colour has been stored in RGB565
+([§4.1](#41-colours)). So any colour that ends up the same as `0xFF00FF` after
+the low bits are dropped is see-through too. Keep your real colours well away
+from magenta.
 
-> **Carts cannot open the overlay.** A cart-level app (an installed `.cart` or
-> a WASM cart, [§2.5](02-apps-and-manifests.md#25-carts)) never takes the whole
-> screen: for a cart `acid_overlay_open` always returns `false`, and since a
-> cart can never own the overlay, its other overlay calls do nothing. Write the
-> `false` branch anyway. A built-in app can see it too, as below.
+> **Carts can't open the overlay.** A cart-level app (an installed `.cart` or
+> a WASM cart, [§2.5](02-apps-and-manifests.md#25-carts)) never gets to take
+> over the whole screen. For a cart, `acid_overlay_open` always returns
+> `false`, and because a cart can never own the overlay, its other overlay
+> calls do nothing. Write the `false` branch anyway, because a built-in app
+> can get `false` too, as the next section explains.
 
 ### One owner at a time
 
-`acid_overlay_open` returns `false` if another task already holds the overlay
-(or if you are a cart). There is exactly one canvas, so a second animation
-starting mid-flight would clear the first one's frames and the two would fight.
+`acid_overlay_open` returns `false` if another app already has the overlay
+(or if you're a cart). There's only one overlay. If a second animation started
+halfway through the first, each would keep clearing the other's frames and
+they'd fight.
 
-**A refusal is not an error.** An effect that declines to start because another
-one is already running should simply do nothing:
+**Being refused isn't an error.** If an effect can't start because another one
+is already running, it should just do nothing:
 
 ```lua snippet
 function MyApp:start_effect()
@@ -315,31 +344,31 @@ function MyApp:start_effect()
 end
 ```
 
-(Not `self.running`: that name is `AcidApp`'s loop flag. See the note at the top
-of [chapter 3](03-app-lifecycle.md).)
+Note the name `running_effect`, not `running`: `self.running` is `AcidApp`'s
+loop flag. See the note at the top of [chapter 3](03-app-lifecycle.md).
 
-Re-opening from the task that already owns it succeeds and re-clears, which is
+If you already own the overlay, opening it again works and clears it. That's
 handy for restarting your own animation.
 
-The claim is released automatically when your app ends, on every exit path.
-`acid_overlay_close` does nothing unless you are the current owner, so you can
-never close someone else's animation.
+When your app ends, its claim on the overlay is released automatically,
+however it ended. `acid_overlay_close` does nothing unless you're the current
+owner, so you can never close someone else's animation.
 
 ### Coordinates are screen-absolute
 
-`acid_overlay_fill_rect` takes screen coordinates on a 640×360 screen, not
-window coordinates. It clips against the screen, so negative coordinates are
-normal: that is how a sprite flies in from off-screen.
+`acid_overlay_fill_rect` takes coordinates on the 640×360 screen, not in your
+window. It clips to the screen edges, so negative coordinates are fine. That's
+how a sprite flies in from off-screen.
 
-Drawing while you do not own the overlay silently does nothing. A sprite whose
-animation ended a frame ago, or an effect that never got a canvas, must not be
-an error anyone sees.
+If you draw while you don't own the overlay, nothing happens, silently. That's
+deliberate. A sprite whose animation ended a frame ago, or an effect that never
+got the overlay, shouldn't cause an error anyone sees.
 
 ### An animation loop
 
-This complete app flies a bar across the whole screen, then releases the
-overlay. It animates from `on_idle` with a short `poll_timeout_ms` while the
-effect runs and a slow one otherwise:
+This complete app flies a bar across the whole screen, then gives the overlay
+back. It animates from `on_idle`, with a short `poll_timeout_ms` while the
+effect is running and a long one the rest of the time:
 
 ```lua app
 local FlyApp = AcidApp:extend("FlyApp")
@@ -382,20 +411,26 @@ end
 FlyApp:new():start()
 ```
 
-(`on_touch` has the held-press guard [§3.5](03-app-lifecycle.md#35-touch-debouncing)
-asks for: a second tap while the effect runs is ignored.)
+`on_touch` has the guard against held presses that
+[§3.5](03-app-lifecycle.md#35-touch-debouncing) asks for, so tapping again
+while the effect is running does nothing.
 
-Clear-then-draw means there is a brief window where the canvas is all-key with
-nothing drawn yet. If a composite lands inside it, the worst case is one frame
-with the bar missing, tens of microseconds against a ~16 ms compositor tick.
-Every window canvas in this OS already draws this way.
+Each frame clears the overlay and then draws, so for a brief moment the
+overlay is empty. If the screen happens to update right then, the worst that
+happens is one frame without the bar. That moment lasts tens of microseconds,
+and the screen updates about every 16 ms. Every window in Acid OS draws this
+way already.
 
 ## 4.6 Sprites
 
-`AcidSprite` (`v3/apps/lib/acid_sprite.lua`; add it to your manifest's `libs`)
-draws pictures onto the overlay. A sprite is written **as a picture**: a Lua
-sequence of equal-length strings, one character per pixel, plus a palette table.
-`.` is transparent. A character with no palette entry is transparent too.
+`AcidSprite` draws small pictures onto the overlay. It lives in
+`v3/apps/lib/acid_sprite.lua`, so add that to your manifest's `libs` to use
+it.
+
+You write a sprite **as a picture**: a list of strings, all the same length,
+with one character per pixel, plus a palette table that maps characters to
+colours. `.` is see-through, and so is any character that isn't in the
+palette.
 
 ```lua snippet
 local TEAPOT = { "..WWW..",
@@ -409,23 +444,25 @@ AcidSprite.width(TEAPOT)    -- in characters, not pixels: multiply by scale
 AcidSprite.height(TEAPOT)
 ```
 
-You edit a sprite by **redrawing it in the source**, not by recomputing
-coordinates. `scale` multiplies each character into a `scale × scale` block, so
-a 7×3 drawing at `scale = 4` is 28×12 on screen. `x, y` are screen coordinates,
-the overlay's, and the caller must own the overlay: `AcidSprite` draws with
-`acid_overlay_fill_rect`, which does nothing otherwise.
+To change a sprite, you **redraw it in the source**. No coordinates to work
+out.
 
-`flip` mirrors horizontally, so one drawing of a character can face either way,
-which is what makes a sprite flying right-to-left look like it is facing where
-it is going rather than flying backwards.
+- `scale` turns each character into a `scale × scale` block, so a 7×3 drawing
+  at `scale = 4` is 28×12 pixels on screen.
+- `x, y` are screen coordinates, because sprites draw on the overlay.
+- You must own the overlay. `AcidSprite` draws with `acid_overlay_fill_rect`,
+  which does nothing if you don't.
+- The last argument, `flip`, mirrors the sprite left to right. One drawing can
+  then face either way, so a sprite flying right-to-left looks like it's going
+  forwards, not backwards.
 
-Runs of identical colour are merged into single rectangles, so a sprite costs
-far fewer drawing calls than it has pixels.
+Neighbouring pixels of the same colour are drawn as one rectangle, so a sprite
+takes far fewer drawing calls than it has pixels.
 
-This complete app flies a sprite across the screen, mirroring it each pass. Its
-header declares `-- libs: lib/acid_sprite.lua` for the test harness; an
-installed app would put the same path in its manifest's `libs`
-([§2.3](02-apps-and-manifests.md#23-loading-modules)):
+This complete app flies a sprite across the screen and flips it round each
+time. Its first line, `-- libs: lib/acid_sprite.lua`, tells the test suite to
+load the sprite library. A real installed app would put the same path in its
+manifest's `libs` instead ([§2.3](02-apps-and-manifests.md#23-loading-modules)):
 
 ```lua app
 -- libs: lib/acid_sprite.lua
@@ -489,19 +526,22 @@ acid_set_wallpaper_enabled(true)   -- or false
 acid_get_wallpaper_enabled()       -- => true / false
 ```
 
-A system-wide setting; Config owns it. Toggling it flips the flag and asks the
-compositor to recomposite; with it off the desktop is plain `THEME_BG`. Like
-`acid_set_volume`, it stays open to carts.
+This is a system-wide setting, and the Config app is in charge of it. Turning
+it on or off redraws the screen straight away. With the wallpaper off, the
+desktop is plain `THEME_BG`. Like `acid_set_volume`, carts are allowed to use
+it.
 
-`acid_repaint_region(x, y, w, h)` fills that region **of your own canvas** with
-the wallpaper (or `THEME_BG` when the wallpaper is off). Despite the name it does
-not ask anyone else to repaint: the screen is recomputed from each window's
-canvas every time anything changes, so erasing your own claim on a region is all
-that is needed, and the next composite shows what is really underneath.
+`acid_repaint_region(x, y, w, h)` fills that area **of your own canvas** with
+the wallpaper, or with `THEME_BG` if the wallpaper is off. Despite its name,
+it doesn't ask anything else to repaint. The screen is rebuilt from every
+window's canvas whenever anything changes, so clearing your own canvas is
+enough: next time the screen updates, whatever is really underneath shows
+through.
 
-The pixels it copies are the wallpaper's *at the same coordinates as the
-region*, so it is only correct for a window that sits at the screen's `(0, 0)`.
-The desktop strip's dropdown-close is the one caller.
+It copies the wallpaper from *the same coordinates* as the area you give it.
+So it only looks right for a window that sits at the top-left of the screen,
+`(0, 0)`. In practice only the desktop strip uses it, to clear away a
+dropdown menu when it closes.
 
 ---
 

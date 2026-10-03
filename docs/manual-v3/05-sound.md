@@ -2,20 +2,29 @@
 
 [← Graphics](04-graphics.md) · [Contents](README.md) · [Next: Games →](06-games.md)
 
-Acid OS v3 has a **hand-built 8-voice subtractive synthesiser** running in the
-kernel (the `acid-synth` crate). There are no samples, no audio files, no codecs.
-Everything the OS makes a noise with (every game's sound effects, the Piano
-app, the Terminal's easter eggs) comes out of ten functions: `acid_play_note`,
-`acid_stop_note`, `acid_configure_voice`, `acid_configure_osc`,
-`acid_configure_filter`, `acid_set_ring_partner`, `acid_trigger_arp`,
-`acid_set_volume`, `acid_get_volume` and `acid_active_voice_count`.
+Acid OS has its own **8-voice synthesiser**, built into the kernel (the
+`acid-synth` crate). It makes sound from scratch: there are no samples, no
+audio files and no codecs. Every sound in the OS comes from it, including the
+games' sound effects, the Piano app and the Terminal's easter eggs.
 
-The design is openly modelled on the **MOS 6581 SID**, the sound chip in the
-Commodore 64: pulse/saw/triangle/noise oscillators, a per-voice ADSR envelope,
-one shared resonant multi-mode filter with per-voice routing, ring modulation
-wired into the triangle generator, and an arpeggiator for chords a single voice
-can fake. The whole thing is integer arithmetic at 22,050 Hz, unsigned 8-bit
-mono; no floating point is involved.
+You control it with ten functions:
+
+- `acid_play_note` and `acid_stop_note`
+- `acid_configure_voice`, `acid_configure_osc` and `acid_configure_filter`
+- `acid_set_ring_partner` and `acid_trigger_arp`
+- `acid_set_volume`, `acid_get_volume` and `acid_active_voice_count`
+
+It is modelled on the **SID** (the MOS 6581), the sound chip in the Commodore 64.
+Like the SID, it has:
+
+- pulse, saw, triangle and noise waveforms
+- a volume envelope (ADSR) on each voice
+- one shared filter, with a choice of which voices go through it
+- ring modulation, built into the triangle wave
+- an arpeggiator, so one voice can fake a chord
+
+It works entirely in whole numbers, with no floating point. The output is mono,
+unsigned 8-bit, at 22,050 Hz.
 
 If you have ever written a SID tune, you already know this instrument.
 
@@ -30,40 +39,41 @@ If you have ever written a SID tune, you already know this instrument.
                               cutoff / resonance / LP|BP|HP
 ```
 
-- **8 voices**, numbered **0–7**. Each has its own waveform, pitch, envelope,
-  duty cycle, ring-mod partner, arpeggio and filter routing.
+- **8 voices**, numbered **0–7**. Each one has its own waveform, pitch,
+  envelope, duty cycle, ring-mod partner, arpeggio and filter routing.
 - **One filter**, shared by every voice. Its cutoff, resonance and mode are
-  *global* settings: changing them changes them for everyone. Which voices go
-  through it is *per-voice*.
-- **One master volume**, 0–100, applied to the final mix. A system setting; the
-  Config app owns it.
+  global, so if you change them, you change them for everyone. What each voice
+  chooses for itself is whether it goes through the filter.
+- **One master volume**, 0–100, applied to the final mix. This is a system
+  setting, and the Config app looks after it.
 
 ### Calls take effect between audio buffers
 
-Every audio function changes the synthesiser's state under a lock that the audio
-callback holds while it renders a buffer, so a call lands **between buffers**:
-a fraction of a second at most, never mid-sample. Nothing you call returns a
-result about what the synth did.
+The synthesiser makes sound in small chunks called buffers. While it is
+working on a buffer, your calls wait. So each call takes effect **between
+buffers**: a fraction of a second later at most, and never halfway through a
+sample. None of the audio functions tell you what the synth did.
 
-(Commands are applied directly, so there is no queue to overflow. Even so, do
-not design something that depends on a single `acid_stop_note` arriving, because
-it is cheap to make the design not need it.)
+Your calls are applied directly, so there is no queue that could overflow.
+Even so, don't build something that falls apart if one `acid_stop_note` goes
+missing. It is easy to design it so it doesn't need to care.
 
-**Ordering within your own app is preserved**, so `acid_play_note` followed by
-`acid_trigger_arp` on the same voice does what you expect.
+**Your calls happen in the order you make them.** So `acid_play_note` followed
+by `acid_trigger_arp` on the same voice does what you expect.
 
 ### Voice ownership, and voice stealing
 
-The kernel records which task last gated on each voice, and releases every voice
-your app owns when your app ends, on **every** exit path, including a Lua error.
-You cannot leave a note droning after your window closes. (If another app has
-taken a voice from you by playing a note on it, that voice is theirs now and
-your exit leaves it alone.)
+The kernel remembers which app last started a note on each voice (in synth
+terms, which app "gated it on"). When your app ends, the kernel releases every
+voice you own. This happens **however** your app ends, even if it crashes with a
+Lua error, so you can't leave a note droning after your window closes.
+
+If another app has since played a note on one of your voices, that voice is
+theirs now. Your app ending leaves it alone.
 
 What the kernel does **not** do is stop another app taking a voice you are
-using. `acid_stop_note(3)` silences voice 3 no matter who started it. There is no
-allocator and no reservation. The convention is simply that apps pick different
-voices:
+using. `acid_stop_note(3)` silences voice 3, whoever started it. You can't
+reserve a voice. Instead, apps simply agree to use different ones:
 
 | Voice | Used by |
 |---|---|
@@ -73,22 +83,23 @@ voices:
 | 6 | Tetris, and the Terminal's easter eggs |
 | **7** | **free** |
 
-If you are writing one app and nothing else will be making noise, use whatever
-you like. If you want to be a good citizen, use 7, or pick the highest numbers
-you need and document them in your source the way the games do.
+If your app is the only thing making noise, use whatever voices you like. To be
+a good neighbour, use 7. If you need more, pick the highest numbers you can and
+note them in your source, the way the games do.
 
 ## 5.2 Pitch: the `ona` scale
 
-Pitch is an integer called `ona`, using **standard 88-key piano numbering**:
+Pitch is a whole number called `ona`. It counts the keys on a **standard
+88-key piano**:
 
 - `ona = 1` is **A0**, the lowest key (27.5 Hz)
 - `ona = 49` is **A4**, concert pitch (440.0 Hz)
 - `ona = 88` is **C8**, the top key (4186 Hz)
 - `freq(n) = 440 × 2^((n − 49) / 12)`
 
-Values outside 1–88 are ignored: the note simply does not change pitch.
+Values outside 1–88 are ignored, and the note keeps the pitch it had.
 
-`ona` is MIDI note number minus 20, if that is a scale you already think in.
+If you already think in MIDI note numbers, `ona` is the MIDI number minus 20.
 
 ### The table
 
@@ -108,7 +119,8 @@ Middle C (C4) is **40**. Each octave is 12.
 
 ### Working in semitones
 
-Music is intervals, so most code picks a root and adds. Piano does exactly this:
+Music is built from intervals, so most code picks a starting note (the root) and
+adds to it. The Piano app does exactly this:
 
 ```lua snippet
 local ROOT_ONA = 40                                  -- C4
@@ -129,10 +141,15 @@ Useful intervals, in semitones:
 | perfect 4th | 5 | | major 7th | 11 |
 | tritone | 6 | | octave | 12 |
 
-Chords, as offsets from a root: major `{ 0, 4, 7 }`, minor `{ 0, 3, 7 }`,
-diminished `{ 0, 3, 6 }`, major 7th `{ 0, 4, 7, 11 }`, minor 7th `{ 0, 3, 7, 10 }`.
+Some chords, as offsets from the root:
 
-If you want a note-name helper in your own app:
+- major: `{ 0, 4, 7 }`
+- minor: `{ 0, 3, 7 }`
+- diminished: `{ 0, 3, 6 }`
+- major 7th: `{ 0, 4, 7, 11 }`
+- minor 7th: `{ 0, 3, 7, 10 }`
+
+If you'd like to use note names in your own app, here is a small helper:
 
 ```lua snippet
 local Notes = {}
@@ -158,12 +175,15 @@ acid_stop_note(voice)
 | `ona` | 1–88 | Pitch. Out of range leaves the pitch unchanged. |
 | `volume` | 0–100 | How loud this note holds. Clamped. |
 
-`acid_play_note` does three things: sets the voice's pitch, sets its **sustain
-level** from `volume`, and gates the envelope on, restarting it from zero, so
-retriggering a sounding voice replays the attack rather than continuing.
+`acid_play_note` does three things:
 
-`acid_stop_note` gates the envelope off, which starts its release phase, and
-stops any arpeggio the voice was running.
+1. It sets the voice's pitch.
+2. It sets the voice's **sustain level** from `volume`.
+3. It starts the note ("gates it on"). The envelope restarts from zero, so if
+   the voice was already sounding you hear the attack again.
+
+`acid_stop_note` ends the note ("gates it off"). The envelope moves into its
+release phase, and any arpeggio on the voice stops.
 
 ```lua snippet
 acid_play_note(7, 49, 60)    -- A4, at 60
@@ -173,35 +193,36 @@ acid_stop_note(7)            -- release it
 
 ### `volume` *is* the sustain level
 
-This trips people up. `acid_configure_voice` takes a `sustain_percent`, but
+This catches people out. `acid_configure_voice` takes a `sustain_percent`, but
 **every `acid_play_note` overwrites it** with that call's `volume`. So:
 
-- `acid_configure_voice`'s `sustain_percent` only matters for a note gated on
-  *without* going through `acid_play_note`, which from Lua never happens.
-- Per-note dynamics are exactly what `volume` is for.
+- The `sustain_percent` you give `acid_configure_voice` only matters for a note
+  started some other way than `acid_play_note`. From Lua, that never happens.
+- If you want some notes louder than others, that is what `volume` is for.
 
-Pass something sensible to `acid_configure_voice` for readability, and treat
+Give `acid_configure_voice` a sensible value so your code reads well, but treat
 `volume` as the real control.
 
 ### Nothing stops a note but you
 
-There is **no note length**. A gated-on voice sustains at `volume` until
-something calls `acid_stop_note` on it. A decay to silence is only silent
-because you set `sustain_percent`/`volume` such that the envelope falls to
-zero, and even then the voice is still gated on.
+There is **no note length**. Once a note starts, it holds at `volume` until
+something calls `acid_stop_note` on that voice.
 
-This is the single most important thing to internalise about this synthesiser,
-and [§6.4](06-games.md#64-the-sound-effect-lifecycle) is about the bug it
-causes.
+A note can fade to silence, but only because its sustain level (`volume`) is
+zero, so the envelope decays to nothing. Even then, the voice is still on.
+
+This is the most important thing to understand about this synthesiser.
+[§6.4](06-games.md#64-the-sound-effect-lifecycle) covers the bug it causes and
+how to avoid it.
 
 ### A voice with no pitch
 
-A voice that has never had a pitch set has a phase increment of zero: its
-oscillator never advances, so it would output a constant, non-silent value, a
-full-scale DC thump instead of a note. `acid_play_note` with an out-of-range
-`ona` on a fresh voice therefore **silently does nothing** rather than clicking.
-Always play a real note first; an arpeggiating voice is the one exception, since
-its pitch comes from the pattern.
+A voice that has never been given a pitch can't make a proper sound. Its
+oscillator never moves, so instead of a note you would get a loud thump.
+
+To avoid that, `acid_play_note` with an out-of-range `ona` on a fresh voice
+**silently does nothing**. Always play a real note first. The one exception is
+an arpeggiating voice, because it gets its pitch from the pattern.
 
 ## 5.4 Shaping the voice: `acid_configure_voice`
 
@@ -213,12 +234,15 @@ acid_configure_voice(voice, filter_route, attack_ms, decay_ms, sustain_percent, 
 |---|---|---|
 | `voice` | 0–7 | |
 | `filter_route` | 0 or 1 | Non-zero routes this voice through the shared filter; 0 goes straight to the output. |
-| `attack_ms` | ms | Time from silence to full level after gate-on. 0 (or less) is instant. |
+| `attack_ms` | ms | Time from silence to full level once the note starts. 0 (or less) is instant. |
 | `decay_ms` | ms | Time from full level down to the sustain level. |
-| `sustain_percent` | 0–100 | Held level, **overwritten by `acid_play_note`'s `volume`**. Clamped. |
-| `release_ms` | ms | Time from the current level to silence after gate-off. |
+| `sustain_percent` | 0–100 | The level the note holds at. **Overwritten by `acid_play_note`'s `volume`**. Clamped. |
+| `release_ms` | ms | Time from the current level to silence once the note stops. |
 
-Times are capped at 100,000 ms (100 seconds). This is a classic **ADSR** envelope:
+Times are capped at 100,000 ms (100 seconds).
+
+Together these make a classic **ADSR** envelope (attack, decay, sustain,
+release). It shapes how a note's loudness changes over time:
 
 ```text
  level
@@ -235,10 +259,11 @@ Times are capped at 100,000 ms (100 seconds). This is a classic **ADSR** envelop
 
 ### The defaults are deliberately unusable
 
-A fresh voice is a **raw 50% pulse wave with instant attack, instant decay,
-instant release, unfiltered**. That is a hard, buzzy square-wave blip: correct
-as a neutral starting point, wrong as a sound. Configure every voice you use in
-`on_create`.
+A fresh voice is a raw 50% pulse wave, with instant attack, decay and release,
+and no filter. That gives you a hard, buzzy blip. It is a neutral starting
+point, not a sound you want to hear.
+
+**Configure every voice you use in `on_create`.**
 
 ### Envelope recipes
 
@@ -259,9 +284,8 @@ acid_configure_voice(v, 1, 400, 300, 70, 600)
 acid_configure_voice(v, 1, 8, 150, 35, 250)
 ```
 
-Millisecond values are honoured to a genuinely fine resolution; the envelope
-runs in a scaled-up fixed-point representation internally so that a 500 ms decay
-really is 500 ms and not a badly quantised approximation.
+The timings are accurate to the millisecond. A 500 ms decay really is 500 ms,
+not a rough approximation.
 
 ## 5.5 The oscillator: `acid_configure_osc`
 
@@ -269,8 +293,8 @@ really is 500 ms and not a badly quantised approximation.
 acid_configure_osc(voice, waveform, duty_percent)
 ```
 
-`AcidWaveform` is always loaded: you never list it in `libs`. It is just names
-for the four numbers:
+`AcidWaveform` is always loaded, so you never need to list it in `libs`. It just
+gives names to four numbers:
 
 ```lua snippet
 AcidWaveform = {
@@ -288,9 +312,10 @@ AcidWaveform = {
 | `TRIANGLE` | Soft, flute-like, few harmonics | Mellow basses, bells (with ring mod) |
 | `NOISE` | White noise | Drums, explosions, wind, hi-hats |
 
-`duty_percent` is **clamped to 1–99** and is audible **only on `PULSE`**. The
-default is 50%, a pure square. An unknown waveform number leaves the waveform as
-it was.
+`duty_percent` sets how wide the pulse is. It is **clamped to 1–99**, and you
+only hear it **on `PULSE`**. The default is 50%, a pure square wave.
+
+An unknown waveform number leaves the waveform as it was.
 
 | Duty | Sound |
 |---|---|
@@ -305,8 +330,8 @@ acid_configure_osc(v, AcidWaveform.SAW, 50)       -- duty ignored
 acid_configure_osc(v, AcidWaveform.NOISE, 50)     -- duty ignored
 ```
 
-Sweeping duty over time is the classic pulse-width-modulation sound and costs
-you nothing but a call per frame:
+If you change the duty a little every frame, you get the classic
+pulse-width-modulation sound. It only costs one call per frame:
 
 ```lua snippet
 function MyGame:on_tick()
@@ -327,7 +352,8 @@ acid_configure_filter(cutoff, resonance, mode)
 | `resonance` | 0–15 | Emphasis at the corner. 0 is heavily damped; 15 is a sharp, whistling peak. Clamped. |
 | `mode` | bitmask 0–7 | Which outputs to sum. |
 
-There are no Lua names for the modes; declare them yourself, as Piano does with its `Piano.FILTER_MODE_LP` class field (these examples use locals):
+The modes don't have built-in names, so declare your own. Piano uses a class
+field, `Piano.FILTER_MODE_LP`. These examples use locals:
 
 ```lua snippet
 local FILTER_MODE_LP = 1   -- low-pass:  keeps lows, removes highs
@@ -335,32 +361,33 @@ local FILTER_MODE_BP = 2   -- band-pass: keeps a band around the cutoff
 local FILTER_MODE_HP = 4   -- high-pass: keeps highs, removes lows
 ```
 
-Modes combine: `FILTER_MODE_LP | FILTER_MODE_HP` is a notch, `0` mutes every
-routed voice. Before anyone configures it the filter is a low-pass at cutoff 128
-with resonance 0.
+You can combine modes. `FILTER_MODE_LP | FILTER_MODE_HP` is a notch filter, and
+`0` mutes every voice that goes through the filter.
 
-Under the hood this is a **Chamberlin state-variable filter**, the same
-topology as the SID's, with a resonance sweep from Q ≈ 0.707 (damped) to Q = 8.0
-(a sharp resonant peak).
+Until someone configures it, the filter is a low-pass at cutoff 128 with
+resonance 0.
+
+If you're curious, it is a Chamberlin state-variable filter, the same design as
+the SID's. Resonance runs from Q ≈ 0.707 (damped) to Q = 8.0 (a sharp peak).
 
 ### It is one filter, shared
 
-There is exactly one filter for the whole system. `acid_configure_filter` is
-global: change it and you change it for every routed voice in every app. What is
-per-voice is only *whether a voice goes through it*, set by
-`acid_configure_voice`'s `filter_route`.
+There is exactly one filter for the whole system. When you call
+`acid_configure_filter`, you change it for every filtered voice in every app.
+The only thing each voice decides is whether it goes through the filter, using
+the `filter_route` argument to `acid_configure_voice`.
 
-In practice apps set a mild low-pass in `on_create` and leave it alone:
+In practice, apps set a gentle low-pass in `on_create` and leave it alone:
 
 ```lua snippet
 acid_configure_filter(180, 3, FILTER_MODE_LP)
 ```
 
-That single line is what turns the harsh default pulse into something warm, and
-it is why every sound-making app in the tree opens with it.
+That one line turns the harsh default pulse into something warm. It's why every
+app that makes sound starts with it.
 
-Sweeping the cutoff is the *acid* sound. It is also the most antisocial thing
-you can do to another app's audio, so sweep only while your app is the one
+Sweeping the cutoff up and down is the *acid* sound. It is also the rudest thing
+you can do to another app's audio, so only sweep while your app is the one
 making noise:
 
 ```lua snippet
@@ -377,17 +404,17 @@ end
 acid_set_ring_partner(voice, partner)   -- partner 0-7, or negative to clear
 ```
 
-Ring modulation multiplies one oscillator against another, producing clangorous,
-inharmonic sum-and-difference tones: bells, gongs, metallic percussion, the
-sound of a C64 game hitting something hard.
+Ring modulation multiplies one oscillator by another. The result is a clanging,
+metallic tone: bells, gongs, metal percussion, the sound of a C64 game hitting
+something hard.
 
-**Audible only on a `TRIANGLE` voice.** This is not a limitation of the binding;
-it matches the real SID, whose ring modulator is wired directly into the triangle
-generator's fold-direction bit rather than being a general-purpose effect. Set it
-on a pulse or saw voice and nothing happens. A partner above 7 is ignored.
+**You only hear it on a `TRIANGLE` voice.** That's how the real SID works too:
+its ring modulator is built into the triangle wave rather than being a general
+effect. Set it on a pulse or saw voice and nothing happens. A partner above 7 is
+ignored.
 
-The *partner* voice contributes only its oscillator phase. It does not need to be
-gated on, and you will not hear it separately unless you play it too.
+The partner voice only lends its oscillator. It doesn't need to be playing, and
+you won't hear it on its own unless you play it too.
 
 ```lua snippet
 local BELL = 4
@@ -405,8 +432,9 @@ function MyGame:clang()
 end
 ```
 
-Change the partner's pitch to change the character completely: an octave apart
-is mild, a tritone apart is a harsh clang. Clear it with a negative partner.
+Change the partner's pitch and the character changes completely. An octave
+apart is mild; a tritone apart is a harsh clang. To clear it, pass a negative
+partner.
 
 ## 5.8 The arpeggiator: `acid_trigger_arp`
 
@@ -414,27 +442,28 @@ is mild, a tritone apart is a harsh clang. Clear it with a negative partner.
 acid_trigger_arp(voice, note0, note1, note2, note3, count, rate_ms)
 ```
 
-A single voice steps through **up to four pitches**, cycling upward with
-wraparound, at `rate_ms` per step. This is how an 8-bit machine plays a chord
-with one voice, and it is how most of this OS's sound effects get their
-character.
+An arpeggio makes one voice step through **up to four pitches**, one after
+another, then go back to the first and repeat. Each step lasts `rate_ms`. This
+is how 8-bit machines play a chord with a single voice, and it gives most of
+Acid OS's sound effects their character.
 
 | Argument | Range | Meaning |
 |---|---|---|
 | `voice` | 0–7 | |
-| `note0`–`note3` | 1–88 | **Absolute `ona` values**, not offsets. All four arguments are required. |
-| `count` | 2–4 | How many slots to use. Unused slots must still be valid values: pass `1`. |
+| `note0`–`note3` | 1–88 | **Actual `ona` values**, not offsets. You must pass all four. |
+| `count` | 2–4 | How many of the four notes to use. Pass `1` for the unused ones, since they must still be valid. |
 | `rate_ms` | ms | Time per step. 0 or less becomes one audio sample; capped at 10,000 ms. |
 
-A voice the kernel releases when its owner exits also drops its arpeggio, so
-the next app to play it hears a plain note.
+A `count` outside 2–4 is ignored completely, and **1 counts as outside**. For a
+single note, just use `acid_play_note`.
 
-A `count` outside 2–4 is ignored entirely, and **1 is outside it**: a one-note
-"arpeggio" is not an arpeggio, so use `acid_play_note`.
+**Call it straight after `acid_play_note` on the same voice.** `acid_play_note`
+sets the volume and envelope and starts the note. `acid_trigger_arp` then steps
+the pitch on top. Each time the note starts, the pattern begins again from the
+first note.
 
-**Call it immediately after `acid_play_note` on the same voice.** `acid_play_note`
-sets the volume, envelope and gate; `acid_trigger_arp` drives pitch-stepping on
-top. The pattern always restarts at slot 0 on gate-on.
+When your app ends and the kernel releases its voices, their arpeggios are
+cleared too, so the next app to use the voice hears a plain note.
 
 ```lua snippet
 -- A chord, fast enough to hear as one sound
@@ -452,11 +481,13 @@ acid_trigger_arp(v, 30, 27, 23, 18, 4, 110)
 
 ### The arpeggio does not stop by itself
 
-It cycles **forever** until `acid_stop_note` gates the voice off, and
-`acid_stop_note` is also the only thing that clears it: a later plain
-`acid_play_note` on the same voice keeps arpeggiating. A four-note run at 110 ms
-is 440 ms for one pass, and then it starts again. If you meant "play this run
-once", you must stop the note after one pass:
+It repeats **forever** until you call `acid_stop_note`. That is also the only
+thing that clears it: if you call `acid_play_note` again on the same voice, it
+keeps arpeggiating.
+
+A four-note run at 110 ms takes 440 ms, and then it starts again. If you want it
+to play just once, stop the note after one pass. Work out how many ticks that
+takes, rounding up:
 
 ```lua snippet
 local RATE_MS = 110
@@ -474,26 +505,26 @@ acid_get_volume()              -- => 0-100
 acid_active_voice_count()      -- => 0-8
 ```
 
-`acid_set_volume` is a **system setting**, not yours. The Config app owns it. It
-is open to carts like any built-in app, but that is no reason to use it: do not
-turn the user's volume down because your app is loud. Scale your own `volume`
-arguments instead. A value outside 0–100 is clamped.
+`acid_set_volume` is a **system setting that belongs to the user**, and the
+Config app looks after it. Carts can call it just like built-in apps can, but
+please don't. If your app is too loud, turn down your own `volume` arguments
+instead of the user's volume. A value outside 0–100 is clamped.
 
-`acid_active_voice_count` reports how many voices have a sounding envelope as of
-the last audio buffer. It is a diagnostic (the System Monitor shows it), and it
-is genuinely useful while developing:
+`acid_active_voice_count` tells you how many voices were making sound in the
+last audio buffer. The System Monitor shows it, and it's very handy while you're
+developing:
 
 ```lua snippet
 acid_draw_text("VOICES " .. acid_active_voice_count(), 6, 20, TEXT_COLOR, BG_COLOR)
 ```
 
-If that number never returns to zero after your sounds finish, you have left a
-voice gated on.
+If that number doesn't drop back to zero after your sounds finish, you've left a
+voice playing.
 
 ## 5.10 Patch book
 
-Complete, paste-ready settings. Each assumes you have already set a filter, or
-sets its own.
+Complete settings you can paste straight in. Each one either sets its own
+filter or assumes you've already set one.
 
 ### UI click
 
@@ -531,8 +562,8 @@ acid_play_note(V, 80, 40)
 
 ### Acid bassline
 
-The one the OS is named after. Saw wave, resonant low-pass, cutoff swept every
-frame.
+The sound the OS is named after: a saw wave through a resonant low-pass filter,
+with the cutoff swept every frame.
 
 ```lua snippet
 local BASS = 7
@@ -576,10 +607,11 @@ acid_play_note(V, 40, 45)
 
 ## 5.11 Worked example: a drum-and-bass box
 
-A complete app. Four pads across the bottom fire drum sounds; the top half is a
-step sequencer for a bassline that runs on its own tick. Save the script as
-`v3/apps/rhythm.lua` with the manifest below and restart the OS, and it is in
-the Menu.
+Here is a complete app. Four pads along the bottom play drum sounds. The top
+half is a step sequencer that plays a bassline by itself.
+
+Save the script as `v3/apps/rhythm.lua`, add the manifest below, and restart the
+OS. You'll find it in the Menu.
 
 `v3/apps/rhythm.app.toml`:
 
@@ -798,18 +830,18 @@ end
 RhythmApp:new():start()
 ```
 
-Things worth noticing in it:
+Things to notice:
 
 - Every voice is configured in `on_create`, before anything plays.
-- `fire` registers every note it starts; `tick_sfx` is the **only** place a note
-  is stopped; `stop_all_sfx` exists for the reset path and for `on_destroy`.
-- The stab's arp runs for exactly one pass, because its tick count was computed
-  from `rate_ms × count`.
-- The touch handler debounces with `touch_down`, so resting a finger on a pad
+- `fire` keeps track of every note it starts. `tick_sfx` is the **only** place
+  a note is stopped. `stop_all_sfx` is there for resetting and for `on_destroy`.
+- The stab's arpeggio plays exactly once, because its tick count comes from
+  `rate_ms × count`.
+- The touch handler uses `touch_down` so that resting a finger on a pad only
   hits it once.
-- The filter sweep runs every tick: the acid.
+- The filter sweeps every tick. That's the acid.
 - A rest in `PATTERN` is `false`, not `nil`. A `nil` in the middle of a Lua
-  table makes `#` unreliable and `ipairs` stop early.
+  table makes `#` unreliable and stops `ipairs` early.
 
 ---
 

@@ -1,17 +1,23 @@
 # The Acid OS v3 Manual
 
-Acid OS v3 is a small graphical operating system written in Rust. This build
-is the **hosted x64** one: it runs in a window on your desktop. Every
-application is a **Lua** script running in its own Lua VM, on its own OS
-thread, in its own window. Applications can also be **WASM carts**: a
-`.wasm` module compiled from Rust (or anything else that targets WebAssembly),
-run by the same kernel behind a stricter sandbox.
+Acid OS v3 is a small graphical operating system written in Rust. The version
+in this repository runs in a window on your Linux desktop (we call this the
+**hosted** build).
 
-This manual is about writing those applications. Every Lua and WAT example
-in it is tested on each `cargo test`: the Lua apps and the WAT cart run under
-the real kernel, and every Lua snippet is parsed. The Rust cart excerpts are
-not compiled, but the sample cart in `v3/carts-src/hello-wasm` is built from
-source and run by the tests.
+Apps are written in **Lua**. Each app gets its own window, its own Lua VM and
+its own thread, so it runs separately from every other app. You can also write apps as **WASM carts**:
+WebAssembly modules compiled from Rust, or from anything else that targets
+WebAssembly. They run on the same system, but in a stricter sandbox.
+
+This manual shows you how to write those apps. You can trust the examples,
+because the test suite checks them every time it runs:
+
+- the complete Lua apps and the WAT cart are run for real
+- every shorter Lua snippet is checked to make sure it parses
+- the Rust cart excerpts aren't compiled, but the sample cart they come from
+  (`v3/carts-src/hello-wasm`) is built and run
+
+Here is a whole app:
 
 ```lua app
 local HelloApp = AcidApp:extend("HelloApp")
@@ -32,16 +38,16 @@ end
 HelloApp:new():start()
 ```
 
-That is a complete, installable app. Drop it in `v3/apps/hello.lua` with a
-manifest beside it and it appears in the Menu at the next boot: no rebuild, no
-Rust, no toolchain.
+Save it as `v3/apps/hello.lua`, put a small manifest file beside it, and it
+appears in the Menu the next time Acid OS starts. You don't rebuild anything
+or touch any Rust.
 
 ## Contents
 
 | | |
 |---|---|
-| **[1. Getting started](01-getting-started.md)** | Build the hosted OS, run it, write and install your first app. |
-| **[2. Apps and manifests](02-apps-and-manifests.md)** | `.app.toml`, how the launcher finds apps, and the `.cart` format for apps written outside the OS. |
+| **[1. Getting started](01-getting-started.md)** | Build and run Acid OS, then write and install your first app. |
+| **[2. Apps and manifests](02-apps-and-manifests.md)** | The `.app.toml` manifest, how the Menu finds apps, and `.cart` files for apps written outside the OS. |
 | **[3. The app lifecycle](03-app-lifecycle.md)** | `AcidApp`, the event loop, touch, keys, idle, redraw, focus. |
 | **[4. Graphics](04-graphics.md)** | Drawing inside your window, the theme palette, the 256-colour hue wheel, the full-screen overlay and sprites. |
 | **[5. Sound](05-sound.md)** | The 8-voice synthesiser: notes, envelopes, waveforms, the filter, ring modulation and the arpeggiator. |
