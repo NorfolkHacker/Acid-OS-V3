@@ -617,8 +617,8 @@ acid_play_note(voice, ona, volume)
 Starts a note. It sets the pitch, sets the sustain level from `volume`, and
 starts the envelope from zero, so playing a note again replays the attack.
 
-A voice that has never had a pitch and isn't running an arpeggio stays silent.
-That avoids a thump from the speaker.
+On a voice that has never had a pitch and isn't running an arpeggio, this call
+does nothing. That avoids a thump from the speaker.
 
 The voice is marked as belonging to your app, and it is released when your app
 ends.
@@ -995,8 +995,7 @@ globals. The main differences:
   import returns `0`.
 - **Except closing windows.** The `acid_close_window` import returns `-4` to a
   cart.
-- **The limits are different.** Carts are held by fuel and memory limits
-  instead.
+- **The limits are different.** Carts have their own fuel and memory limits.
 
 [Chapter 10](10-wasm-carts.md) covers all of this.
 
