@@ -100,4 +100,14 @@ RESTART_OK = false
 TEXTS = {}
 tap(90, 220)
 ok(has(TEXTS, "RESTART FAILED"), "a refused restart says so")
+tap(10, 70)
+eq(GAME.restart_failed, false, "a press elsewhere clears RESTART FAILED")
 RESTART_OK = true
+-- on_idle can be starved by held touches, so a stale armed button must not restart.
+CALLS, TEXTS = {}, {}
+tap(90, 220)
+CLOCK = CLOCK + 3000
+tap(90, 220)
+eq(restarts(), 0, "a press after the 3 seconds are up doesn't restart")
+eq(GAME.restart_armed, true, "it arms again instead")
+ok(has(TEXTS, "SURE? PRESS AGAIN"), "and asks for a second press again")

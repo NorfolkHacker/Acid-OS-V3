@@ -156,9 +156,11 @@ function ConfigApp:on_touch(x, y, pressed)
     self:press_restart()
     return
   end
-  -- A press anywhere else calls off an armed RESTART.
-  if self.restart_armed then
+  -- A press anywhere else calls off an armed RESTART, and clears a
+  -- RESTART FAILED.
+  if self.restart_armed or self.restart_failed then
     self.restart_armed = false
+    self.restart_failed = false
     self:redraw()
   end
 
@@ -188,10 +190,13 @@ function ConfigApp:on_touch(x, y, pressed)
 end
 
 -- The first press arms RESTART; a second, while it's still armed,
--- restarts. On success acid_restart doesn't return: the OS starts again at
+-- restarts. on_idle can be starved by held touches, so an armed button
+-- older than RESTART_CONFIRM_MS counts as disarmed here too. On success acid_restart doesn't return: the OS starts again at
 -- its boot screen.
 function ConfigApp:press_restart()
-  if not self.restart_armed then
+  local stale = self.restart_armed
+    and acid_now_ms() - self.armed_at >= ConfigApp.RESTART_CONFIRM_MS
+  if not self.restart_armed or stale then
     self.restart_armed = true
     self.restart_failed = false
     self.armed_at = acid_now_ms()

@@ -12,7 +12,7 @@ screen-size picker without quitting the program by hand.
 
 | Question | Choice |
 |---|---|
-| Mechanism | A new system call `restart` reaches the platform. The hosted build launches a fresh copy of the program with the same arguments minus `--screen`, then exits. A hardware build would reboot, and the default does nothing. There is no in-process teardown. |
+| Mechanism | A new system call `restart` reaches the platform. The hosted build replaces itself (exec) with a fresh copy of the program, with the same arguments minus `--screen`, on Unix; elsewhere it spawns a copy then exits. A hardware build would reboot, and the default does nothing. There is no in-process teardown. |
 | Who may call it | Built-in apps only. A cart is refused, as `close_window` is (spec §16.2). |
 | Confirmation | Two presses. The first turns the button into `SURE? PRESS AGAIN`. A second press within 3 seconds restarts. Waiting 3 seconds, or tapping elsewhere, cancels. |
 | Wasm | No new import. Carts may not restart, so an import that always refuses would be noise. |
@@ -46,9 +46,13 @@ fn restart(&self) -> bool { false }
   - it runs `std::env::current_exe()` with
     `restart_args(std::env::args().skip(1))`, using the current working
     directory and inherited stdio;
-  - if the spawn succeeds, it calls `std::process::exit(0)`, which closes
-    the old window;
-  - if `current_exe` or the spawn fails, it prints the error to stderr and
+  - on Unix it replaces the process (`exec`), so the copy keeps the same
+    process id, process group and terminal: Ctrl+C and the launching
+    shell's wait carry over, and every thread and the old window go with
+    the old image;
+  - elsewhere it spawns the copy and calls `std::process::exit(0)`, which
+    closes the old window;
+  - if `current_exe` or the exec or spawn fails, it prints the error to stderr and
     returns false.
 
 ## 3. Kernel and API (`acid-kernel`, `acid-api`, `acid-lua`)
@@ -130,7 +134,7 @@ The file's header comment, which lists Config's knobs, gains Restart.
 - **Losing unsaved work.** Restart ends every app at once. The two-press
   confirmation is the only guard, and that is accepted in the decisions
   above.
-- **Spawning fails.** The old copy keeps running and Config says so.
-- **Two windows for a moment.** The new copy opens its picker while the old
-  copy is exiting. That is harmless, since the old one exits immediately
-  after spawning.
+- **Starting fails.** The old copy keeps running and Config says so.
+- **Half-written files.** Apps that write files directly (Sprite Paint,
+  Load Cart) could leave a truncated file if a restart lands mid-write.
+  That is accepted, and the two-press confirmation covers it.

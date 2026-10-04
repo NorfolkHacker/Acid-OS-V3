@@ -1,5 +1,6 @@
-//! Restarting the hosted OS: start a fresh copy of this program, which
-//! opens at the screen-size picker, then exit. The new copy gets the same
+//! Restarting the hosted OS: replace this process with a fresh copy of the
+//! program (on Unix; elsewhere, start a copy and exit), which opens at the
+//! screen-size picker. The new copy gets the same
 //! command line minus any `--screen`, so the picker shows again; every
 //! other argument (`--app tetris`, say) carries over.
 
@@ -18,8 +19,12 @@ pub fn restart_args(args: impl IntoIterator<Item = String>) -> Vec<String> {
     out
 }
 
-/// Starts the fresh copy and exits this one. Returns false (after saying
-/// why on stderr) only if the copy couldn't be started.
+/// Starts the fresh copy. On Unix this replaces the running process (exec),
+/// so the copy keeps this one's process id, process group and terminal:
+/// Ctrl+C and the launching shell's wait carry over, and every thread and
+/// the old window go with the old image. Elsewhere it spawns the copy and
+/// exits. Returns false (after saying why on stderr) only if the copy
+/// couldn't be started.
 pub fn restart_process() -> bool {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
@@ -28,7 +33,23 @@ pub fn restart_process() -> bool {
             return false;
         }
     };
-    match std::process::Command::new(exe).args(restart_args(std::env::args().skip(1))).spawn() {
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args(restart_args(std::env::args().skip(1)));
+    start_copy(&mut cmd)
+}
+
+/// exec only returns on failure.
+#[cfg(unix)]
+fn start_copy(cmd: &mut std::process::Command) -> bool {
+    use std::os::unix::process::CommandExt;
+    let e = cmd.exec();
+    eprintln!("Acid OS v3: restart: can't start a new copy: {e}");
+    false
+}
+
+#[cfg(not(unix))]
+fn start_copy(cmd: &mut std::process::Command) -> bool {
+    match cmd.spawn() {
         Ok(_) => std::process::exit(0),
         Err(e) => {
             eprintln!("Acid OS v3: restart: can't start a new copy: {e}");
