@@ -492,6 +492,8 @@ mod tests {
         assert_eq!(rect_bytes(svga, i32::MAX, i32::MAX), 800 * 600 * 2, "a full fill costs more on a bigger screen");
         assert_eq!(circle_bytes(svga, i32::MAX), 800 * 600 * 2);
         assert_eq!(text_bytes(svga, i32::MAX, 1), 800 * 600 * 2);
+        assert_eq!(text_bytes(W, 2, 2), 4 * text_bytes(W, 2, 1), "a Large glyph costs four times the pixels");
+        assert_eq!(text_bytes(W, i32::MAX, 2), 640 * 360 * 2, "the screen cap still holds at scale 2");
     }
 
     #[test]

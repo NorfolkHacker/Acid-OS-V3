@@ -1231,12 +1231,11 @@ mod tests {
 
     #[test]
     fn text_draws_at_the_windows_scale_and_chrome_stays_normal() {
-        let (k, a) = spawn(200, 100);
+        let (_k, a) = spawn(200, 100);
         assert_eq!((a.font_size(), a.window_size(), a.font_scale()), ((6, 8), (200, 100), 1));
         a.set_font_scale(2);
         assert_eq!(a.font_scale(), 2, "the setting changed");
         assert_eq!(a.font_size(), (6, 8), "but this window keeps the scale it opened with");
-        let _ = k;
 
         let root = std::env::temp_dir().join(format!("acid-api-font-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
