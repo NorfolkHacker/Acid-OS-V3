@@ -200,7 +200,7 @@ fn terminal_large() {
 
 #[test]
 fn file_manager() {
-    run_suite_with("WIN_W, WIN_H = 220, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/file_manager.lua", "v3/tools/test_file_manager.lua"]), 33);
+    run_suite_with("WIN_W, WIN_H = 220, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/file_manager.lua", "v3/tools/test_file_manager.lua"]), 34);
 }
 
 #[test]

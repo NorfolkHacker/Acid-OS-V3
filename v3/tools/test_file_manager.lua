@@ -148,3 +148,15 @@ G.dir = "v3/fsroot/App"
 CALLS = {}
 G:launch_manifest("toy.app.toml")
 eq(CALLS[1], { "spawn", "v3/apps/toy.wasm", 120, 90, "" }, "a runtime = wasm manifest launches its .wasm through the canonical path")
+
+group("sprite files")
+FS["v3/fsroot/Art"] = { "ship.spr" }
+FS["v3/fsroot/Art/ship.spr"] = "acid-sprite 1\n"
+G.dir = "v3/fsroot/Art"
+G:scan_dir()
+for i, e in ipairs(G.entries) do
+  if e.name == "ship.spr" then G.selected = i - 1 end
+end
+CALLS = {}
+G:activate_selected()
+eq(CALLS[1], { "spawn", "v3/apps/sprite.lua", 360, 260, "v3/fsroot/Art/ship.spr" }, "a .spr opens in Sprite Paint with its path")
