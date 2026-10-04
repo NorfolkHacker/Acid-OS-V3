@@ -36,6 +36,9 @@ local BTN_H = 16
 local BTN_W = 84
 local BTN_GAP = 8
 local FOOTER_H = BTN_H + 8
+-- The scroll bar's column, just inside the right border; list rows stop
+-- short of it.
+local BAR_X = WINDOW_W - 1 - AcidScrollbar.WIDTH
 
 local BG_COLOR = 0x050607      -- THEME_BG
 local PANEL_COLOR = 0x0B1712   -- THEME_PANEL -- header/footer strips
@@ -409,12 +412,47 @@ function CartApp:draw_list(label, count, buttons)
   local i = self.scroll
   while i < count and i < self.scroll + self:visible_rows() do
     local row_bg = (i == self.selected) and SEL_BG or BG_COLOR
-    acid_fill_rect(0, y, WINDOW_W, ROW_H, row_bg)
+    acid_fill_rect(0, y, BAR_X, ROW_H, row_bg)
     acid_draw_text(self:row_text(i):sub(1, 46), 2, y + 2, self:row_color(i), row_bg)
     y = y + ROW_H
     i = i + 1
   end
+  local bx, by, h = self:bar_geometry()
+  AcidScrollbar.draw(bx, by, h, count, self:visible_rows(), self.scroll)
   self:draw_footer(buttons)
+end
+
+-- The scroll bar (lib/acid_scrollbar.lua): the column just inside the right
+-- border, beside the list rows. Paging and dragging move the view only;
+-- the selection stays where it is until a key moves it.
+function CartApp:bar_geometry()
+  return BAR_X, TITLE_BAR_H + HEADER_H, self:visible_rows() * ROW_H
+end
+
+-- A press on the bar pages a screenful or grabs the thumb. Returns whether
+-- the press was on the bar (there is none off the lists, or when every row
+-- fits).
+function CartApp:press_scrollbar(x, y)
+  if self.screen ~= "roots" and self.screen ~= "browse" then return false end
+  local bx, by, h = self:bar_geometry()
+  local total, visible = self:row_count(), self:visible_rows()
+  if not AcidScrollbar.needed(total, visible) or not AcidScrollbar.hit(bx, by, h, x, y) then
+    return false
+  end
+  local offset, grab = AcidScrollbar.press(h, total, visible, self.scroll, y - by)
+  self.bar_grab = grab
+  self.scroll = offset
+  self:redraw()
+  return true
+end
+
+function CartApp:drag_scrollbar(y)
+  local _, by, h = self:bar_geometry()
+  local offset = AcidScrollbar.drag(h, self:row_count(), self:visible_rows(), self.bar_grab, y - by)
+  if offset ~= self.scroll then
+    self.scroll = offset
+    self:redraw()
+  end
 end
 
 function CartApp:empty_text()
@@ -560,10 +598,18 @@ function CartApp:on_touch(x, y, pressed)
   -- over for as long as a finger stayed down.
   if not pressed then
     self.touch_held = false
+    self.bar_grab = nil
+    return
+  end
+  -- The one place repeated held touches are wanted: a thumb drag follows
+  -- the pointer for as long as the press lasts.
+  if self.bar_grab then
+    self:drag_scrollbar(y)
     return
   end
   if self.touch_held then return end
   self.touch_held = true
+  if self:press_scrollbar(x, y) then return end
 
   local buttons = self:footer_buttons()
   local btn = self:button_at(x, y, #buttons)

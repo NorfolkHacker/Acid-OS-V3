@@ -247,7 +247,12 @@ fn cartfile() {
 
 #[test]
 fn cart_install() {
-    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/cart/cartfile.lua", "v3/apps/cart.lua", "v3/tools/test_cart_install.lua"]), 76);
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/cart/cartfile.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/cart.lua", "v3/tools/test_cart_install.lua"]), 76);
+}
+
+#[test]
+fn cart_scroll() {
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/cart/cartfile.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/cart.lua", "v3/tools/test_scroll_cart.lua"]), 10);
 }
 
 #[test]
