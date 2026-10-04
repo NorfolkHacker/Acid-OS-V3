@@ -67,7 +67,7 @@ A few things to know:
 - If it can't open the app, it prints
   `Acid OS v3: --app <name>: no such app` to the terminal and boots normally.
   That happens when the name is unknown, when the manifest has no `w` or `h`,
-  or when the window can't be opened (a size bigger than the screen, or
+  or when the window can't be opened (a size that isn't 1 to the screen's size in each direction, or
   all eight window slots already in use).
 - `--app` takes exactly one name, and there are no other flags.
 

@@ -60,7 +60,7 @@ libs = lib/acid_sprite.lua, lib/acid_eggs.lua
 | `runtime` | no | `runtime = wasm` means the app is `<name>.wasm` rather than `<name>.lua` ([§2.7](#27-wasm-carts)). Any other value, or leaving the key out, means Lua. |
 
 **A broken manifest is skipped without a word.** If `name`, `w` or `h` is
-missing, or `w` or `h` is bigger than the screen, the app simply never appears
+missing, or `w` or `h` isn't 1 to the screen's size in each direction, the app simply never appears
 in the Menu. The other apps still load fine. So if your app is missing, look
 for a typo in its own manifest first; the rest of the system is probably fine.
 
@@ -68,7 +68,9 @@ for a typo in its own manifest first; the rest of the system is probably fine.
 
 The screen is **640×480** by default (640×360 and 800×600 are the other sizes;
 ask with [`acid_screen_size`](09-api-reference.md#acid_screen_size)). To fit
-every size, keep a window within 640×336 below the strip. `w` and `h` are the size of the whole window,
+every size, keep a window within 640×336 below the strip. A cart installed on a bigger
+screen can be too big to open on a smaller one, so keep carts within 640×336 if they
+should open at every size. `w` and `h` are the size of the whole window,
 frame included:
 
 ```text
@@ -90,7 +92,7 @@ Where windows go:
 - New windows cascade down from the top left as more of them open. The cascade
   is kept in bounds, so a window always lands fully on screen, below the
   desktop strip.
-- A window bigger than the screen isn't shrunk to fit. It's **refused**, and so
+- A window whose size isn't 1 to the screen's size in each direction isn't shrunk to fit. It's **refused**, and so
   is a manifest that asks for one.
 - At most **eight** windows can be open at once, and that includes the
   desktop's own. Once they're all in use, launching another app quietly fails.
@@ -242,7 +244,7 @@ All five keys are optional. The rules for reading them:
 |---|---|
 | `name` | Made from the filename (`my_game.cart` → "My Game"). At most 40 characters. |
 | `w` | 220, clamped to 80 to the screen width |
-| `h` | 160, clamped to 48–336 |
+| `h` | 160, clamped to 48 to the screen height less the 24 px strip (456 at the default 640×480) |
 | `desc` | Empty. At most 40 characters. |
 | `libs` | None. Only entries naming modules that exist in `v3/apps/lib/` (written `lib/<file>.lua`) are kept, and at most eight. |
 

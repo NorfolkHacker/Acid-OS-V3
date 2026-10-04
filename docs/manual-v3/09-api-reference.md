@@ -675,8 +675,6 @@ Despite the name, it doesn't ask any other window to repaint.
 It copies the wallpaper pixels at the *same coordinates*, so it only looks
 right for a window sitting at the screen's `(0, 0)`.
 
----
-
 ### `acid_screen_size`
 
 ```lua snippet
@@ -686,8 +684,6 @@ local w, h = acid_screen_size()   -- 640, 480 by default
 The screen's size in pixels. Acid OS picks it at startup (640×480, 640×360
 or 800×600), and it doesn't change while it runs, so it's safe to read once
 and keep.
-
----
 
 ### `acid_send_self_to_back`
 
@@ -755,7 +751,7 @@ The `multi` flag and `libs` come from the launcher registry, matched on the
 window only) and no modules. If a singleton is already open, its window is
 brought to the front instead of opening a second one.
 
-Returns `false` if the size is bigger than the screen, or no window slot is
+Returns `false` if the size isn't 1 to the screen's size in each direction, or no window slot is
 free.
 
 A path that isn't a `.lua` or `.wasm` file under `v3/apps` or `v3/fsroot`

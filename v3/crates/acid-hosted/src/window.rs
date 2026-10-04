@@ -65,6 +65,11 @@ impl App {
                 .expect("size surface");
         }
         self.size = s;
+        // The picker's pointer position carries over, so a click without
+        // moving the mouse lands where the pointer is.
+        if let Stage::Picking { cursor, .. } = &self.stage {
+            self.platform.input.set_position(cursor.0, cursor.1);
+        }
         self.stage = Stage::Running;
         if let Some(boot) = self.boot.take() {
             self.keep_alive = Some(boot(s));
@@ -125,7 +130,12 @@ impl ApplicationHandler<UserEvent> for App {
                                 w.request_redraw();
                             }
                         }
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(*last_tick + PICKER_TICK));
+                        // Once stopped nothing animates; input requests its own redraws.
+                        event_loop.set_control_flow(if picker.counting() {
+                            ControlFlow::WaitUntil(*last_tick + PICKER_TICK)
+                        } else {
+                            ControlFlow::Wait
+                        });
                     }
                 }
             }

@@ -31,6 +31,9 @@ pub struct Picker {
     selected: usize,
     remaining_ms: u32,
     counting: bool,
+    /// Where the pointer was last seen. The first sighting is only the
+    /// window opening under a resting pointer, not the user choosing.
+    last_hover: Option<(i32, i32)>,
 }
 
 impl Default for Picker {
@@ -41,7 +44,7 @@ impl Default for Picker {
 
 impl Picker {
     pub fn new() -> Picker {
-        Picker { selected: 0, remaining_ms: COUNTDOWN_MS, counting: true }
+        Picker { selected: 0, remaining_ms: COUNTDOWN_MS, counting: true, last_hover: None }
     }
 
     /// Advances the countdown; the default once it runs out.
@@ -71,7 +74,17 @@ impl Picker {
         Some(Screen::PRESETS[i])
     }
 
+    /// Whether the countdown is still running.
+    pub fn counting(&self) -> bool {
+        self.counting
+    }
+
     pub fn hover(&mut self, x: i32, y: i32) {
+        let moved = self.last_hover.is_some_and(|p| p != (x, y));
+        self.last_hover = Some((x, y));
+        if !moved {
+            return;
+        }
         if let Some(i) = row_at(x, y) {
             self.counting = false;
             self.selected = i;
@@ -162,12 +175,31 @@ mod tests {
     fn hover_highlights_and_stops_the_countdown() {
         let mut p = Picker::new();
         let (x, y) = row_centre(2);
+        p.hover(5, 5);
         p.hover(x, y);
         assert_eq!(p.tick(COUNTDOWN_MS), None);
         assert_eq!(p.key(PickerKey::Enter), Some(Screen::SVGA));
         let mut p = Picker::new();
+        p.hover(1, 1);
         p.hover(5, 5);
         assert_eq!(p.tick(COUNTDOWN_MS), Some(Screen::DEFAULT), "hovering off the rows changes nothing");
+    }
+
+    #[test]
+    fn a_first_hover_does_not_stop_the_countdown() {
+        // The window can open under a resting pointer; that is not a choice.
+        let mut p = Picker::new();
+        let (x, y) = row_centre(2);
+        p.hover(x, y);
+        assert_eq!(p.tick(COUNTDOWN_MS), Some(Screen::DEFAULT));
+    }
+
+    #[test]
+    fn counting_is_true_until_input() {
+        let mut p = Picker::new();
+        assert!(p.counting());
+        p.key(PickerKey::Other);
+        assert!(!p.counting());
     }
 
     #[test]

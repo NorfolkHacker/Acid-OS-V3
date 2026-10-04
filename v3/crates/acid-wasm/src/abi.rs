@@ -478,6 +478,7 @@ mod tests {
         assert_eq!(text_bytes(W, 2), 2 * 48 * 2);
         assert_eq!(text_bytes(W, i32::MAX), 640 * 360 * 2);
         assert_eq!(text_bytes(W, -1), 640 * 360 * 2, "a negative length is a huge u32; it traps out of bounds anyway");
+        assert_eq!(rect_bytes((640, 480), i32::MAX, i32::MAX), 640 * 480 * 2);
         let svga = (800, 600);
         assert_eq!(rect_bytes(svga, i32::MAX, i32::MAX), 800 * 600 * 2, "a full fill costs more on a bigger screen");
         assert_eq!(circle_bytes(svga, i32::MAX), 800 * 600 * 2);

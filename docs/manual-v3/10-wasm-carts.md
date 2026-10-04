@@ -247,7 +247,7 @@ its budget allows. The host charges for:
   - `draw_text`: one 6 × 8 glyph cell per byte, on top of the string's bytes;
   - `draw_window_frame`: a screen-wide, 16 px title bar;
   - `draw_window_border`: the screen's perimeter;
-  - `clear_user_area` and `overlay_clear`: the whole screen, **57,600 fuel**;
+  - `clear_user_area` and `overlay_clear`: the whole screen, **76,800 fuel** at the default 640×480 (57,600 at 640×360, 120,000 at 800×600);
 - **every file system and spawn call**, a flat **131,072 fuel** (the cost of
   1 MiB) on top of its bytes. These are `fs_list`, `fs_read`, `fs_size`,
   `fs_write`, `fs_rename`, `fs_delete`, `launcher_spawn` and `spawn_app`. They
@@ -517,8 +517,8 @@ acid_cart!(HelloWasm);
 ```
 
 `redraw` works just like a Lua `redraw`: clear, title bar, the bars, a label
-on top of its bar, and the border last. Each frame costs about 70,000 fuel of
-host work (57,600 for the clear, 400 for each bar), a tiny fraction of the
+on top of its bar, and the border last. Each frame costs about 87,000 fuel of
+host work (76,800 for the clear, 400 for each bar), a tiny fraction of the
 budget.
 
 ## 10.7 Building

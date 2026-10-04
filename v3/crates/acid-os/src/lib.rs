@@ -100,12 +100,17 @@ pub fn screen_arg(args: impl IntoIterator<Item = String>) -> Result<Option<Scree
     let valid = Screen::PRESETS.iter().map(|s| format!("{}x{}", s.w, s.h)).collect::<Vec<_>>().join(", ");
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
-        if a == "--screen" {
+        let v = if a == "--screen" {
             let Some(v) = it.next() else {
                 return Err(format!("--screen needs a size: {valid}"));
             };
-            return Screen::parse(&v).map(Some).ok_or_else(|| format!("--screen {v}: not a supported size; use one of {valid}"));
-        }
+            v
+        } else if let Some(v) = a.strip_prefix("--screen=") {
+            v.to_string()
+        } else {
+            continue;
+        };
+        return Screen::parse(&v).map(Some).ok_or_else(|| format!("--screen {v}: not a supported size; use one of {valid}"));
     }
     Ok(None)
 }
@@ -124,11 +129,12 @@ mod tests {
         assert_eq!(screen_arg(args(&[])), Ok(None));
         assert_eq!(screen_arg(args(&["--screen", "800x600"])), Ok(Some(Screen::SVGA)));
         assert_eq!(screen_arg(args(&["--app", "tetris", "--screen", "640x360"])), Ok(Some(Screen::WIDE)));
+        assert_eq!(screen_arg(args(&["--screen=800x600"])), Ok(Some(Screen::SVGA)));
     }
 
     #[test]
     fn screen_arg_rejects_other_sizes_and_lists_the_valid_ones() {
-        for bad in [&["--screen", "1024x768"][..], &["--screen"][..]] {
+        for bad in [&["--screen", "1024x768"][..], &["--screen"][..], &["--screen=1x1"][..]] {
             let e = screen_arg(args(bad)).unwrap_err();
             assert!(e.contains("640x480, 640x360, 800x600"), "{e}");
         }
