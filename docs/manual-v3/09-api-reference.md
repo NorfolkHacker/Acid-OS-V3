@@ -1117,7 +1117,8 @@ offset = AcidScrollbar.drag(h, total, visible, grab, py - y)   -- while held
   unchanged and a grab point to pass to `drag` for as long as the touch is
   held.
 - Offsets are always clamped to `0` to `AcidScrollbar.max_offset(total, visible)`.
-- The bar is `AcidScrollbar.WIDTH` (6) pixels wide. File Manager uses it.
+- The bar is `AcidScrollbar.WIDTH` (6) pixels wide. File Manager, Editor,
+  Terminal and Load Cart use it.
 
 ## Theme colours
 

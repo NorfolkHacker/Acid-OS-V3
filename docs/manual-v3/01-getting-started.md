@@ -246,6 +246,11 @@ Editor) opens app source from the running system, and the **File Manager**
 launches an app when you click its `.app.toml`. Editing an app inside the OS
 it runs in is a perfectly good way to work.
 
+File Manager, Editor, Terminal and Load Cart show a scroll bar at their
+right edge when there's more than fits. Drag its thumb, or click above or
+below the thumb to move a screenful. In Terminal it scrolls back through
+older output, and typing brings you back to the bottom.
+
 **Sprite Paint** draws pixel-art sprites, with animation frames, and saves
 them as `.spr` files in `Home`. Like the games, it isn't in the Menu: open
 `App/sprite.app.toml` in the File Manager, or open any `.spr` file, such as
