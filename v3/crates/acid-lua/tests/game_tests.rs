@@ -69,6 +69,31 @@ fn acid_sprite() {
 }
 
 #[test]
+fn acid_sprite_format() {
+    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/tools/test_acid_sprite_format.lua"], 40);
+}
+
+#[test]
+fn shipped_sprite_files_parse() {
+    // Each file goes to Lua as a long-bracket string; the first newline
+    // after [==[ is dropped by Lua, so the text arrives unchanged.
+    let mut prelude = String::from("SPR = {}\n");
+    let mut count = 0;
+    for entry in std::fs::read_dir(repo_root().join("v3/fsroot/Home")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|e| e == "spr") {
+            let text = std::fs::read_to_string(&path).unwrap();
+            assert!(!text.contains("]==]"), "{} can't be quoted", path.display());
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            prelude.push_str(&format!("SPR[#SPR + 1] = {{ {name:?}, [==[\n{text}]==] }}\n"));
+            count += 1;
+        }
+    }
+    assert!(count >= 1, "acid_ship.spr is shipped");
+    run_suite_with(&prelude, &["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/tools/test_sprite_files.lua"], count);
+}
+
+#[test]
 fn breakout() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/breakout.lua", "v3/tools/test_breakout.lua"]), 11);
 }
