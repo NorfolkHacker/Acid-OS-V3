@@ -126,17 +126,21 @@ Sprite files are saved under `v3/fsroot/Home`.
 rectangle. It runs from `on_create`, from `on_resize`, and after `new` or
 `load` changes the sprite size.
 
-- **Right column:** 96 px wide, inside the right border.
+- **Right column:** 100 px wide, 4 px inside the right border.
   - Five tool buttons and the Mirror toggle, in two rows of three.
   - The 4×4 palette swatches.
   - The preview, which draws the current frame at 1× and at 2×.
 - **Bottom bar:** one text row above the bottom border, holding the frame
   bar `< 2/4 >  +  dup  del  play  6fps`.
-- **Message line:** above the frame bar, showing `saved`, `unsaved`, or an
-  error. It ends with the file name, or `untitled`.
+- **Message line:** above the frame bar, showing `new` (never saved, no
+  changes), `saved`, `unsaved`, or the last message (an error, `saved`). It
+  ends with the file name, or `untitled`. While a prompt is open it shows the
+  prompt instead.
 - **Canvas:** the rest of the window. Each cell is
   `cell = max(1, min(avail_w // sprite_w, avail_h // sprite_h))` px, and the
   canvas is centred in its area.
+  - At the default window a 16×16 sprite gets 13 px cells and a 32×32
+    sprite 6 px; at the minimum window a 32×32 sprite gets 4 px.
   - Transparent cells draw as a two-tone checker.
   - When `cell >= 4`, a 1 px grid line in a muted colour separates the
     cells.
@@ -216,6 +220,13 @@ of Editor's command bar:
 | `n` | New. It asks for size `8`, `1`(6) or `3`(2), and creates a blank one-frame sprite with the default palette. |
 | `u` / `r` | Undo / redo. |
 | `q` | Close. |
+
+`n` and `q` on a sprite with unsaved changes first show
+`unsaved: new again to discard` (or `close`), and act on the second press.
+Taps are ignored while a prompt is open; ESC cancels it.
+
+Tapping the fps item on the frame bar steps through 2, 4, 6, 8, 12, 15, 20
+and 30, wrapping round.
 
 Outside the strip, these keys select tools and act directly:
 
