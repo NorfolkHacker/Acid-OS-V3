@@ -892,7 +892,8 @@ local w, h = acid_window_size()
 
 This window's real size in pixels. It can be larger than the manifest's `w`
 and `h` when the app opted into the font setting (it is larger at Large,
-clamped to the screen).
+clamped to the screen). It reports the current size, which changes when the
+user resizes a resizable window.
 
 ---
 
@@ -916,6 +917,7 @@ MyApp:new():start()
 | `on_create()` | Once, before the first paint |
 | `on_touch(x, y, pressed)` | Window-relative touch |
 | `on_key(code, pressed)` | Key event; focused window only |
+| `on_resize(w, h)` | After the user resizes a resizable window, with the new size; `redraw` follows |
 | `on_idle()` | Every `poll_timeout_ms` with no event |
 | `on_destroy()` | Once, after the loop ends |
 | `redraw()` | Full repaint; default draws bare chrome |

@@ -212,6 +212,24 @@ local CW, CH = acid_font_size()
 local cols = (acid_window_size() - 8) // CW   -- 4 px margin each side
 ```
 
+### Window size
+
+If your app is `resizable = true`, its window size can change after
+`on_create`. Compute your layout in a `layout()` method that reads
+`acid_window_size()`, and call it from `on_create` and again from `on_resize`;
+`redraw` follows each resize:
+
+```lua snippet
+function MyApp:layout()
+  local w, h = acid_window_size()
+  self.cols = (w - 8) // 6
+  self.rows = (h - 24) // 8
+end
+
+function MyApp:on_create() self:layout() end
+function MyApp:on_resize(w, h) self:layout() end
+```
+
 ## 4.3 Window chrome
 
 "Chrome" means the parts of the window that belong to the system: the title

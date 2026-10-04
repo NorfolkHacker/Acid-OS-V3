@@ -273,3 +273,19 @@ fn file_manager_at_large_matches_golden() {
     let grip = ((wx + w - 8) as usize, (wy + h - 8) as usize, 8, 8);
     assert_matches_golden_masked(&p.display.last_frame().unwrap(), "file_manager_large.ppm", 640, &[clock_mask(Screen::DEFAULT), grip]);
 }
+
+#[test]
+fn file_manager_resized_matches_golden() {
+    let p = FakePlatform::new(FakePlatform::repo_root());
+    let k = boot_with(p.clone(), Screen::DEFAULT);
+    wait_for_desktop(&k, Screen::DEFAULT);
+    let fm = acid_os::spawn_from_manifest(&k, "file_manager").expect("file manager opens");
+    let (w0, h0) = k.with_state(|st| st.windows.by_task(fm).map(|w| (w.w, w.h))).unwrap();
+    wait_for_border(&k, fm, w0, h0);
+    assert_eq!(k.resize_window(fm, 400, 300), Some((400, 300)));
+    // Redrawn at the new size: the bottom border row is there.
+    wait_for_border(&k, fm, 400, 300);
+    k.composite_frame();
+    // The grip is deliberately not masked: this frame shows it.
+    assert_matches_golden_masked(&p.display.last_frame().unwrap(), "file_manager_resized.ppm", 640, &[clock_mask(Screen::DEFAULT)]);
+}

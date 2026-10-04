@@ -88,6 +88,8 @@ would be typed (`A`, `!`). The arrows, Enter, Backspace, Escape, Tab and Delete
 arrive as `AcidKeys` constants ([chapter 3](03-app-lifecycle.md#31-the-callbacks)).
 Ctrl, Alt and the function keys are ignored.
 
+Windows with a small grip in their bottom-right corner can be resized by dragging it; an outline shows the new size until you let go.
+
 ### Running the tests
 
 ```sh
