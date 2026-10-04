@@ -1461,8 +1461,9 @@ mod tests {
         api.mesh_draw(99, 20, 20, 64, 0, 0, 0, 1, 0xFFFFFF);
         assert!((0..40).all(|y| (0..40).all(|x| !dot(&api, x, y))), "unknown id");
         let id = api.mesh_builtin("cube").unwrap();
-        api.mesh_draw(id, 20, 20, 8, 10, 20, 0, 1, 0xFFFFFF);
-        assert!((0..40).any(|y| (0..40).any(|x| dot(&api, x, y))), "a cube");
+        // At size 640 the cube's near face fills the whole 40x40 canvas.
+        api.mesh_draw(id, 20, 20, 640, 10, 20, 0, 1, 0xFFFFFF);
+        assert!((0..40).all(|y| (0..40).all(|x| dot(&api, x, y))), "a big cube covers the canvas");
         api.mesh_free(id);
         api.mesh_free(id);
         api.mesh_draw(id, 20, 20, 8, 10, 20, 0, 1, 0x0000FF);

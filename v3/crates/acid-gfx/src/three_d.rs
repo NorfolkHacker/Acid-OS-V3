@@ -39,14 +39,19 @@ pub fn rotate(p: (i32, i32, i32), rx: i32, ry: i32, rz: i32) -> (i32, i32, i32) 
     (sat(x), sat(y), sat(z))
 }
 
-/// Perspective-project an already rotated point; `None` when it is behind
-/// the camera. `size` 64 = one model unit per pixel at z 0; y goes up.
+/// Perspective-project an already rotated point, with the camera 512 model
+/// units in front of the origin: `zc = z + 512`, and the screen point is
+/// `(cx + x*size*512/(64*zc), cy - y*size*512/(64*zc))`. `size` scales only
+/// the image, never the depth, so the perspective is the same at every size;
+/// 64 = one model unit per pixel at z 0. Y goes up. `None` when the point is
+/// behind the camera (`zc <= 16`) or `size <= 0`; the screen point saturates
+/// to +-2^30.
 pub fn project(p: (i32, i32, i32), cx: i32, cy: i32, size: i32) -> Option<(i32, i32)> {
     if size <= 0 {
         return None;
     }
     let size = size as i128;
-    let zc = p.2 as i128 * size / 64 + 512;
+    let zc = p.2 as i128 + 512;
     if zc <= 16 {
         return None;
     }
@@ -651,8 +656,8 @@ mod tests {
             ((p.0 - q.0).abs().max((p.1 - q.1).abs()) + 1) as u64
         }).sum();
         // Visible triangles found in 3D, independently of the renderer: the
-        // normal points back toward the eye at z = -512 * 64 / size.
-        let eye = (0, 0, -512 * 64 / size);
+        // normal points back toward the eye at z = -512, whatever the size.
+        let eye = (0, 0, -512);
         let mut fills = 0u64;
         let mut visible = 0;
         for f in m.faces() {
@@ -704,6 +709,25 @@ mod tests {
                 draw_mesh(&mut c, &m, 32, 32, i32::MAX, rx, ry, rz, mode, 0xFFFFFF);
                 assert!(mesh_cost(&m, 32, 32, i32::MAX, rx, ry, rz, mode, 64, 64) >= 64 * 8);
             }
+        }
+    }
+
+    #[test]
+    fn the_projection_keeps_its_perspective_at_any_size() {
+        let p = (50, 50, -100);
+        let (x1, y1) = project(p, 0, 0, 64).unwrap();
+        let (x10, y10) = project(p, 0, 0, 640).expect("size never moves a point behind the camera");
+        assert!((x10 - 10 * x1).abs() <= 1 && (y10 - 10 * y1).abs() <= 1, "size 64 ({x1},{y1}), size 640 ({x10},{y10})");
+        assert_eq!((x1, y1), (62, -62), "50 * 512 / 412 pixels off centre");
+    }
+
+    #[test]
+    fn a_big_cube_is_never_behind_the_camera() {
+        let m = builtin("cube").unwrap();
+        // (32, 32, 0) and (32, 224, 0) turn a corner straight at the camera.
+        for (rx, ry, rz) in [(0, 0, 0), (20, 30, 0), (32, 32, 0), (32, 224, 0), (96, 160, 40), (128, 0, 0)] {
+            let (proj, _) = prepare(&m, 120, 100, 400, rx, ry, rz);
+            assert!(proj.iter().all(|p| p.is_some()), "pose ({rx},{ry},{rz}): {proj:?}");
         }
     }
 
