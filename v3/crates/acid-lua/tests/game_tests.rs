@@ -99,6 +99,11 @@ fn sprite_doc() {
 }
 
 #[test]
+fn sprite_tools() {
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/sprite/doc.lua", "v3/apps/sprite/tools.lua", "v3/tools/test_sprite_tools.lua"]), 21);
+}
+
+#[test]
 fn breakout() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/breakout.lua", "v3/tools/test_breakout.lua"]), 11);
 }
