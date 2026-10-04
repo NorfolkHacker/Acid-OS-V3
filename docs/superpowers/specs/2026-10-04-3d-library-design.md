@@ -194,7 +194,7 @@ does no mesh work.
 
 - An `AcidGame` app with `TICK_MS` = 33. Its manifest is `name = Acid
   Spin`, `w = 240`, `h = 200`, `resizable = true`, `min_w = 120`,
-  `min_h = 100`, and it appears in the Menu.
+  `min_h = 100`, and `menu = false`: like the games, it opens from File Manager's App folder (user decision, 2026-10-04).
 - **Shapes:** cube, pyramid, octahedron, sphere, torus, and an "acid star"
   custom mesh. The star is a stellated octahedron built with
   `acid_mesh_new`: the octahedron's points plus 8 spike tips, as
