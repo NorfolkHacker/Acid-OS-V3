@@ -52,6 +52,11 @@ fn with_libs(rest: &[&'static str]) -> Vec<&'static str> {
 }
 
 #[test]
+fn acid_scrollbar() {
+    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/tools/test_acid_scrollbar.lua"], 23);
+}
+
+#[test]
 fn acid_sprite() {
     run_suite(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/tools/test_acid_sprite.lua"], 13);
 }
@@ -113,7 +118,7 @@ fn terminal() {
 
 #[test]
 fn file_manager() {
-    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/file_manager.lua", "v3/tools/test_file_manager.lua"]), 21);
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/file_manager.lua", "v3/tools/test_file_manager.lua"]), 33);
 }
 
 #[test]

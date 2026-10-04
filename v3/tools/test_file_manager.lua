@@ -1,7 +1,8 @@
 -- Headless tests for File Manager (apps/file_manager.lua): the listing (..
 -- only below the root, directories vs sized files, violet manifests),
 -- keeping the selection on screen, what Enter does to each kind of entry,
--- the preview, going up a level, and taps acting once per hold.
+-- the preview, going up a level, taps acting once per hold, folders listed
+-- before files, and the scroll bar on the listing and the preview.
 
 local G = GAME
 local F = FileManagerApp
@@ -88,6 +89,56 @@ G.dir = "v3/fsroot/Many"
 G:scan_dir()
 for _ = 1, 15 do key(AcidKeys.DOWN) end
 eq(G.scroll, 5, "the selection scrolls into view")
+
+group("folders first")
+FS["v3/fsroot/Mixed"] = { "b.txt", "zeta", "a.txt", "Alpha" }
+FS["v3/fsroot/Mixed/zeta"] = {}
+FS["v3/fsroot/Mixed/Alpha"] = {}
+G.dir = "v3/fsroot/Mixed"
+G:scan_dir()
+eq(names(), { "..", "Alpha", "zeta", "a.txt", "b.txt" }, ".. first, then folders, then files, each sorted")
+
+group("scroll bar")
+-- Many: .. plus 20 files = 21 rows, 11 visible, offsets 0-10. The bar is
+-- the 6 px column inside the right border (x 213-218), its track starting
+-- below the path header (y 28, 131 px): thumb 68 px, 63 px of travel.
+local function thumbs()
+  local n = 0
+  for _, r in ipairs(RECTS) do if r[5] == AcidScrollbar.THUMB_COLOR then n = n + 1 end end
+  return n
+end
+local function tap(x, y) G:on_touch(x, y, false); G:on_touch(x, y, true) end
+G.dir = "v3/fsroot/Many"
+G:scan_dir()
+RECTS = {}
+G:redraw()
+eq(thumbs(), 1, "an overflowing listing draws a scroll bar")
+tap(215, 120)
+eq(G.scroll, 10, "a tap below the thumb pages down")
+eq(G.selected, 0, "without moving the selection")
+eq(G.dir, "v3/fsroot/Many", "or opening anything")
+tap(215, 28 + 63 + 5)
+G:on_touch(215, 28 + 5, true)
+eq(G.scroll, 0, "dragging the thumb to the top scrolls back")
+G:on_touch(400, 28 + 63 + 5, true)
+eq(G.scroll, 10, "the drag keeps following the pointer off the bar")
+G:on_touch(400, 28 + 63 + 5, false)
+eq(G.bar_grab, nil, "releasing ends the drag")
+tap(10, 40)
+eq(G.preview_name, "f11.txt", "a tap on a row after scrolling opens the row under the pointer")
+G.preview = nil
+G.dir = "v3/fsroot"
+G:scan_dir()
+G:open_preview("long.txt")
+tap(215, 150)
+eq(G.preview_scroll, 9, "the preview has a scroll bar too")
+ok(G.preview ~= nil, "and tapping it doesn't close the preview")
+G.preview = nil
+G.dir = "v3/fsroot/Help"
+G:scan_dir()
+RECTS = {}
+G:redraw()
+eq(thumbs(), 0, "no scroll bar when everything fits")
 
 group("wasm manifests")
 -- Spec §15.4: a runtime = wasm manifest launches <name>.wasm, still

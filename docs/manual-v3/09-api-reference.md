@@ -955,6 +955,28 @@ Runs of the same colour are drawn as one rectangle, to save work. You must own
 the overlay to draw, so a cart draws nothing.
 [§4.6](04-graphics.md#46-sprites).
 
+### `AcidScrollbar`: add `lib/acid_scrollbar.lua` to `libs`
+
+A vertical scroll bar for a list or text view. The module does the maths and
+the drawing; your app keeps the scroll offset (the first row on screen) and,
+while a drag is held, the grab point. `total` rows of which `visible` fit;
+`(x, y, h)` is the track's top-left corner and height in window pixels.
+
+```lua snippet
+AcidScrollbar.draw(x, y, h, total, visible, offset)   -- nothing if it all fits
+if AcidScrollbar.needed(total, visible) and AcidScrollbar.hit(x, y, h, px, py) then
+  offset, grab = AcidScrollbar.press(h, total, visible, offset, py - y)
+end
+offset = AcidScrollbar.drag(h, total, visible, grab, py - y)   -- while held
+```
+
+- `press` pages one screenful when you tap the track above or below the
+  thumb, and returns `grab = nil`. On the thumb it returns the offset
+  unchanged and a grab point to pass to `drag` for as long as the touch is
+  held.
+- Offsets are always clamped to `0` to `AcidScrollbar.max_offset(total, visible)`.
+- The bar is `AcidScrollbar.WIDTH` (6) pixels wide. File Manager uses it.
+
 ## Theme colours
 
 These are built into the system and are not

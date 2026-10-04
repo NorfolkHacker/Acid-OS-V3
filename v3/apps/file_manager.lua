@@ -72,18 +72,22 @@ function FileManagerApp:scan_dir()
   if not list then
     self.entries[#self.entries + 1] = { name = "(error: " .. err .. ")", dir = false, size = 0 }
   else
-    local names = {}
-    for _, ent in ipairs(list) do
-      if ent ~= "." and ent ~= ".." then names[#names + 1] = ent end
+    local found = {}
+    for _, name in ipairs(list) do
+      if name ~= "." and name ~= ".." then
+        local path = self.dir .. "/" .. name
+        local is_dir = acid_fs_list(path) ~= nil
+        local size = 0
+        if not is_dir then size = acid_fs_size(path) or 0 end
+        found[#found + 1] = { name = name, dir = is_dir, size = size }
+      end
     end
-    table.sort(names)
-    for _, name in ipairs(names) do
-      local path = self.dir .. "/" .. name
-      local is_dir = acid_fs_list(path) ~= nil
-      local size = 0
-      if not is_dir then size = acid_fs_size(path) or 0 end
-      self.entries[#self.entries + 1] = { name = name, dir = is_dir, size = size }
-    end
+    -- Folders first, then files, each in name order.
+    table.sort(found, function(a, b)
+      if a.dir ~= b.dir then return a.dir end
+      return a.name < b.name
+    end)
+    for _, e in ipairs(found) do self.entries[#self.entries + 1] = e end
   end
   self.selected = 0
 end
@@ -123,7 +127,61 @@ function FileManagerApp:redraw()
   else
     self:draw_listing()
   end
+  self:draw_scrollbar()
   acid_draw_window_border()
+end
+
+-- The scroll bar (lib/acid_scrollbar.lua): the column just inside the right
+-- border, from below the header row down to the bottom border.
+function FileManagerApp:bar_geometry()
+  local y = self.TITLE_BAR_H + self.ROW_H
+  return self.WINDOW_W - 1 - AcidScrollbar.WIDTH, y, self.WINDOW_H - 1 - y
+end
+
+-- The current view's row count and scroll offset: the listing's entries,
+-- or the preview's lines.
+function FileManagerApp:scroll_state()
+  if self.preview then return #split_lines(self.preview), self.preview_scroll end
+  return #self.entries, self.scroll
+end
+
+function FileManagerApp:set_scroll(offset)
+  if self.preview then self.preview_scroll = offset else self.scroll = offset end
+end
+
+function FileManagerApp:draw_scrollbar()
+  local x, y, h = self:bar_geometry()
+  local total, offset = self:scroll_state()
+  AcidScrollbar.draw(x, y, h, total, self:visible_listing_rows(), offset)
+end
+
+-- A press on the scroll bar pages a screenful or grabs the thumb for a
+-- drag. Returns whether the press was on the bar (there is none when
+-- everything fits).
+function FileManagerApp:press_scrollbar(x, y)
+  local bx, by, h = self:bar_geometry()
+  local total, offset = self:scroll_state()
+  local visible = self:visible_listing_rows()
+  if not AcidScrollbar.needed(total, visible) or not AcidScrollbar.hit(bx, by, h, x, y) then
+    return false
+  end
+  local new_offset, grab = AcidScrollbar.press(h, total, visible, offset, y - by)
+  self.bar_grab = grab
+  self:set_scroll(new_offset)
+  self:redraw()
+  return true
+end
+
+-- Scrolls the view under a held thumb drag, redrawing only when the
+-- offset actually changes.
+function FileManagerApp:drag_scrollbar(y)
+  local _, by, h = self:bar_geometry()
+  local total, offset = self:scroll_state()
+  local new_offset = AcidScrollbar.drag(h, total, self:visible_listing_rows(), self.bar_grab, y - by)
+  if new_offset ~= offset then
+    self:set_scroll(new_offset)
+    self:redraw()
+  end
 end
 
 function FileManagerApp:draw_listing()
@@ -198,10 +256,18 @@ function FileManagerApp:on_touch(x, y, pressed)
   -- held.
   if not pressed then
     self.touch_held = false
+    self.bar_grab = nil
+    return
+  end
+  -- The one place those repeated held touches are wanted: a thumb drag
+  -- follows the pointer for as long as the press lasts, wherever it goes.
+  if self.bar_grab then
+    self:drag_scrollbar(y)
     return
   end
   if self.touch_held then return end
   self.touch_held = true
+  if self:press_scrollbar(x, y) then return end
   if self.preview then
     self.preview = nil
     self:redraw()
