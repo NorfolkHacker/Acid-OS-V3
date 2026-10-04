@@ -69,13 +69,17 @@ Vec<(u16, u16)> }`.
   triangles (0, 1, 2) and (0, 2, 3).
 - Edges are derived from the faces when the mesh is built: unique
   unordered pairs, in first-seen order.
-- `Mesh::new(points, faces) -> Result<Mesh, MeshError>` rejects:
-  - fewer than 3 points;
-  - an index out of range;
-  - a face that repeats an index;
-  - going over the limits (§2.3).
+- `Mesh::new(points, faces) -> Result<Mesh, MeshError>` checks, in this
+  order:
+  1. fewer than 3 points → Bad;
+  2. over the limits (§2.3) → TooBig. This cheap check comes before any
+     per-point or per-face scan, so a huge mesh is rejected early;
+  3. any coordinate outside ±32767 → Bad. This keeps the fixed-point maths
+     overflow-free;
+  4. an index out of range, or a face that repeats an index (including a
+     quad's 4th slot) → Bad.
 
-### 1.4 Drawing a mesh
+## 1.4 Drawing a mesh
 
 `draw_mesh(canvas, mesh, cx, cy, size, rx, ry, rz, mode, color)`:
 
