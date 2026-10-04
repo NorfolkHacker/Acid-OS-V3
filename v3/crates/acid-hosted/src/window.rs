@@ -13,7 +13,7 @@ use acid_gfx::{Canvas, rgb565_to_888};
 use acid_kernel::layout::Screen;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
@@ -45,6 +45,8 @@ struct App {
     boot: Option<BootFn>,
     keep_alive: Option<Box<dyn Any>>,
     warned_size: bool,
+    /// The last wake-up was the picker's timer, so the countdown redraws.
+    timer_due: bool,
 }
 
 impl App {
@@ -101,26 +103,37 @@ impl ApplicationHandler<UserEvent> for App {
         self.request_redraw();
     }
 
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+        self.timer_due = matches!(cause, StartCause::ResumeTimeReached { .. });
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let mut chosen = None;
         match &mut self.stage {
             Stage::Picking { picker, last_tick, .. } => {
-                let elapsed = last_tick.elapsed();
-                *last_tick = Instant::now();
-                match picker.tick(elapsed.as_millis() as u32) {
+                // Advance by only the whole milliseconds counted, so the
+                // remainder carries into the next tick.
+                let ms = last_tick.elapsed().as_millis() as u64;
+                *last_tick += Duration::from_millis(ms);
+                match picker.tick(ms as u32) {
                     Some(s) => chosen = Some(s),
-                    None => event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + PICKER_TICK)),
+                    None => {
+                        // Redraw on the timer, not every loop: a pending
+                        // redraw would override WaitUntil and spin.
+                        if self.timer_due {
+                            if let Some(w) = &self.window {
+                                w.request_redraw();
+                            }
+                        }
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(*last_tick + PICKER_TICK));
+                    }
                 }
             }
             Stage::Running => event_loop.set_control_flow(ControlFlow::Wait),
         }
-        match chosen {
-            Some(s) => self.choose(s),
-            None => {
-                if matches!(self.stage, Stage::Picking { .. }) {
-                    self.request_redraw();
-                }
-            }
+        self.timer_due = false;
+        if let Some(s) = chosen {
+            self.choose(s);
         }
     }
 
@@ -254,6 +267,7 @@ pub fn run_window(
                 boot: None,
                 keep_alive,
                 warned_size: false,
+                timer_due: false,
             }
         }
         None => App {
@@ -271,6 +285,7 @@ pub fn run_window(
             boot: Some(boot),
             keep_alive: None,
             warned_size: false,
+            timer_due: false,
         },
     };
     event_loop.run_app(&mut app).expect("event loop");
