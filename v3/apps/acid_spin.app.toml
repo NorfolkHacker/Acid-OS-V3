@@ -1,0 +1,7 @@
+name = Acid Spin
+w = 240
+h = 200
+desc = Spinning 3D shapes
+resizable = true
+min_w = 120
+min_h = 100

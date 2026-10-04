@@ -44,6 +44,8 @@ fn breakout() { boots_and_draws("breakout"); }
 #[test]
 fn acid_blaster() { boots_and_draws("acid_blaster"); }
 #[test]
+fn acid_spin() { boots_and_draws("acid_spin"); }
+#[test]
 fn piano() { boots_and_draws("piano"); }
 #[test]
 fn about() { boots_and_draws("about"); }

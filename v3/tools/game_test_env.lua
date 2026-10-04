@@ -44,6 +44,30 @@ function acid_fill_rect(x, y, w, h, color)
   push(RECTS, { x, y, w, h, color })
 end
 function acid_overlay_fill_rect(x, y, w, h, color) push(RECTS, { x, y, w, h, color }) end
+-- The 3D calls (Lua API of acid-api): recorded, never rasterised.
+LINES = {}
+TRIS = {}
+MESH_DRAWS = {}
+MESH_NEWS = {}
+MESH_FREES = {}
+local mesh_next = 0
+local BUILTIN_MESHES = { cube = true, pyramid = true, octahedron = true, sphere = true, torus = true }
+function acid_draw_line(x1, y1, x2, y2, c) push(LINES, { "line", x1, y1, x2, y2, c }) end
+function acid_fill_triangle(x1, y1, x2, y2, x3, y3, c) push(TRIS, { "tri", x1, y1, x2, y2, x3, y3, c }) end
+function acid_mesh_builtin(name)
+  if not BUILTIN_MESHES[name] then return nil end
+  mesh_next = mesh_next + 1
+  return mesh_next
+end
+function acid_mesh_new(points, faces)
+  push(MESH_NEWS, { points, faces })
+  mesh_next = mesh_next + 1
+  return mesh_next
+end
+function acid_mesh_draw(id, x, y, size, rx, ry, rz, mode, color)
+  push(MESH_DRAWS, { id, x, y, size, rx, ry, rz, mode, color })
+end
+function acid_mesh_free(id) push(MESH_FREES, id) end
 function acid_fs_size(path)
   local f = FS[path]
   if type(f) ~= "string" then return nil, "not found" end
@@ -99,6 +123,11 @@ function drawn_inside_window()
   for _, r in ipairs(RECTS) do
     if r[1] < 0 or r[2] < 0 or r[1] + r[3] > WIN_W or r[2] + r[4] > WIN_H then
       return false, "rect at " .. r[1] .. "," .. r[2] .. " size " .. r[3] .. "x" .. r[4]
+    end
+  end
+  for _, m in ipairs(MESH_DRAWS) do
+    if m[2] < 0 or m[3] < 0 or m[2] > WIN_W or m[3] > WIN_H then
+      return false, "mesh centre at " .. m[2] .. "," .. m[3]
     end
   end
   return true
@@ -321,6 +350,6 @@ end
 function resize_app(w, h)
   WIN_W, WIN_H = w, h
   GAME:on_resize(w, h)
-  TEXT_AT, RECTS = {}, {}
+  TEXT_AT, RECTS, MESH_DRAWS = {}, {}, {}
   GAME:redraw()
 end
