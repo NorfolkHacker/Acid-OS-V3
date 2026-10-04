@@ -65,12 +65,12 @@ function AcidApp:canonical_app_path(path)
   return AcidApp.CANONICAL_APP_PREFIX .. path:sub(#prefix + 1)
 end
 
--- How long acid_poll_event blocks when nothing arrives, and so how often
--- on_idle fires. 200 ms suits apps that only redraw on input; animating
--- apps override it with a frame interval.
 -- Called when the user resized a resizable window; re-run layout here.
 function AcidApp:on_resize(w, h) end
 
+-- How long acid_poll_event blocks when nothing arrives, and so how often
+-- on_idle fires. 200 ms suits apps that only redraw on input; animating
+-- apps override it with a frame interval.
 function AcidApp:poll_timeout_ms()
   return 200
 end

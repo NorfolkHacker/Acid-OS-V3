@@ -105,7 +105,7 @@ fn network() {
 
 #[test]
 fn sysmon() {
-    run_suite_with("WIN_W, WIN_H = 200, 160", &["v3/tools/game_test_env.lua", "v3/apps/sysmon.lua", "v3/tools/test_sysmon.lua"], 23);
+    run_suite_with("WIN_W, WIN_H = 200, 160", &["v3/tools/game_test_env.lua", "v3/apps/sysmon.lua", "v3/tools/test_sysmon.lua"], 25);
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn editor_large() {
 
 #[test]
 fn cartfile() {
-    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/cart/cartfile.lua", "v3/tools/test_cart.lua"], 133);
+    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/cart/cartfile.lua", "v3/tools/test_cart.lua"], 143);
 }
 
 #[test]

@@ -222,8 +222,9 @@ If your app is `resizable = true`, its window size can change after
 ```lua snippet
 function MyApp:layout()
   local w, h = acid_window_size()
-  self.cols = (w - 8) // 6
-  self.rows = (h - 24) // 8
+  local CW, CH = acid_font_size()
+  self.cols = (w - 8) // CW
+  self.rows = (h - 24) // CH
 end
 
 function MyApp:on_create() self:layout() end

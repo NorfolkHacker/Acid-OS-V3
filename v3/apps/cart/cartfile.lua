@@ -56,7 +56,7 @@ Cartfile.DEFAULT_H = 160
 -- The only header keys that mean anything. Anything else in the comment
 -- block is a comment, including keys we might add later -- an unknown
 -- key never reaches the generated manifest.
-Cartfile.HEADER_KEYS = { "name", "w", "h", "desc", "libs" }
+Cartfile.HEADER_KEYS = { "name", "w", "h", "desc", "libs", "resizable", "min_w", "min_h" }
 
 local function includes(list, value)
   for _, v in ipairs(list) do
@@ -327,6 +327,9 @@ function Cartfile.manifest_text(fields)
   if desc and #desc > 0 then lines[#lines + 1] = "desc = " .. desc end
   local libs = fields.libs
   if libs and #libs > 0 then lines[#lines + 1] = "libs = " .. table.concat(libs, ", ") end
+  if fields.resizable then lines[#lines + 1] = "resizable = true" end
+  if fields.min_w then lines[#lines + 1] = "min_w = " .. str(fields.min_w) end
+  if fields.min_h then lines[#lines + 1] = "min_h = " .. str(fields.min_h) end
   -- Spec §15.4: tells the launchers to run <stem>.wasm, not <stem>.lua.
   -- Before `source = cart`, which must stay last (later key wins).
   if fields.runtime == "wasm" then lines[#lines + 1] = "runtime = wasm" end
@@ -440,6 +443,10 @@ function Cartfile.from_cart(filename, bytes, available_libs)
     w = Cartfile.dimension(fields["w"], Cartfile.DEFAULT_W, Cartfile.MIN_W, Cartfile.MAX_W),
     h = Cartfile.dimension(fields["h"], Cartfile.DEFAULT_H, Cartfile.MIN_H, Cartfile.MAX_H),
     desc = fields["desc"] or "",
+    -- Opt-in to resizing: only the exact value `true` counts.
+    resizable = fields["resizable"] == "true" or nil,
+    min_w = fields["min_w"] and Cartfile.dimension(fields["min_w"], Cartfile.MIN_W, Cartfile.MIN_W, Cartfile.MAX_W) or nil,
+    min_h = fields["min_h"] and Cartfile.dimension(fields["min_h"], Cartfile.MIN_H, Cartfile.MIN_H, Cartfile.MAX_H) or nil,
     libs = wasm and {} or Cartfile.filter_libs(fields["libs"], available_libs),
     runtime = wasm and "wasm" or "lua",
     script_path = Cartfile.APPS_DIR .. "/" .. s .. (wasm and Cartfile.WASM_EXT or ".lua"),

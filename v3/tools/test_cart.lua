@@ -137,6 +137,22 @@ local BARE = Cartfile.manifest_text({ name = "Bare", w = 100, h = 100, desc = ""
 eq(has(BARE, "libs"), false, "no modules means no libs line at all")
 eq(has(BARE, "desc"), false, "no description means no desc line")
 
+group("manifest_text: resizing opt-in")
+local RHEAD = "-- name: Rz\n-- resizable: true\n-- min_w: 100\n-- min_h: 60\n"
+local RSPEC = Cartfile.from_cart("rz.cart", RHEAD, LIBS)
+eq(RSPEC.resizable, true, "resizable = true is accepted")
+eq(RSPEC.min_w, 100, "min_w is read")
+eq(RSPEC.min_h, 60, "min_h is read")
+local RMANI = Cartfile.manifest_text(RSPEC)
+eq(has(RMANI, "resizable = true\n"), true, "the manifest carries resizable")
+eq(has(RMANI, "min_w = 100\n"), true, "the manifest carries min_w")
+eq(has(RMANI, "min_h = 60\n"), true, "the manifest carries min_h")
+eq(RMANI:find("min_h = 60\n", 1, true) < RMANI:find("source = cart", 1, true), true, "all before source = cart")
+local YES = Cartfile.manifest_text(Cartfile.from_cart("rz.cart", "-- resizable: yes\n", LIBS))
+eq(has(YES, "resizable"), false, "only the exact value true opts in")
+eq(Cartfile.from_cart("rz.cart", "-- min_w: abc\n", LIBS).min_w, Cartfile.MIN_W, "a junk min_w clamps to the minimum")
+eq(has(BARE, "min_w"), false, "no header, no minimums")
+
 -- -------------------------------------------------------- replaceable
 
 group("replaceable: what a cart may overwrite")

@@ -262,7 +262,7 @@ function SysMon:draw_nav()
   local y = self:content_bottom()
   acid_fill_rect(0, y, self.ww, SysMon.NAV_H, SysMon.PANEL_COLOR)
   acid_draw_text("<", 4, y + 2, SysMon.TEXT_COLOR, SysMon.PANEL_COLOR)
-  acid_draw_text(">", self.ww - CW - 4, y + 2, SysMon.TEXT_COLOR, SysMon.PANEL_COLOR)
+  acid_draw_text(">", self.ww - CW - 12, y + 2, SysMon.TEXT_COLOR, SysMon.PANEL_COLOR)
   local label = (self.page + 1) .. "/" .. #SysMon.PAGES
   acid_draw_text(label, (self.ww - #label * CW) // 2, y + 2, SysMon.MUTED_COLOR, SysMon.PANEL_COLOR)
 end
@@ -279,7 +279,7 @@ function SysMon:on_touch(x, y, pressed)
   if y >= self:content_bottom() then
     if x < 20 then
       self:turn_page((self.page - 1 + n) % n)
-    elseif x > self.ww - CW - 14 then
+    elseif x > self.ww - CW - 22 and x < self.ww - 8 then  -- clear of the 8px resize grip
       self:turn_page((self.page + 1) % n)
     end
     return

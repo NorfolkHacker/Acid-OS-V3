@@ -87,8 +87,8 @@ pub fn resize_clamp(win: &Window, screen: Screen, w: i32, h: i32) -> (i32, i32) 
     let s = win.font_scale.max(1);
     let min_w = win.min_w.max(6 * s + 2);
     let min_h = win.min_h.max(TITLE_BAR_H + 8 * s + 2);
-    let max_w = (screen.w - win.x).max(min_w);
-    let max_h = (screen.h - win.y).max(min_h);
+    let max_w = (screen.w - win.x.max(0)).min(screen.w).max(min_w);
+    let max_h = (screen.h - win.y.max(0)).min(screen.h).max(min_h);
     (w.clamp(min_w, max_w), h.clamp(min_h, max_h))
 }
 
@@ -461,6 +461,38 @@ mod tests {
         assert_eq!(st.resize_outline(), Some((100, 100, 80, 48)));
         poll(&mut st, None, touch(2000, 2000, true), &d);
         assert_eq!(st.resize_outline(), Some((100, 100, 540, 380)));
+    }
+
+    #[test]
+    fn a_window_left_of_the_screen_cannot_grow_without_bound() {
+        let mut st = KernelState::new(); // 640x480
+        let d = AtomicBool::new(false);
+        add_resizable(&mut st, 1, -300, 100, 400, 150);
+        for _ in 0..2 {
+            let (w, h) = st.windows.by_task(TaskId(1)).map(|w| (w.w, w.h)).unwrap();
+            // grip at the window's bottom-right, on screen
+            poll(&mut st, None, touch(-300 + w - 4, 100 + h - 4, true), &d);
+            poll(&mut st, None, touch(5000, 100 + h - 4, true), &d);
+            poll(&mut st, None, UP, &d);
+            let w = st.windows.by_task(TaskId(1)).map(|w| w.w).unwrap();
+            assert!(w <= 640, "width {w}");
+        }
+    }
+
+    #[test]
+    fn a_held_resize_survives_the_pointer_crossing_the_desktop_strip() {
+        let mut st = KernelState::new();
+        let d = AtomicBool::new(false);
+        let qd = add(&mut st, 9, 0, 0, 640, 24, false);
+        st.router.desktop = Some(TaskId(9));
+        let q = add_resizable(&mut st, 1, 100, 100, 200, 150);
+        poll(&mut st, None, touch(296, 246, true), &d);
+        poll(&mut st, None, touch(350, 10, true), &d);
+        assert!(drain(&qd).is_empty(), "the desktop gets no touch");
+        assert_eq!(st.resize_outline(), Some((100, 100, 254, 48)), "the outline still follows");
+        poll(&mut st, None, UP, &d);
+        assert!(drain(&qd).is_empty());
+        assert_eq!(drain(&q), [Event::Resized { w: 254, h: 48 }]);
     }
 
     #[test]

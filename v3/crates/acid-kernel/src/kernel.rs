@@ -35,6 +35,7 @@ pub struct AppContext {
     pub libs: Option<String>,
     pub x: i32,
     pub y: i32,
+    /// The size at spawn; a resizable window's live size is its canvas size (acid_window_size).
     pub w: i32,
     pub h: i32,
     /// Cart-level trust (spec §14.2): set by `spawn_app` from `app_is_cart`,
@@ -68,13 +69,14 @@ pub struct ManifestFlags {
 /// counts.
 pub fn manifest_flags(platform: &dyn Platform, script_path: &str) -> ManifestFlags {
     let outside = ManifestFlags { cart: true, scalable: false, resizable: false, min_w: 0, min_h: 0 };
+    let wasm = script_path.ends_with(".wasm");
     if !(crate::fs_path::fs_path_is_allowed(script_path)
         && script_path.starts_with("v3/apps/")
-        && script_path.ends_with(".lua"))
+        && (script_path.ends_with(".lua") || wasm))
     {
         return outside;
     }
-    let stem = &script_path[..script_path.len() - ".lua".len()];
+    let stem = &script_path[..script_path.len() - if wasm { ".wasm".len() } else { ".lua".len() }];
     let toml = alloc::format!("{stem}.app.toml");
     match platform.fs().read(&toml) {
         Ok(bytes) => {
@@ -91,8 +93,16 @@ pub fn manifest_flags(platform: &dyn Platform, script_path: &str) -> ManifestFla
                     .filter(|n| *n > 0)
                     .unwrap_or(0)
             };
-            ManifestFlags { cart, scalable, resizable: has("resizable", "true"), min_w: num("min_w"), min_h: num("min_h") }
+            // A cart never scales its font; it may opt in to resizing.
+            ManifestFlags {
+                cart: cart || wasm,
+                scalable: scalable && !wasm,
+                resizable: has("resizable", "true"),
+                min_w: num("min_w"),
+                min_h: num("min_h"),
+            }
         }
+        Err(acid_platform::FsError::NotFound) if wasm => outside,
         Err(acid_platform::FsError::NotFound) => ManifestFlags { cart: false, scalable: false, resizable: false, min_w: 0, min_h: 0 },
         Err(_) => outside,
     }
@@ -260,8 +270,10 @@ impl Kernel {
         win.font_scale = scale;
         if flags.resizable {
             win.resizable = true;
-            win.min_w = (if flags.min_w > 0 { flags.min_w } else { RESIZE_MIN_W }).max(RESIZE_MIN_W).min(w);
-            win.min_h = (if flags.min_h > 0 { flags.min_h } else { RESIZE_MIN_H }).max(TITLE_BAR_H + 8).min(h);
+            let given_w = if flags.min_w > 0 { flags.min_w } else { RESIZE_MIN_W };
+            let given_h = if flags.min_h > 0 { flags.min_h } else { RESIZE_MIN_H };
+            win.min_w = (given_w * scale).max(RESIZE_MIN_W).min(w);
+            win.min_h = (given_h * scale).max(TITLE_BAR_H + 8 * scale + 2).min(h);
         }
         {
             // The cap check and the registration share one lock, so two
@@ -841,6 +853,39 @@ mod tests {
         assert!(!manifest_flags(&*p, "v3/apps/n.lua").resizable, "only the exact value `true` counts");
         let c = manifest_flags(&*p, "v3/apps/c.lua");
         assert!(c.cart && c.resizable, "a cart may opt in");
+    }
+
+    #[test]
+    fn a_wasm_cart_reads_its_manifest_but_stays_a_cart() {
+        let t = temp_tree("wasm_flags");
+        std::fs::create_dir_all(t.0.join("v3/apps")).unwrap();
+        std::fs::write(t.0.join("v3/apps/w.app.toml"), "resizable = true\nmin_w = 120\nmin_h = 70\nfont = scalable\n").unwrap();
+        let p = FakePlatform::new(t.0.clone());
+        assert_eq!(
+            manifest_flags(&*p, "v3/apps/w.wasm"),
+            ManifestFlags { cart: true, scalable: false, resizable: true, min_w: 120, min_h: 70 }
+        );
+        assert!(manifest_flags(&*p, "v3/apps/none.wasm").cart, "no manifest is still a cart");
+        assert!(manifest_flags(&*p, "v3/fsroot/Home/w.wasm").cart);
+    }
+
+    #[test]
+    fn a_resizable_scalable_app_at_large_doubles_its_minimums_capped_at_its_size() {
+        let t = temp_tree("resize_large");
+        std::fs::create_dir_all(t.0.join("v3/apps")).unwrap();
+        std::fs::write(t.0.join("v3/apps/r.app.toml"), "font = scalable\nresizable = true\nmin_w = 100\nmin_h = 60\n").unwrap();
+        let p = FakePlatform::new(t.0.clone());
+        let k = Kernel::with_screen(p.clone(), crate::layout::Screen::DEFAULT);
+        let (tx, rx) = mpsc::channel();
+        k.set_runner(parked_runner(tx));
+        k.set_font_scale(2);
+        let task = k.spawn_app(SpawnRequest { script_path: "v3/apps/r.lua".into(), ..req(0, 30, 150, 100) }).unwrap();
+        let ctx = recv(&rx);
+        k.with_state(|st| {
+            let w = st.windows.by_task(task).unwrap();
+            assert_eq!((w.w, w.h), (ctx.w, ctx.h));
+            assert_eq!((w.min_w, w.min_h), (200.min(ctx.w), 120.min(ctx.h)));
+        });
     }
 
     fn resizable_kernel(tag: &str) -> (TempTree, Arc<Kernel>, mpsc::Receiver<AppContext>, mpsc::Receiver<crate::event::Event>) {
