@@ -70,7 +70,7 @@ Vec<(u16, u16)> }`.
 - Triangles store `u16::MAX` in their 4th slot. A quad is drawn as the two
   triangles (0, 1, 2) and (0, 2, 3).
 - Edges are derived from the faces when the mesh is built: unique
-  unordered pairs, in first-seen order.
+  unordered pairs, in first-seen order, deduplicated in O(E log E).
 - `Mesh::new(points, faces) -> Result<Mesh, MeshError>` checks, in this
   order:
   1. fewer than 3 points → Bad;
@@ -160,18 +160,21 @@ within a run. The limits are:
 - `MESH_FACES_MAX` = 1024 faces per mesh;
 - `MESH_TOTAL_POINTS_MAX` = 4096 points across the app's live meshes.
 
-A built-in shape counts toward the limits like any other mesh.
+A built-in shape counts toward the limits like any other mesh. The
+store checks `MESH_MAX` and the total-points limit before it builds a
+mesh, so a call over the limits does no mesh work.
 
 ### 2.4 Fuel (carts)
 
-- `mesh_new`: the bytes read, as for any read of cart memory.
+- `mesh_new`: the bytes read, plus 64 fuel-bytes per face for building
+  the edge list.
 - `draw_line`: `max(|dx|, |dy|) + 1` pixels × `BYTES_PER_PX`, capped at
   the screen.
 - `fill_triangle`: the bounding box clamped to the screen, the same as a
   `fill_rect` of that box.
 - `mesh_draw`:
-  - a fixed per-point cost: 64 fuel-bytes per point, for transform and
-    projection;
+  - a fixed base cost of 64 pixels per point and 64 per face, for
+    transform, projection, culling and lighting;
   - plus, per drawn edge, the `draw_line` cost of that edge;
   - plus, per drawn triangle, its `fill_triangle` cost;
   - the total capped at the screen's area times the number of faces plus
