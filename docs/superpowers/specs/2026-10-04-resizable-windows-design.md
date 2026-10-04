@@ -52,12 +52,14 @@ window coordinates.
 During `composite_frame`, after blitting each resizable window, the kernel
 draws the grip on the framebuffer at the window's bottom-right corner. It
 is three diagonal strokes in `THEME_HARD`: the pixels where
-`(gx + gy) ∈ {11, 13, 15}` for `gx, gy ∈ 1..8`, measured from the grip's
-top-left. Apps don't draw it and can't overwrite it.
+`(gx + gy) ∈ {8, 10, 12}` for `gx, gy ∈ 1..=6`, measured from the grip's
+top-left. That keeps the strokes inside the 1 px border. Apps don't draw it and can't overwrite it.
 
 ### 1.3 Routing a resize
 
-The router gains a `resize: Option<Resize>` alongside `drag`, holding the
+`KernelState` gains `pub screen: Screen`, set by `Kernel::with_screen`;
+`KernelState::new()` uses `Screen::DEFAULT`. The router can then clamp to
+the screen without a new parameter. The router gains a `resize: Option<Resize>` alongside `drag`, holding the
 task, the press point, the original `w`/`h`, and the current target
 `w`/`h`.
 
