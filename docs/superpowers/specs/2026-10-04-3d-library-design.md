@@ -52,13 +52,15 @@ shows it off.
 - Points are `(i32, i32, i32)` in model units.
 - Rotation order is X, then Y, then Z. Each step is
   `x' = (x·cos − y·sin) >> 12` and so on, using i64 intermediates.
-- Projection uses camera distance `D = 512` model units. A point at
-  `z' = z·size/64 + D` maps to screen `(cx + x·size·F/(64·z'),
-  cy − y·size·F/(64·z'))`, with focal `F = 512`.
-  - `size` is a percentage-like scale. At `size = 64`, one model unit is
-    one pixel at the screen centre.
+- Projection uses camera distance `D = 512` model units and focal
+  `F = 512`. A rotated point maps to `zc = z + D`, and from there to screen
+  `(cx + x·size·F/(64·zc), cy − y·size·F/(64·zc))`.
+  - `size` scales only the image, not the depth, so the perspective is the
+    same at every size. At `size = 64`, one model unit is one pixel at the
+    screen centre (z = 0).
   - Y goes up in model space and down on screen.
-  - A point is behind the camera when `z' ≤ 16`.
+  - A point is behind the camera when `zc ≤ 16`, which needs z ≤ −496.
+    A built-in shape, at about ±174 after rotation, can never reach it.
 
 ### 1.3 Meshes
 
