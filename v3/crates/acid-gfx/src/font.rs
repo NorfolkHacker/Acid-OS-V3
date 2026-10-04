@@ -11,13 +11,19 @@ pub const CHAR_H: i32 = 8;
 
 impl Canvas {
     pub fn draw_text(&mut self, x: i32, y: i32, text: &str, fg: u32, bg: u32) {
+        self.draw_text_scaled(x, y, text, fg, bg, 1);
+    }
+
+    pub fn draw_text_scaled(&mut self, x: i32, y: i32, text: &str, fg: u32, bg: u32, scale: i32) {
+        let s = scale.max(1);
         let fill_bg = fg != bg;
         let (fg, bg) = (rgb565(fg), rgb565(bg));
         // A row wholly above or below the canvas draws nothing; glyphs wholly
         // left of it are skipped and drawing stops past its right edge, so
         // draw_glyph only ever sees coordinates near the canvas and its
-        // i32 sums cannot overflow, whatever x and y are.
-        if y >= self.h || y <= -CHAR_H {
+        // i32 sums cannot overflow, whatever x and y are. The bounds check
+        // accounts for a glyph cell (CHAR_W·scale × CHAR_H·scale).
+        if y >= self.h || y <= -(CHAR_H * s) {
             return;
         }
         let mut cx = x as i64;
@@ -25,26 +31,26 @@ impl Canvas {
             if cx >= self.w as i64 {
                 break;
             }
-            if cx > -(CHAR_W as i64) {
-                self.draw_glyph(cx as i32, y, ch as u32, fg, bg, fill_bg);
+            if cx > -((CHAR_W * s) as i64) {
+                self.draw_glyph(cx as i32, y, ch as u32, fg, bg, fill_bg, s);
             }
-            cx += CHAR_W as i64;
+            cx += (CHAR_W * s) as i64;
         }
     }
 
-    fn draw_glyph(&mut self, x: i32, y: i32, code: u32, fg: u16, bg: u16, fill_bg: bool) {
+    fn draw_glyph(&mut self, x: i32, y: i32, code: u32, fg: u16, bg: u16, fill_bg: bool, s: i32) {
         // LovyanGFX range-checks the code against the font's 0..=255 span
         // BEFORE the shift (GLCDfont::drawChar, lgfx_fonts.cpp). Past it,
         // drawCharDummy paints the cell's background (only when fg != bg)
         // and ALWAYS outlines a 4x6 box inset by 1 in the fg colour.
         if code > 255 {
             if fill_bg {
-                self.fill_rect565(x, y, CHAR_W, CHAR_H, bg);
+                self.fill_rect565(x, y, CHAR_W * s, CHAR_H * s, bg);
             }
-            self.fill_rect565(x + 1, y + 1, 4, 1, fg);
-            self.fill_rect565(x + 1, y + 6, 4, 1, fg);
-            self.fill_rect565(x + 1, y + 1, 1, 6, fg);
-            self.fill_rect565(x + 4, y + 1, 1, 6, fg);
+            self.fill_rect565(x + 1 * s, y + 1 * s, 4 * s, 1 * s, fg);
+            self.fill_rect565(x + 1 * s, y + 6 * s, 4 * s, 1 * s, fg);
+            self.fill_rect565(x + 1 * s, y + 1 * s, 1 * s, 6 * s, fg);
+            self.fill_rect565(x + 4 * s, y + 1 * s, 1 * s, 6 * s, fg);
             return;
         }
         // Codes from 176 up shift by one glyph: LovyanGFX's "classic"
@@ -55,7 +61,7 @@ impl Canvas {
         let index = if code >= 176 { code + 1 } else { code };
         if index > 255 {
             if fill_bg {
-                self.fill_rect565(x, y, CHAR_W, CHAR_H, bg);
+                self.fill_rect565(x, y, CHAR_W * s, CHAR_H * s, bg);
             }
             return;
         }
@@ -63,14 +69,14 @@ impl Canvas {
         for (col, bits) in glyph.iter().enumerate() {
             for row in 0..CHAR_H {
                 if (bits >> row) & 1 == 1 {
-                    self.put(x + col as i32, y + row, fg);
+                    self.fill_rect565(x + col as i32 * s, y + row * s, s, s, fg);
                 } else if fill_bg {
-                    self.put(x + col as i32, y + row, bg);
+                    self.fill_rect565(x + col as i32 * s, y + row * s, s, s, bg);
                 }
             }
         }
         if fill_bg {
-            self.fill_rect565(x + 5, y, 1, CHAR_H, bg);
+            self.fill_rect565(x + 5 * s, y, 1 * s, CHAR_H * s, bg);
         }
     }
 }
@@ -148,6 +154,17 @@ mod tests {
         assert_eq!(c.pixel(0, 0), expected_glyph(65, true).pixel(3, 3));
     }
 
+    /// The scale-1 glyph with every pixel as an `s × s` block.
+    fn blown_up(small: &Canvas, s: i32) -> Canvas {
+        let mut c = Canvas::new(small.width() * s, small.height() * s);
+        for y in 0..small.height() {
+            for x in 0..small.width() {
+                c.fill_rect565(x * s, y * s, s, s, small.pixel(x, y).unwrap());
+            }
+        }
+        c
+    }
+
     fn dummy_box(fill_bg: bool) -> Canvas {
         let mut c = Canvas::new(6, 8);
         if fill_bg {
@@ -200,5 +217,46 @@ mod tests {
         let mut d = Canvas::new(12, 8);
         d.draw_text(0, 0, "B", FG, BG);
         assert_eq!(c.pixel(0, 0), d.pixel(0, 0), "a partly off-canvas string still draws its visible part");
+    }
+
+    #[test]
+    fn scale_2_draws_each_font_pixel_as_a_2x2_block() {
+        for (fg, bg) in [(FG, BG), (FG, FG)] {
+            let mut small = Canvas::new(6, 8);
+            small.draw_text(0, 0, "A", fg, bg);
+            let mut big = Canvas::new(12, 16);
+            big.draw_text_scaled(0, 0, "A", fg, bg, 2);
+            assert_eq!(big, blown_up(&small, 2), "fg {fg:#x} bg {bg:#x}");
+        }
+    }
+
+    #[test]
+    fn scale_2_advances_twelve_pixels_a_character() {
+        let mut c = Canvas::new(24, 16);
+        c.draw_text_scaled(0, 0, "AA", FG, BG, 2);
+        let mut one = Canvas::new(12, 16);
+        one.draw_text_scaled(0, 0, "A", FG, BG, 2);
+        for y in 0..16 {
+            for x in 0..12 {
+                assert_eq!(c.pixel(x + 12, y), one.pixel(x, y), "({x},{y})");
+            }
+        }
+    }
+
+    #[test]
+    fn scale_1_is_draw_text() {
+        let mut a = Canvas::new(40, 8);
+        a.draw_text(0, 0, "Hi \u{1F600}", FG, BG);
+        let mut b = Canvas::new(40, 8);
+        b.draw_text_scaled(0, 0, "Hi \u{1F600}", FG, BG, 1);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn scaled_text_clips_at_the_canvas_edges() {
+        let mut c = Canvas::new(10, 10);
+        c.draw_text_scaled(-30, -30, "AAAA", FG, BG, 2);
+        c.draw_text_scaled(8, 8, "AAAA", FG, BG, 2);
+        c.draw_text_scaled(i32::MAX - 5, i32::MAX - 5, "A", FG, BG, 2);
     }
 }
