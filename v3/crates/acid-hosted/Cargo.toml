@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+acid-kernel = { workspace = true }
 acid-platform = { workspace = true, features = ["std"] }
 acid-gfx = { workspace = true }
 winit = { workspace = true }

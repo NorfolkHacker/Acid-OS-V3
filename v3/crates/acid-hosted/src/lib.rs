@@ -5,6 +5,7 @@
 
 pub mod audio;
 pub mod keymap;
+pub mod picker;
 pub mod window;
 
 use std::collections::VecDeque;

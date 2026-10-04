@@ -38,6 +38,7 @@ name = "acid-hosted"
 version = "0.1.0"
 dependencies = [
  "acid-gfx",
+ "acid-kernel",
  "acid-platform",
  "acid-synth",
  "cpal",
