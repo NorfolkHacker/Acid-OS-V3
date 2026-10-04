@@ -1,0 +1,9 @@
+name = Sprite Paint
+w = 360
+h = 260
+desc = Pixel art and animated sprites
+multi = true
+libs = lib/acid_sprite.lua, sprite/doc.lua, sprite/tools.lua, sprite/layout.lua, sprite/picker.lua
+resizable = true
+min_w = 280
+min_h = 200

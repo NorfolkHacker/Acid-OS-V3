@@ -108,6 +108,31 @@ fn sprite_layout() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/sprite/layout.lua", "v3/apps/sprite/picker.lua", "v3/tools/test_sprite_layout.lua"]), 29);
 }
 
+const SPRITE_APP: [&str; 7] = [
+    "v3/tools/game_test_env.lua",
+    "v3/apps/lib/acid_sprite.lua",
+    "v3/apps/sprite/doc.lua",
+    "v3/apps/sprite/tools.lua",
+    "v3/apps/sprite/layout.lua",
+    "v3/apps/sprite/picker.lua",
+    "v3/apps/sprite.lua",
+];
+
+fn sprite_app_suite(test: &'static str, assertions: usize) {
+    let files: Vec<&str> = SPRITE_APP.iter().copied().chain(["v3/tools/sprite_test_helpers.lua", test]).collect();
+    run_suite_with("WIN_W, WIN_H = 360, 260", &with_libs(&files), assertions);
+}
+
+#[test]
+fn sprite_app() {
+    sprite_app_suite("v3/tools/test_sprite_app.lua", 29);
+}
+
+#[test]
+fn sprite_app_commands() {
+    sprite_app_suite("v3/tools/test_sprite_app_cmds.lua", 36);
+}
+
 #[test]
 fn breakout() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/breakout.lua", "v3/tools/test_breakout.lua"]), 11);

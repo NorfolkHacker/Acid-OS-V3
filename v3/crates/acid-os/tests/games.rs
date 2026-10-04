@@ -48,6 +48,8 @@ fn acid_spin() { boots_and_draws("acid_spin"); }
 #[test]
 fn piano() { boots_and_draws("piano"); }
 #[test]
+fn sprite_paint() { boots_and_draws("sprite"); }
+#[test]
 fn about() { boots_and_draws("about"); }
 #[test]
 fn config() { boots_and_draws("config"); }
