@@ -104,6 +104,11 @@ fn sprite_tools() {
 }
 
 #[test]
+fn sprite_layout() {
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/sprite/layout.lua", "v3/apps/sprite/picker.lua", "v3/tools/test_sprite_layout.lua"]), 29);
+}
+
+#[test]
 fn breakout() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/breakout.lua", "v3/tools/test_breakout.lua"]), 11);
 }
