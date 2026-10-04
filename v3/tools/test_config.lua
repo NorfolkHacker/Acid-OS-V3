@@ -39,3 +39,21 @@ TEXTS = {}
 G:redraw()
 ok(has(TEXTS, "0%"), "redraw shows the volume")
 ok(has(TEXTS, "OFF"), "and the toggle state")
+
+group("font")
+FONT_SCALE = 1
+GAME:on_create()
+TEXTS = {}
+GAME:redraw()
+ok(has(TEXTS, "FONT"), "a FONT section is drawn")
+ok(has(TEXTS, "applies to newly opened apps"), "with a note that open windows keep their size")
+CALLS = {}
+GAME:on_touch(130, 160, false)
+GAME:on_touch(130, 160, true)
+eq(CALLS[1], { "set_font_scale", 2 }, "tapping LARGE sets Large")
+eq(GAME.font_scale, 2, "and Config shows it")
+GAME:on_touch(130, 160, true)
+eq(#CALLS, 1, "holding the tap doesn't set it again")
+GAME:on_touch(20, 160, false)
+GAME:on_touch(20, 160, true)
+eq(CALLS[2], { "set_font_scale", 1 }, "tapping NORMAL sets Normal")

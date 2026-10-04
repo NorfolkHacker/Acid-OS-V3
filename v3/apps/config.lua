@@ -1,14 +1,14 @@
 -- Config -- system-wide settings.
--- Two real knobs (master output volume via the audio global gain stage,
--- and the desktop wallpaper on/off): every other candidate "setting" is
--- either a compile-time constant no runtime code ever reads again, or has
--- no shared state to adjust -- a toggle that changes nothing when tapped is
--- worse than not having it. Add a section here only when there's a real
--- acid_* binding backing it.
+-- Three real knobs (master output volume via the audio global gain stage,
+-- the desktop wallpaper on/off, and the font scale for newly opened apps):
+-- every other candidate "setting" is either a compile-time constant no
+-- runtime code ever reads again, or has no shared state to adjust -- a
+-- toggle that changes nothing when tapped is worse than not having it.
+-- Add a section here only when there's a real acid_* binding backing it.
 ConfigApp = AcidApp:extend("ConfigApp")
 
 ConfigApp.WINDOW_W = 180
-ConfigApp.WINDOW_H = 140
+ConfigApp.WINDOW_H = 190
 ConfigApp.TITLE_BAR_H = 16
 
 ConfigApp.TEXT_COLOR = 0xD4E6DB  -- THEME_TEXT
@@ -31,13 +31,19 @@ ConfigApp.WALLPAPER_LABEL_Y = 98
 ConfigApp.WALLPAPER_BTN_Y = 114
 ConfigApp.WALLPAPER_BTN_H = 20
 
+-- The font scale setting, below wallpaper (buttons 156..176).
+ConfigApp.FONT_LABEL_Y = 140
+ConfigApp.FONT_BTN_Y = 156
+ConfigApp.FONT_BTN_H = 20
+
 function ConfigApp:on_create()
   -- Reads the kernel's actual current state rather than assuming a
   -- default -- if Config is closed and reopened (or another window, like
   -- the desktop, already changed it) this must show what's REALLY set,
-  -- not silently reset it. Same reasoning for both settings below.
+  -- not silently reset it. Same reasoning for all three settings below.
   self.volume = acid_get_volume()
   self.wallpaper_on = acid_get_wallpaper_enabled()
+  self.font_scale = acid_get_font_scale()
 end
 
 function ConfigApp:window_title()
@@ -65,6 +71,11 @@ function ConfigApp:redraw()
   acid_draw_text("WALLPAPER", 4, C.WALLPAPER_LABEL_Y, C.MUTED_COLOR, C.BG_COLOR)
   self:draw_toggle()
 
+  acid_draw_text("FONT", 4, C.FONT_LABEL_Y, C.MUTED_COLOR, C.BG_COLOR)
+  self:draw_font_buttons()
+
+  acid_draw_text("applies to newly opened apps", 4, 180, C.MUTED_COLOR, C.BG_COLOR)
+
   acid_draw_window_border()
 end
 
@@ -75,6 +86,23 @@ function ConfigApp:draw_toggle()
   local fg = self.wallpaper_on and C.BG_COLOR or C.TEXT_COLOR
   acid_fill_rect(C.BAR_X, C.WALLPAPER_BTN_Y, C.BAR_W, C.WALLPAPER_BTN_H, bg)
   acid_draw_text(label, C.BAR_X + C.BAR_W // 2 - #label * 3, C.WALLPAPER_BTN_Y + 6, fg, bg)
+end
+
+function ConfigApp:draw_font_buttons()
+  local C = ConfigApp
+  local BTN_W = 84
+
+  -- NORMAL button
+  local normal_bg = self.font_scale == 1 and C.HARD_COLOR or C.PANEL_COLOR
+  local normal_fg = self.font_scale == 1 and C.BG_COLOR or C.TEXT_COLOR
+  acid_fill_rect(C.BAR_X, C.FONT_BTN_Y, BTN_W, C.FONT_BTN_H, normal_bg)
+  acid_draw_text("NORMAL", C.BAR_X + BTN_W // 2 - 18, C.FONT_BTN_Y + 6, normal_fg, normal_bg)
+
+  -- LARGE button
+  local large_bg = self.font_scale == 2 and C.HARD_COLOR or C.PANEL_COLOR
+  local large_fg = self.font_scale == 2 and C.BG_COLOR or C.TEXT_COLOR
+  acid_fill_rect(92, C.FONT_BTN_Y, BTN_W, C.FONT_BTN_H, large_bg)
+  acid_draw_text("LARGE", 92 + BTN_W // 2 - 15, C.FONT_BTN_Y + 6, large_fg, large_bg)
 end
 
 function ConfigApp:draw_button(x, y, label)
@@ -109,6 +137,15 @@ function ConfigApp:on_touch(x, y, pressed)
   if y >= C.WALLPAPER_BTN_Y and y < C.WALLPAPER_BTN_Y + C.WALLPAPER_BTN_H
       and x >= C.BAR_X and x < C.BAR_X + C.BAR_W then
     self:set_wallpaper(not self.wallpaper_on)
+    return
+  end
+
+  if y >= C.FONT_BTN_Y and y < C.FONT_BTN_Y + C.FONT_BTN_H then
+    if x >= C.BAR_X and x < C.BAR_X + 84 then
+      self:set_font(1)
+    elseif x >= 92 and x < 92 + 84 then
+      self:set_font(2)
+    end
   end
 end
 
@@ -125,6 +162,13 @@ function ConfigApp:set_wallpaper(on)
   if on == self.wallpaper_on then return end
   self.wallpaper_on = on
   acid_set_wallpaper_enabled(self.wallpaper_on)
+  self:redraw()
+end
+
+function ConfigApp:set_font(scale)
+  if scale == self.font_scale then return end
+  self.font_scale = scale
+  acid_set_font_scale(self.font_scale)
   self:redraw()
 end
 
