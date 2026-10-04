@@ -25,13 +25,9 @@ end
 local function strip(s) return (s:match("^%s*(.-)%s*$")) end
 
 local CW, CH = acid_font_size()
-local WW, WH = acid_window_size()
 
 TerminalApp = AcidApp:extend("TerminalApp")
 
-TerminalApp.WINDOW_W = WW
-TerminalApp.WINDOW_H = WH
-TerminalApp.COLS = (WW - 8) // CW -- columns that fit, past the 2 px margins
 TerminalApp.TITLE_BAR_H = 16
 TerminalApp.LINE_H = CH + 2
 TerminalApp.ROOT_DIR = "v3/fsroot"
@@ -43,7 +39,22 @@ TerminalApp.TEXT_COLOR = 0xD4E6DB    -- THEME_TEXT
 TerminalApp.PROMPT_COLOR = 0x00FF66  -- THEME_HARD
 TerminalApp.CURSOR_COLOR = 0x00FF66  -- THEME_HARD
 
+-- Everything derived from the window size lives here, so a resize can
+-- redo it: the window's extent and the columns that fit past the 2 px
+-- margins. The row count follows from WINDOW_H in visible_lines.
+function TerminalApp:layout()
+  local ww, wh = acid_window_size()
+  TerminalApp.WINDOW_W = ww
+  TerminalApp.WINDOW_H = wh
+  TerminalApp.COLS = (ww - 8) // CW
+end
+
+function TerminalApp:on_resize(w, h)
+  self:layout()
+end
+
 function TerminalApp:on_create()
+  self:layout()
   self.cwd = TerminalApp.ROOT_DIR
   self.lines = { "Acid OS v3 terminal -- type help", "" }
   self.input = ""

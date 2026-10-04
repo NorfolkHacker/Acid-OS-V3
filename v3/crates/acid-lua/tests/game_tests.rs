@@ -203,6 +203,11 @@ fn sysmon_large() {
 }
 
 #[test]
+fn terminal_resize() {
+    run_suite_with("WIN_W, WIN_H = 260, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/lib/acid_eggs.lua", "v3/apps/terminal.lua", "v3/tools/test_resize_terminal.lua"]), 6);
+}
+
+#[test]
 fn about_network_fit_at_normal() {
     run_suite_with("WIN_W, WIN_H = 180, 150", &["v3/tools/game_test_env.lua", "v3/apps/about.lua", "v3/tools/test_about_fits.lua"], 3);
     run_suite_with("WIN_W, WIN_H = 200, 110", &["v3/tools/game_test_env.lua", "v3/apps/network.lua", "v3/tools/test_fits_window.lua"], 1);

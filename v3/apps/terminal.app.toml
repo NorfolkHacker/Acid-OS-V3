@@ -5,3 +5,6 @@ desc = Command-line shell
 multi = true
 libs = lib/acid_sprite.lua, lib/acid_eggs.lua
 font = scalable
+resizable = true
+min_w = 160
+min_h = 80
