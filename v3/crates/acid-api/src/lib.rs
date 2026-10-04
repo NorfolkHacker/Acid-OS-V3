@@ -16,7 +16,7 @@ use acid_kernel::AppContext;
 use acid_kernel::event::Event;
 use acid_kernel::launcher::LaunchableApp;
 use acid_kernel::layout::WINDOW_MAX;
-pub use acid_gfx::three_d::NO_INDEX;
+pub use acid_gfx::three_d::{MESH_FACES_MAX, MESH_POINTS_MAX, NO_INDEX};
 pub use acid_kernel::WindowInfo;
 pub use acid_kernel::tasks::TaskInfo;
 pub use acid_platform::{LocalTime, NetworkInfo};

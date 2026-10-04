@@ -681,3 +681,58 @@ fn mesh_builtin_returns_an_id_or_nil() {
     "#);
     assert_eq!(api.texts(), ["1 nil"]);
 }
+
+/// Runs a script on a thread so a hang fails the test instead of stalling it.
+fn texts_within(src: &'static str) -> Vec<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let api = FakeApi::with_events(vec![]);
+        let lua = state(api.clone());
+        run(&lua, src);
+        let _ = tx.send(api.texts());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(10)).expect("returned promptly")
+}
+
+#[test]
+fn mesh_new_survives_an_extreme_index() {
+    let t = texts_within(r#"
+        for _, bad in ipairs({math.mininteger, math.maxinteger, 0, 65536}) do
+            local id, err = acid_mesh_new({0,0,0, 1,0,0, 0,1,0}, {{bad, 2, 3}})
+            acid_draw_text(tostring(id) .. ":" .. tostring(err), 0, 0, 0, 0)
+        end
+    "#);
+    assert_eq!(t, vec!["nil:bad mesh"; 4]);
+}
+
+#[test]
+fn mesh_new_never_follows_index_metamethods() {
+    // Raw access: the trick table has no real entries, so points has fewer
+    // than 3 (bad mesh) and faces is simply empty (the points decide).
+    let t = texts_within(r#"
+        local trick = setmetatable({}, {__index = function() return 0 end})
+        local id, err = acid_mesh_new(trick, {{1,2,3}})
+        acid_draw_text(tostring(id) .. ":" .. tostring(err), 0, 0, 0, 0)
+        local id2, err2 = acid_mesh_new({0,0,0, 1,0,0, 0,1,0}, trick)
+        acid_draw_text(tostring(id2) .. ":" .. tostring(err2), 0, 0, 0, 0)
+        local id3, err3 = acid_mesh_new({0,0,0, 1,0,0, 0,1,0}, {trick})
+        acid_draw_text(tostring(id3) .. ":" .. tostring(err3), 0, 0, 0, 0)
+    "#);
+    // (The fake API accepts the empty point list; the real one says bad mesh.)
+    assert_eq!(t, ["1:nil", "2:nil", "nil:bad mesh"]);
+}
+
+#[test]
+fn mesh_new_caps_lengths_before_building_vecs() {
+    let t = texts_within(r#"
+        local function pts(n) local t = {} for i = 1, n do t[i] = 0 end return t end
+        local function faces(n) local t = {} for i = 1, n do t[i] = {1,2,3} end return t end
+        local a, ea = acid_mesh_new(pts(3 * 512 + 1), {})
+        local b, eb = acid_mesh_new(pts(3 * 512), {})
+        local c, ec = acid_mesh_new(pts(3), faces(1025))
+        local d, ed = acid_mesh_new(pts(3), faces(1024))
+        acid_draw_text(tostring(a) .. ":" .. tostring(ea) .. " " .. tostring(c) .. ":" .. tostring(ec), 0, 0, 0, 0)
+        acid_draw_text(tostring(b ~= nil) .. " " .. tostring(d ~= nil), 0, 0, 0, 0)
+    "#);
+    assert_eq!(t, ["nil:too big nil:too big", "true true"]);
+}

@@ -12,38 +12,55 @@ use std::sync::Arc;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use acid_api::{AcidApi, KernelApi, NO_INDEX, PolledEvent};
+use acid_api::{AcidApi, KernelApi, MESH_FACES_MAX, MESH_POINTS_MAX, NO_INDEX, PolledEvent};
 use acid_kernel::{AppContext, AppRunner};
 use acid_platform::Fs;
 use mlua::{ChunkMode, IntoLuaMulti, Lua, LuaOptions, MultiValue, StdLib, Value, ffi};
 
+use crate::lib_paths::lib_path_is_safe;
+
 /// Lua's flat 1-based mesh tables as the API's points and 0-based faces. The
 /// structural problems the API cannot see ("bad mesh") are caught here.
+/// Tables are read raw (no `__index`) and their length is checked against the
+/// caps first, so no script can make the host build an unbounded Vec.
 fn parse_mesh(points: &mlua::Table, faces: &mlua::Table) -> Result<(Vec<(i32, i32, i32)>, Vec<[u16; 4]>), String> {
     let bad = || String::from("bad mesh");
-    let flat: Vec<i32> = points.clone().sequence_values::<i32>().collect::<Result<_, _>>().map_err(|_| bad())?;
-    if flat.len() % 3 != 0 {
+    let too_big = || String::from("too big");
+    let n = points.raw_len();
+    if n > 3 * MESH_POINTS_MAX {
+        return Err(too_big());
+    }
+    if n % 3 != 0 {
         return Err(bad());
     }
-    let points = flat.chunks(3).map(|c| (c[0], c[1], c[2])).collect();
-    let mut out = Vec::new();
-    for face in faces.clone().sequence_values::<mlua::Table>() {
-        let idx: Vec<i64> = face.map_err(|_| bad())?.sequence_values::<i64>().collect::<Result<_, _>>().map_err(|_| bad())?;
-        if !(3..=4).contains(&idx.len()) {
+    let mut pts = Vec::with_capacity(n / 3);
+    for k in 0..n / 3 {
+        let c = |j: usize| points.raw_get::<i32>(3 * k + j + 1).map_err(|_| bad());
+        pts.push((c(0)?, c(1)?, c(2)?));
+    }
+    let nf = faces.raw_len();
+    if nf > MESH_FACES_MAX {
+        return Err(too_big());
+    }
+    let mut out = Vec::with_capacity(nf);
+    for k in 1..=nf {
+        let face: mlua::Table = faces.raw_get(k).map_err(|_| bad())?;
+        let len = face.raw_len();
+        if !(3..=4).contains(&len) {
             return Err(bad());
         }
         let mut f = [NO_INDEX; 4];
-        for (slot, i) in f.iter_mut().zip(idx) {
+        for (j, slot) in f.iter_mut().enumerate().take(len) {
+            let i: i64 = face.raw_get(j + 1).map_err(|_| bad())?;
             // Lua is 1-based; an index that cannot be a u16 (or would be
             // NO_INDEX) is out of range for any mesh.
-            *slot = u16::try_from(i - 1).ok().filter(|v| *v != NO_INDEX).ok_or_else(bad)?;
+            *slot = u16::try_from(i).ok().and_then(|v| v.checked_sub(1)).filter(|v| *v != NO_INDEX).ok_or_else(bad)?;
         }
         out.push(f);
     }
-    Ok((points, out))
+    Ok((pts, out))
 }
 
-use crate::lib_paths::lib_path_is_safe;
 
 /// Loaded into every app, in this order, before its own libs: keys,
 /// palette, waveform, app, game.
