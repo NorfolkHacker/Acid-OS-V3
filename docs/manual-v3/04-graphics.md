@@ -661,8 +661,8 @@ are sorted for you.
 ### Limits
 
 - 16 meshes alive at once, each at most 512 points and 1024 faces, and 4096
-  points across all your live meshes. Over a limit, `acid_mesh_new` and
-  `acid_mesh_builtin` return `nil, "too big"`.
+  points across all your live meshes. Over a limit, `acid_mesh_new` returns
+  `nil, "too big"` and `acid_mesh_builtin` returns plain `nil`.
 - `acid_mesh_free(id)` gives a mesh's slot back. Free meshes in `on_destroy`.
 - Anything behind the camera is not drawn.
 

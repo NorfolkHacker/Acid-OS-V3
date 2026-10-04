@@ -51,6 +51,13 @@ impl Canvas {
             return;
         }
         let p = [(x1 as i64, y1 as i64), (x2 as i64, y2 as i64), (x3 as i64, y3 as i64)];
+        // A triangle wholly left or right of the canvas fills nothing: skip
+        // its rows rather than walk them.
+        let minx = p[0].0.min(p[1].0).min(p[2].0);
+        let maxx = p[0].0.max(p[1].0).max(p[2].0);
+        if maxx < 0 || minx >= w {
+            return;
+        }
         let top = p[0].1.min(p[1].1).min(p[2].1);
         let bot = p[0].1.max(p[1].1).max(p[2].1);
         let c = rgb565(color);

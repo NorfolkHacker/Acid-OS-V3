@@ -115,7 +115,7 @@ fn desktop() {
 
 #[test]
 fn acid_spin() {
-    run_suite_with("WIN_W, WIN_H = 240, 200", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/acid_spin.lua", "v3/tools/test_acid_spin.lua"]), 51);
+    run_suite_with("WIN_W, WIN_H = 240, 200", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/acid_spin.lua", "v3/tools/test_acid_spin.lua"]), 58);
 }
 
 #[test]

@@ -57,13 +57,14 @@ impl MeshStore {
         Ok(())
     }
 
-    /// Stores a mesh, or "too big" at the mesh-count or total-points limit.
+    /// Stores a mesh, or "too big" at the mesh-count or total-points limit,
+    /// or once the ids run out (they are never reused).
     fn add(&mut self, m: Mesh) -> Result<i32, String> {
         if self.map.len() >= MESH_MAX || self.total_points + m.points().len() > MESH_TOTAL_POINTS_MAX {
             return Err(String::from("too big"));
         }
         let id = self.next_id;
-        self.next_id += 1;
+        self.next_id = id.checked_add(1).ok_or_else(|| String::from("too big"))?;
         self.total_points += m.points().len();
         self.map.insert(id, m);
         Ok(id)
@@ -1450,6 +1451,18 @@ mod tests {
         assert_eq!(api.mesh_builtin("cube"), Err("too big".into()));
         api.mesh_free(3);
         assert_eq!(api.mesh_builtin("cube"), Ok(17), "a freed slot is usable but its id is not reused");
+    }
+
+    #[test]
+    fn the_last_id_is_too_big_and_ids_are_never_reused() {
+        let mut store = MeshStore::new();
+        store.next_id = i32::MAX - 1;
+        let cube = || three_d::builtin("cube").unwrap();
+        assert_eq!(store.add(cube()), Ok(i32::MAX - 1));
+        assert_eq!(store.add(cube()), Err("too big".into()), "no id after i32::MAX - 1");
+        store.map.clear();
+        store.total_points = 0;
+        assert_eq!(store.add(cube()), Err("too big".into()), "freeing never brings an id back");
     }
 
     #[test]

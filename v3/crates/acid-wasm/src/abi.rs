@@ -111,10 +111,11 @@ fn triangle_bytes(s: ScreenWh, p: [(i32, i32); 3]) -> u64 {
     rect_bytes(s, w, h)
 }
 
-/// Bytes charged for a mesh draw that touches `px` pixels: at most 64
-/// screens' worth, since overdraw of a solid mesh can exceed the screen.
-fn mesh_bytes(s: ScreenWh, px: u64) -> u64 {
-    px.min(screen_px(s) * 64).saturating_mul(BYTES_PER_PX)
+/// Bytes charged for a mesh draw that `mesh_cost` prices at `px` pixels.
+/// Not capped: each triangle and edge is already capped at the screen, and
+/// overdraw of a solid mesh is real work.
+fn mesh_bytes(px: u64) -> u64 {
+    px.saturating_mul(BYTES_PER_PX)
 }
 
 /// Reads `n` little-endian i32s at `ptr`; traps out of bounds, charges the bytes.
@@ -413,9 +414,8 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
         MODULE,
         "mesh_draw",
         |mut c: Caller<'_, Host>, id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, color: i32| -> Result<(), Error> {
-            let s = screen(&c);
             let px = c.data().api.mesh_draw_cost(id, x, y, size, rx, ry, rz, mode);
-            charge(&mut c, mesh_bytes(s, px))?;
+            charge(&mut c, mesh_bytes(px))?;
             c.data().api.mesh_draw(id, x, y, size, rx, ry, rz, mode, color as u32);
             Ok(())
         },
@@ -618,8 +618,9 @@ mod tests {
         assert_eq!(line_bytes(W, i32::MIN, i32::MIN, i32::MAX, i32::MAX), 640 * 360 * 2);
         assert_eq!(triangle_bytes(W, [(0, 0), (9, 0), (0, 4)]), 10 * 5 * 2);
         assert_eq!(triangle_bytes(W, [(i32::MIN, i32::MIN), (i32::MAX, 0), (0, i32::MAX)]), 640 * 360 * 2);
-        assert_eq!(mesh_bytes(W, 1000), 2000);
-        assert_eq!(mesh_bytes(W, u64::MAX), 640 * 360 * 64 * 2);
+        assert_eq!(mesh_bytes(1000), 2000);
+        assert_eq!(mesh_bytes(640 * 360 * 65), 640 * 360 * 65 * 2, "no 64-screen cap");
+        assert_eq!(mesh_bytes(u64::MAX), u64::MAX, "saturates");
     }
 
     #[test]

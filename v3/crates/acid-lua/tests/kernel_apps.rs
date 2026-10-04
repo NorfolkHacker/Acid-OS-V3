@@ -234,3 +234,50 @@ fn a_cart_level_app_gets_the_cart_limit_not_the_built_in_one() {
     assert!(ends_within(&k, t, 3), "a cart-level spin outlived its 300 ms cart limit");
     assert!(start.elapsed() < Duration::from_millis(3000), "ended only after {:?}", start.elapsed());
 }
+
+#[test]
+fn a_loop_of_heavy_mesh_draws_is_stopped_soon_after_the_limit() {
+    // Each draw is slow but only a few instructions, so the count hook alone
+    // would check the clock only every few hundred draws. With a 100 ms
+    // limit the app must end within 20x that.
+    let k = Kernel::new(FakePlatform::new(FakePlatform::repo_root()));
+    k.set_runner(acid_lua::lua_runner_with(
+        "v3/apps",
+        Some("v3/crates/acid-lua/tests/fixtures/"),
+        acid_lua::VmLimits { built_in_mem: 4 << 20, built_in_ms: 100, cart_mem: 4 << 20, cart_ms: 100 },
+    ));
+    let start = Instant::now();
+    let t = k
+        .spawn_app(SpawnRequest {
+            script_path: "v3/crates/acid-lua/tests/fixtures/mesh_heavy.lua".into(),
+            x: 0, y: 30, w: 160, h: 120, closable: true, arg: None, libs: None, force_cart: false,
+        })
+        .unwrap();
+    assert!(ends_within(&k, t, 2), "mesh_heavy.lua still running after {:?}", start.elapsed());
+}
+
+#[test]
+fn an_apps_mesh_store_is_dropped_when_it_exits() {
+    // The runner run_app uses, but it hands the test a Weak to the app's
+    // KernelApi, which owns the mesh store.
+    use acid_api::{AcidApi, KernelApi};
+    let (tx, rx) = std::sync::mpsc::channel::<std::sync::Weak<dyn AcidApi>>();
+    let tx = std::sync::Mutex::new(tx);
+    let k = Kernel::new(FakePlatform::new(FakePlatform::repo_root()));
+    k.set_runner(std::sync::Arc::new(move |ctx: acid_kernel::AppContext| {
+        let kernel = ctx.kernel.clone();
+        let path = ctx.script_path.clone();
+        let api: std::sync::Arc<dyn AcidApi> = std::sync::Arc::new(KernelApi::new(ctx));
+        tx.lock().unwrap().send(std::sync::Arc::downgrade(&api)).unwrap();
+        let fs = kernel.platform().fs();
+        let lua = acid_lua::new_app_state_limited(api, fs, "v3/apps", None, Some((4 << 20, 5000))).unwrap();
+        acid_lua::load_file(&lua, fs, &path);
+    }));
+    let task = spawn(&k, "meshes_then_wait.lua");
+    let weak = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    // Both meshes exist while it runs.
+    wait_until(|| weak.upgrade().is_some_and(|a| a.mesh_draw_cost(2, 10, 10, 64, 0, 0, 0, 0) > 0));
+    assert!(weak.upgrade().unwrap().mesh_draw_cost(1, 10, 10, 64, 0, 0, 0, 0) > 0);
+    k.close_window(task);
+    wait_until(|| weak.upgrade().is_none());
+}

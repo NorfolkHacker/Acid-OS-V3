@@ -248,7 +248,7 @@ its budget allows. The host charges for:
   - `draw_text`: one 6 × 8 glyph cell per byte, on top of the string's bytes;
   - `draw_line`: its longer axis plus one pixel, at most the screen;
   - `fill_triangle`: its bounding box, like `fill_rect`;
-  - `mesh_draw`: 64 pixels per point and 64 per face, plus the pixels the draw can touch, at most 64 screens' worth;
+  - `mesh_draw`: 64 pixels per point and 64 per face, plus each drawn edge like `draw_line` and each drawn triangle like `fill_triangle` (its bounding box's size clamped to the screen, wherever it sits, so a triangle off the screen still costs), with no cap on the total;
   - `mesh_builtin`: 64 bytes per face of the built-in (the cube has 6, the torus 72), on top of the name's bytes;
   - `mesh_new`: the `3 × n_points` and `4 × n_faces` i32s it reads, as bytes moved, plus 64 bytes per face;
   - `draw_window_frame`: a screen-wide, 16 px title bar;
@@ -743,7 +743,10 @@ same ABI can serve other trust levels later.
 
 A negative count, `n_points < 3`, any bad index, a coordinate beyond ±32767,
 or a face that repeats a point gives −2. `n_points > 512`
-or `n_faces > 1024` gives −5, before any memory is read. A range outside the
+or `n_faces > 1024` gives −5, before any memory is read. Fewer than 3 points is
+checked first, so 2 points with 2000 faces gives −2, where Lua's
+`acid_mesh_new` checks the list lengths first and says `"too big"`
+([`acid_mesh_new`](09-api-reference.md#acid_mesh_new)). A range outside the
 cart's memory traps, like any other pointer. Reading the arrays is charged as
 bytes moved (see Fuel).
 

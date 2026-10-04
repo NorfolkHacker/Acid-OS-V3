@@ -46,9 +46,10 @@ Then the desktop appears. **Menu** is at the top left. Config's FONT setting
 switches the text apps (Terminal, Editor, File Manager, System Monitor, About
 and Network) between Normal and Large; it applies to apps you open afterwards.
 
-Try **Acid Spin** in the Menu: spinning 3D shapes. Left and Right change the
-shape, Up and Down the speed, Space cycles wire, solid and both, and you can
-resize its window.
+Try **Acid Spin**: spinning 3D shapes. It isn't in the Menu. Open File
+Manager, go into `App` and click Acid Spin's `.app.toml` file. Left and Right
+change the shape, Up and Down the speed, Space cycles wire, solid and both, and
+you can resize its window.
 
 > **Run it from the top folder of the repository.** Acid OS finds app scripts
 > by a path relative to that folder (`v3/apps/<name>.lua`). Run it from

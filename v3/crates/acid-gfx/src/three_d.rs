@@ -376,8 +376,10 @@ pub fn draw_mesh(c: &mut Canvas, m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32,
 /// What `draw_mesh` with the same arguments costs, in pixels (callers scale
 /// by bytes per pixel): 64 per point and 64 per face (in every mode, since
 /// the host projects and culls them regardless), plus each drawn edge's
-/// `max(|dx|, |dy|) + 1`, plus each drawn triangle's bounding box clipped to
-/// the screen; every edge and triangle capped at the screen's area.
+/// `max(|dx|, |dy|) + 1` capped at the screen's area, plus each drawn
+/// triangle's bounding box with its width and height each capped at the
+/// screen's, wherever the box sits (like a single triangle's fuel), so a
+/// triangle off the screen is paid for too.
 #[allow(clippy::too_many_arguments)]
 pub fn mesh_cost(m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, screen_w: i32, screen_h: i32) -> u64 {
     let mut cost = 64 * (m.points().len() + m.faces().len()) as u64;
@@ -391,13 +393,9 @@ pub fn mesh_cost(m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32, ry: i32, rz: i3
         for t in visible_tris(m, &proj, &rot) {
             let xs = t.p.map(|q| q.0 as i64);
             let ys = t.p.map(|q| q.1 as i64);
-            let x0 = xs[0].min(xs[1]).min(xs[2]).max(0);
-            let x1 = xs[0].max(xs[1]).max(xs[2]).min(w - 1);
-            let y0 = ys[0].min(ys[1]).min(ys[2]).max(0);
-            let y1 = ys[0].max(ys[1]).max(ys[2]).min(h - 1);
-            if x0 <= x1 && y0 <= y1 {
-                cost = cost.saturating_add((((x1 - x0 + 1) * (y1 - y0 + 1)) as u64).min(area));
-            }
+            let bw = (xs[0].max(xs[1]).max(xs[2]) - xs[0].min(xs[1]).min(xs[2]) + 1).min(w);
+            let bh = (ys[0].max(ys[1]).max(ys[2]) - ys[0].min(ys[1]).min(ys[2]) + 1).min(h);
+            cost = cost.saturating_add((bw * bh) as u64);
         }
     }
     if mode != 1 {
@@ -757,11 +755,10 @@ mod tests {
                 if n.0 * v.0 + n.1 * v.1 + n.2 * v.2 >= 0 { continue; }
                 visible += 1;
                 let p: Vec<_> = t.iter().map(|&i| pts[i as usize]).collect();
-                let x0 = p.iter().map(|q| q.0).min().unwrap().max(0);
-                let x1 = p.iter().map(|q| q.0).max().unwrap().min(w - 1);
-                let y0 = p.iter().map(|q| q.1).min().unwrap().max(0);
-                let y1 = p.iter().map(|q| q.1).max().unwrap().min(h - 1);
-                fills += ((x1 - x0 + 1) * (y1 - y0 + 1)) as u64;
+                // The box's size, each side capped at the screen's.
+                let bw = (p.iter().map(|q| q.0).max().unwrap() - p.iter().map(|q| q.0).min().unwrap() + 1).min(w);
+                let bh = (p.iter().map(|q| q.1).max().unwrap() - p.iter().map(|q| q.1).min().unwrap() + 1).min(h);
+                fills += (bw * bh) as u64;
             }
         }
         assert_eq!(visible, 6, "three faces, two triangles each");
@@ -783,6 +780,23 @@ mod tests {
             draw_mesh(&mut c, &m, cx, cy, size, rx, ry, rz, 2, 0xFFFFFF);
             assert_eq!(mesh_cost(&m, cx, cy, size, rx, ry, rz, 2, w, h), base + fills + lines);
         }
+    }
+
+    #[test]
+    fn off_canvas_triangles_are_still_paid_for_and_draw_nothing() {
+        // 1024 copies of one facing quad, far off the left edge: every
+        // triangle spans every row of the screen but no column of it.
+        let m = Mesh::new(facing_quad(-50, 20).to_vec(), vec![[0, 1, 2, 3]; MESH_FACES_MAX]).unwrap();
+        let (cx, cy, size, w, h) = (-2_000_000, 240, 6400, 640, 480);
+        let (proj, _) = prepare(&m, cx, cy, size, 0, 0, 0);
+        let ys: Vec<i64> = proj.iter().map(|p| p.unwrap().1 as i64).collect();
+        let rows = (ys.iter().max().unwrap() - ys.iter().min().unwrap() + 1).min(h as i64) as u64;
+        assert_eq!(rows, h as u64, "the triangles span every row");
+        let cost = mesh_cost(&m, cx, cy, size, 0, 0, 0, 1, w, h);
+        assert!(cost >= 1024 * 2 * rows, "cost {cost} < {}", 1024 * 2 * rows);
+        let mut c = Canvas::new(w, h);
+        draw_mesh(&mut c, &m, cx, cy, size, 0, 0, 0, 1, 0xFFFFFF);
+        assert!(colours(&c).is_empty(), "nothing is drawn on the canvas");
     }
 
     #[test]

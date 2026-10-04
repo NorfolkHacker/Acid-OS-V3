@@ -5,3 +5,4 @@ desc = Spinning 3D shapes
 resizable = true
 min_w = 120
 min_h = 100
+menu = false

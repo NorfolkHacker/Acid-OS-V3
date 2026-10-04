@@ -3,4 +3,5 @@ w = 200
 h = 150
 desc = Example cart -- colour-cycling bars
 libs = lib/acid_palette.lua
+menu = false
 source = cart

@@ -210,12 +210,10 @@ thread_local! {
     static WATCHDOG: RefCell<Option<Watchdog>> = const { RefCell::new(None) };
 }
 
-/// A raw count hook, not mlua's: mlua 0.10 keeps a single hook thread and
-/// strips the hook from every coroutine. Lua 5.4 copies the hook to each new
-/// coroutine (lua_newthread), so setting it on the main state covers them all.
-/// Raises the error only after every Rust value is dropped.
-unsafe extern "C-unwind" fn watchdog_hook(l: *mut ffi::lua_State, _ar: *mut ffi::lua_Debug) {
-    let trip = WATCHDOG.with(|w| match &*w.borrow() {
+/// The watchdog's time check: true (and the tripped flag set) once the app
+/// has gone longer than its limit without polling. False with no watchdog.
+fn watchdog_overdue() -> bool {
+    WATCHDOG.with(|w| match &*w.borrow() {
         Some(wd) => {
             let idle = (wd.api.now_ms() as u64).saturating_sub(wd.last_poll.load(Ordering::Relaxed));
             if idle > wd.ms {
@@ -226,8 +224,22 @@ unsafe extern "C-unwind" fn watchdog_hook(l: *mut ffi::lua_State, _ar: *mut ffi:
             }
         }
         None => false,
-    });
-    if trip {
+    })
+}
+
+/// The time check after a heavy host call: one call can take many
+/// milliseconds in few instructions, so the count hook alone would check
+/// too rarely. Raises the hook's error once overdue.
+fn check_watchdog() -> mlua::Result<()> {
+    if watchdog_overdue() { Err(mlua::Error::runtime(WATCHDOG_MSG)) } else { Ok(()) }
+}
+
+/// A raw count hook, not mlua's: mlua 0.10 keeps a single hook thread and
+/// strips the hook from every coroutine. Lua 5.4 copies the hook to each new
+/// coroutine (lua_newthread), so setting it on the main state covers them all.
+/// Raises the error only after every Rust value is dropped.
+unsafe extern "C-unwind" fn watchdog_hook(l: *mut ffi::lua_State, _ar: *mut ffi::lua_Debug) {
+    if watchdog_overdue() {
         unsafe {
             ffi::lua_pushstring(l, c"acid: stopped responding".as_ptr());
             ffi::lua_error(l)
@@ -463,7 +475,7 @@ fn register_api(lua: &Lua, api: Arc<dyn AcidApi>, last_poll: Arc<AtomicU64>) -> 
     let a = api.clone();
     g.set("acid_fill_triangle", lua.create_function(move |_, (x1, y1, x2, y2, x3, y3, c): (i32, i32, i32, i32, i32, i32, i64)| {
         a.fill_triangle(x1, y1, x2, y2, x3, y3, c as u32);
-        Ok(())
+        check_watchdog()
     })?)?;
 
     let a = api.clone();
@@ -476,7 +488,9 @@ fn register_api(lua: &Lua, api: Arc<dyn AcidApi>, last_poll: Arc<AtomicU64>) -> 
 
     let a = api.clone();
     g.set("acid_mesh_new", lua.create_function(move |lua, (points, faces): (mlua::Table, mlua::Table)| {
-        match parse_mesh(&points, &faces).and_then(|(p, f)| a.mesh_new(p, f)) {
+        let r = parse_mesh(&points, &faces).and_then(|(p, f)| a.mesh_new(p, f));
+        check_watchdog()?;
+        match r {
             Ok(id) => id.into_lua_multi(lua),
             Err(e) => (Value::Nil, e).into_lua_multi(lua),
         }
@@ -486,7 +500,7 @@ fn register_api(lua: &Lua, api: Arc<dyn AcidApi>, last_poll: Arc<AtomicU64>) -> 
     g.set("acid_mesh_draw", lua.create_function(
         move |_, (id, x, y, size, rx, ry, rz, mode, c): (i32, i32, i32, i32, i32, i32, i32, i32, i64)| {
             a.mesh_draw(id, x, y, size, rx, ry, rz, mode, c as u32);
-            Ok(())
+            check_watchdog()
         },
     )?)?;
 

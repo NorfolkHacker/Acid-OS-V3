@@ -622,6 +622,11 @@ It returns the new id, or `nil, message`:
 | `"bad mesh"` | Fewer than 3 points, a `points` list that isn't a multiple of 3, a face with other than 3 or 4 indices, an index below 1 or past the last point, a face that repeats a point, or a coordinate beyond ±32767. |
 | `"too big"` | Over 512 points or 1024 faces in the mesh, 16 meshes alive, or 4096 points across your live meshes. |
 
+The list lengths are checked before the shape, so a mesh that is both too big
+and bad gives `"too big"`: 2 points with 2000 faces is `"too big"` here. A wasm
+cart's `mesh_new` checks for fewer than 3 points first and returns −2 for the
+same mesh ([§10](10-wasm-carts.md#mesh-arrays)).
+
 ### `acid_network_info`
 
 ```lua snippet

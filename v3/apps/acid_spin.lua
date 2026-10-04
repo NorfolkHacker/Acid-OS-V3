@@ -92,6 +92,7 @@ end
 
 function AcidSpin:on_resize(w, h)
   self:layout()
+  self:redraw()
 end
 
 local function scaled(color, percent)
@@ -139,7 +140,8 @@ function AcidSpin:on_touch(x, y, pressed)
 end
 
 function AcidSpin:on_tick()
-  if not (self.frozen or GAME_FREEZE) then
+  local frozen = self.frozen or GAME_FREEZE
+  if not frozen then
     local hist = self.history
     table.remove(hist, 1)
     hist[#hist + 1] = { self.rx, self.ry, self.rz }
@@ -148,7 +150,12 @@ function AcidSpin:on_tick()
     self.rz = (self.rz + self.speed // 2) % 256
     self.step = self.step + 2
   end
-  if self:focused() then self:redraw() end
+  -- Frozen, nothing moves: draw once, then again only when the focus
+  -- changes (a resize, key or tap redraws by itself).
+  local focused = self:focused()
+  local focus_changed = focused ~= self.was_focused
+  self.was_focused = focused
+  if focused and (not frozen or focus_changed) then self:redraw() end
 end
 
 function AcidSpin:redraw()
@@ -165,9 +172,11 @@ function AcidSpin:redraw()
     end
     acid_mesh_draw(id, self.cx, self.cy, self.size, self.rx, self.ry, self.rz, self.mode, color)
   end
-  local cw = acid_font_size()
+  -- The label goes on last, over the shape, a line height up from the
+  -- bottom so it fits at Large text too.
+  local cw, ch = acid_font_size()
   local label = SHAPE_NAMES[self.shape] .. " " .. MODE_NAMES[self.mode] .. " x" .. self.speed
-  acid_draw_text(label:sub(1, (self.w - 8) // cw), 4, self.h - 12, AcidSpin.MUTED_COLOR, AcidSpin.BG_COLOR)
+  acid_draw_text(label:sub(1, (self.w - 8) // cw), 4, self.h - ch - 4, AcidSpin.MUTED_COLOR, AcidSpin.BG_COLOR)
   acid_draw_window_border()
 end
 

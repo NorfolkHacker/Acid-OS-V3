@@ -119,6 +119,15 @@ ok(174 * cur[4] // 64 <= W // 2, "the rotated shape fits horizontally")
 local label
 for _, t in ipairs(TEXT_AT) do if t[3] == H - 12 then label = t[1] end end
 ok(label and label:find("cube", 1, true), "the label row names the shape")
+fresh_frame()
+FONT_W, FONT_H = 12, 16
+G:redraw()
+local large
+for _, t in ipairs(TEXT_AT) do if t[1]:find("cube", 1, true) then large = t[3] end end
+eq(large, H - 16 - 4, "at Large text the label sits a line height up")
+fits, what = drawn_inside_window()
+ok(fits, "fits at Large text" .. (what and (": " .. what) or ""))
+FONT_W, FONT_H = 6, 8
 
 group("resize")
 resize_app(400, 300)
@@ -134,6 +143,9 @@ ok(174 * cur[4] // 64 <= 42, "the shape fits at the minimum")
 fits, what = drawn_inside_window()
 ok(fits, "fits at 120x100" .. (what and (": " .. what) or ""))
 resize_app(W, H)
+fresh_frame()
+G:on_resize(W, H)
+eq(#MESH_DRAWS, 5, "a resize redraws by itself")
 
 group("freeze")
 G:freeze()
@@ -154,6 +166,25 @@ G2:on_create()
 eq({ G2.shape, G2.mode, G2.rx, G2.ry, G2.rz, G2.step }, { 1, 1, 20, 30, 0, 0 }, "the freeze launch argument sets the pose")
 G2:on_tick()
 eq({ G2.rx, G2.ry, G2.rz, G2.step }, { 20, 30, 0, 0 }, "and keeps it fixed")
+
+group("frozen redraws")
+LAUNCH_ARG = "freeze"
+local G3 = AcidSpin:new()
+G3:on_create()
+LAUNCH_ARG = ""
+fresh_frame()
+G3:on_tick()
+eq(#MESH_DRAWS, 1, "the first frozen tick draws the pose")
+fresh_frame()
+G3:on_tick()
+G3:on_tick()
+eq(#MESH_DRAWS, 0, "later frozen ticks draw nothing")
+G3.focused = function() return false end
+G3:on_tick()
+eq(#MESH_DRAWS, 0, "nor while unfocused")
+G3.focused = nil
+G3:on_tick()
+eq(#MESH_DRAWS, 1, "regaining the focus redraws")
 LAUNCH_ARG = ""
 
 group("destroy")
