@@ -5,14 +5,10 @@ FileManagerApp = AcidApp:extend("FileManagerApp")
 
 -- Sizes derive from the font and window size, so the app works at Large too.
 local CW, CH = acid_font_size()
-local WW, WH = acid_window_size()
 
 -- TITLE_BAR_H must match the kernel's title bar height.
-FileManagerApp.WINDOW_W = WW
-FileManagerApp.WINDOW_H = WH
 FileManagerApp.TITLE_BAR_H = 16
 FileManagerApp.ROW_H = CH + 4
-FileManagerApp.CLIP_COLS = (WW - 16) // CW
 FileManagerApp.ROOT_DIR = "v3/fsroot"
 
 FileManagerApp.BG_COLOR = 0x0B1712      -- THEME_PANEL -- header row
@@ -55,7 +51,30 @@ local function trim(s)
   return s:match("^%s*(.-)%s*$")
 end
 
+-- Everything derived from the window size lives here, so a resize can redo
+-- it: the window's extent and the columns an entry label is clipped to.
+function FileManagerApp:layout()
+  local ww, wh = acid_window_size()
+  FileManagerApp.WINDOW_W = ww
+  FileManagerApp.WINDOW_H = wh
+  FileManagerApp.CLIP_COLS = (ww - 16) // CW
+  -- The header row spans the full width (no scroll bar beside it).
+  FileManagerApp.HEAD_COLS = (ww - 4) // CW
+end
+
+-- After a resize the rows that fit change: keep the selection on screen and
+-- a preview's scroll within its new maximum.
+function FileManagerApp:on_resize(w, h)
+  self:layout()
+  self:ensure_listing_scroll()
+  if self.preview then
+    local max = self:max_preview_scroll(split_lines(self.preview))
+    if self.preview_scroll > max then self.preview_scroll = max end
+  end
+end
+
 function FileManagerApp:on_create()
+  self:layout()
   self.dir = self.ROOT_DIR
   self.entries = {}
   self.selected = 0
@@ -197,7 +216,7 @@ function FileManagerApp:draw_listing()
   if n > self:visible_listing_rows() then
     label = self.dir .. " (" .. (self.selected + 1) .. "/" .. n .. ")"
   end
-  acid_draw_text(label, 2, y + 2, self.TEXT_COLOR, self.BG_COLOR)
+  acid_draw_text(label:sub(1, self.HEAD_COLS), 2, y + 2, self.TEXT_COLOR, self.BG_COLOR)
   y = y + self.ROW_H
   local i = self.scroll
   while i < n and i < self.scroll + self:visible_listing_rows() do
@@ -211,7 +230,7 @@ function FileManagerApp:draw_listing()
       entry_label = " " .. e.name .. " (" .. e.size .. "B)"
     end
     local color = self:entry_color(e)
-    acid_draw_text(entry_label:sub(1, self.CLIP_COLS), 2, y + 2, color, row_bg)
+    acid_draw_text(entry_label:sub(1, self.HEAD_COLS), 2, y + 2, color, row_bg)
     y = y + self.ROW_H
     i = i + 1
   end
@@ -233,7 +252,7 @@ function FileManagerApp:draw_preview()
   if #lines > self:visible_listing_rows() then
     header = self.preview_name .. " (" .. (self.preview_scroll + 1) .. "/" .. #lines .. ")"
   end
-  acid_draw_text(header, 2, self.TITLE_BAR_H + 2, self.TEXT_COLOR, self.BG_COLOR)
+  acid_draw_text(header:sub(1, self.HEAD_COLS), 2, self.TITLE_BAR_H + 2, self.TEXT_COLOR, self.BG_COLOR)
   local y = self.TITLE_BAR_H + self.ROW_H
   local i = self.preview_scroll
   while i < #lines and i < self.preview_scroll + self:visible_listing_rows() do
