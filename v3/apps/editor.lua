@@ -135,8 +135,10 @@ function EditorApp:visible_lines()
   return (EditorLayout.STATUS_Y - EditorLayout.TEXT_Y) // EditorLayout.LINE_H
 end
 
+-- The columns between the gutter and the scroll bar's column, leaving
+-- a pixel's gap before the bar.
 function EditorApp:visible_cols()
-  return (EditorLayout.WINDOW_W - EditorLayout.TEXT_X) // EditorLayout.CHAR_W
+  return (EditorLayout.BAR_X - 1 - EditorLayout.TEXT_X) // EditorLayout.CHAR_W
 end
 
 function EditorApp:file_label()
@@ -153,6 +155,7 @@ function EditorApp:redraw()
   self:draw_gutter()
   self:draw_lines()
   self:draw_cursor()
+  self:draw_scrollbar()
   if self:cmd_active() then self:draw_cmd_strip() end
   if self:cmd_prompt_active() then
     self:draw_cmd_prompt()
@@ -217,7 +220,7 @@ function EditorApp:draw_lines()
   while i < self:visible_lines() do
     local idx = self.scroll_y + i
     local y = L.TEXT_Y + i * L.LINE_H
-    acid_fill_rect(L.TEXT_X, y, L.WINDOW_W - L.TEXT_X, L.LINE_H, EditorApp.BODY_BG)
+    acid_fill_rect(L.TEXT_X, y, L.BAR_X - L.TEXT_X, L.LINE_H, EditorApp.BODY_BG)
     local sel = self:selection_span(idx)
     if sel ~= nil then
       local sx = sel[1] - self.scroll_x
@@ -312,6 +315,21 @@ function EditorApp:draw_cursor()
   local x = L.TEXT_X + col * L.CHAR_W
   local y = L.TEXT_Y + row * L.LINE_H
   acid_fill_rect(x, y + L.LINE_H - 2, L.CHAR_W, 2, EditorApp.CURSOR_COLOR)
+end
+
+-- The scroll bar (lib/acid_scrollbar.lua): the column just inside the
+-- right border, beside the text rows. It moves the view (scroll_y) only:
+-- the cursor and any selection stay put, even off-screen, until a key
+-- brings the view back to the cursor (on_key's ensure_scroll). The open
+-- command strip draws over the bottom of it, as it does over the text.
+function EditorApp:bar_geometry()
+  local L = EditorLayout
+  return L.BAR_X, L.TEXT_Y, self:visible_lines() * L.LINE_H
+end
+
+function EditorApp:draw_scrollbar()
+  local x, y, h = self:bar_geometry()
+  AcidScrollbar.draw(x, y, h, self.buf:line_count(), self:visible_lines(), self.scroll_y)
 end
 
 function EditorApp:on_touch(x, y, pressed)

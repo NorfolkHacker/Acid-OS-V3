@@ -22,6 +22,7 @@ function EditorTouch.editor_touch(self, x, y, pressed)
   if not pressed then
     self.touch_down = false
     self.tap_consumed = false
+    self.bar_grab = nil
     -- Not load-bearing today (every fresh press re-initialises this
     -- anyway, via `fresh or` in touch_gutter), but leaving a gesture
     -- flag set across gestures is exactly the shape that caused the
@@ -35,12 +36,17 @@ function EditorTouch.editor_touch(self, x, y, pressed)
   local fresh = not self.touch_down
   self.touch_down = true
 
+  -- A thumb drag follows every held sample, wherever it goes, and touches
+  -- nothing but the view.
+  if self.bar_grab then return self:drag_scrollbar(y) end
+
   -- One-shot targets first, and only on the press that started the
   -- hold: holding a finger on the strip must not re-run its command
   -- every frame.
   if fresh then
     if self:touch_command_strip(x, y) then return true end
     if self:touch_status(x, y) then return true end
+    if self:touch_scrollbar(x, y) then return true end
   end
   if self.tap_consumed then return false end
   if y < L.TEXT_Y or y >= L.STATUS_Y then return false end
@@ -73,6 +79,31 @@ function EditorTouch.editor_touch(self, x, y, pressed)
     return self:touch_gutter(y, fresh)
   end
   return self:touch_text(x, y, fresh)
+end
+
+-- A press on the scroll bar pages the view a screenful or grabs the
+-- thumb. The rest of a paging press's hold is consumed, so it never turns
+-- into a text selection.
+function EditorTouch.touch_scrollbar(self, x, y)
+  local bx, by, h = self:bar_geometry()
+  local total, visible = self.buf:line_count(), self:visible_lines()
+  if not AcidScrollbar.needed(total, visible) or not AcidScrollbar.hit(bx, by, h, x, y) then
+    return false
+  end
+  local offset, grab = AcidScrollbar.press(h, total, visible, self.scroll_y, y - by)
+  self.scroll_y = offset
+  self.bar_grab = grab
+  if grab == nil then self.tap_consumed = true end
+  return true
+end
+
+-- Returns whether the view moved, so on_touch redraws only then.
+function EditorTouch.drag_scrollbar(self, y)
+  local _, by, h = self:bar_geometry()
+  local offset = AcidScrollbar.drag(h, self.buf:line_count(), self:visible_lines(), self.bar_grab, y - by)
+  if offset == self.scroll_y then return false end
+  self.scroll_y = offset
+  return true
 end
 
 function EditorTouch.touch_command_strip(self, x, y)

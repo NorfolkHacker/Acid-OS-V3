@@ -28,6 +28,10 @@ function EditorLayout.compute(w, h)
   EditorLayout.WINDOW_W = w
   EditorLayout.WINDOW_H = h
   EditorLayout.STATUS_Y = h - EditorLayout.LINE_H
+  -- The scroll bar's column, just inside the right border (lib/
+  -- acid_scrollbar.lua, which the manifest loads first); text stops
+  -- short of it.
+  EditorLayout.BAR_X = w - 1 - AcidScrollbar.WIDTH
 end
 EditorLayout.compute(acid_window_size())
 
