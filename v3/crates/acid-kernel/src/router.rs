@@ -8,8 +8,11 @@ use acid_platform::TouchState;
 
 use crate::TaskId;
 use crate::event::{Event, EventQueue};
-use crate::layout::{CLOSE_BTN_MARGIN, CLOSE_BTN_R, DESKTOP_STRIP_H, TITLE_BAR_H};
-use crate::window::WindowRegistry;
+use acid_gfx::Canvas;
+
+use crate::layout::{CLOSE_BTN_MARGIN, CLOSE_BTN_R, DESKTOP_STRIP_H, Screen, TITLE_BAR_H};
+use crate::theme::THEME_BG;
+use crate::window::{Window, WindowRegistry};
 
 #[derive(Debug, Clone, Copy)]
 struct Drag {
@@ -37,6 +40,8 @@ pub struct RouterState {
 pub struct KernelState {
     pub windows: WindowRegistry,
     pub router: RouterState,
+    /// The screen the kernel runs at, for clamping resizes.
+    pub screen: Screen,
 }
 
 impl Default for KernelState {
@@ -47,13 +52,60 @@ impl Default for KernelState {
 
 impl KernelState {
     pub fn new() -> Self {
-        Self { windows: WindowRegistry::new(), router: RouterState::default() }
+        Self::with_screen(Screen::DEFAULT)
+    }
+
+    pub fn with_screen(screen: Screen) -> Self {
+        Self { windows: WindowRegistry::new(), router: RouterState::default(), screen }
     }
 
     fn send(&self, task: TaskId, ev: Event) {
         if let Some(w) = self.windows.by_task(task) {
             send(&w.queue, ev);
         }
+    }
+}
+
+/// The size a resize to (w, h) actually gets: at least the window's
+/// minimum (and, for large text, one character cell plus chrome), and at
+/// most what fits on screen right of and below its top-left corner.
+pub fn resize_clamp(win: &Window, screen: Screen, w: i32, h: i32) -> (i32, i32) {
+    let s = win.font_scale.max(1);
+    let min_w = win.min_w.max(6 * s + 2);
+    let min_h = win.min_h.max(TITLE_BAR_H + 8 * s + 2);
+    let max_w = (screen.w - win.x).max(min_w);
+    let max_h = (screen.h - win.y).max(min_h);
+    (w.clamp(min_w, max_w), h.clamp(min_h, max_h))
+}
+
+impl KernelState {
+    /// Resizes a resizable window, clamped by `resize_clamp`: a new canvas
+    /// with the old picture top-left and THEME_BG elsewhere is swapped in
+    /// under the canvas lock (so the app's handle sees it), then the app
+    /// gets Resized. None if the window isn't resizable or the size doesn't
+    /// change.
+    pub fn resize_window(&mut self, task: TaskId, w: i32, h: i32, dirty: &AtomicBool) -> Option<(i32, i32)> {
+        let screen = self.screen;
+        let win = self.windows.by_task_mut(task)?;
+        if !win.resizable {
+            return None;
+        }
+        let (w, h) = resize_clamp(win, screen, w, h);
+        if (w, h) == (win.w, win.h) {
+            return None;
+        }
+        {
+            let mut canvas = win.canvas.lock();
+            let mut next = Canvas::new(w, h);
+            next.fill_rect(0, 0, w, h, THEME_BG);
+            next.copy_rect_from(&canvas, 0, 0, w.min(canvas.width()), h.min(canvas.height()));
+            *canvas = next;
+        }
+        win.w = w;
+        win.h = h;
+        send(&win.queue, Event::Resized { w, h });
+        mark(dirty);
+        Some((w, h))
     }
 }
 

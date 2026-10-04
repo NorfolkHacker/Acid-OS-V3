@@ -31,6 +31,11 @@ pub struct Window {
     pub cart: bool,
     /// The app's text scale (1 or 2), fixed at spawn.
     pub font_scale: i32,
+    /// Opted in to being resized by dragging its grip.
+    pub resizable: bool,
+    /// Smallest size a resize may give it (see `router::resize_clamp`).
+    pub min_w: i32,
+    pub min_h: i32,
 }
 
 impl Window {
@@ -46,7 +51,7 @@ impl Window {
         h: i32,
         closable: bool,
     ) -> Self {
-        Self { task, queue, canvas, app_name, x, y, w, h, z: 0, closable, cart: false, font_scale: 1 }
+        Self { task, queue, canvas, app_name, x, y, w, h, z: 0, closable, cart: false, font_scale: 1, resizable: false, min_w: 0, min_h: 0 }
     }
 
     fn contains(&self, x: i32, y: i32) -> bool {

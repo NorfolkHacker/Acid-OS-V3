@@ -38,6 +38,11 @@ pub fn window_size_ok(screen: Screen, w: i32, h: i32) -> bool {
 }
 pub const TITLE_BAR_H: i32 = 16;
 pub const CLOSE_BTN_R: i32 = 5;
+/// The resize grip: a square this size in a resizable window's bottom-right corner.
+pub const RESIZE_GRIP: i32 = 8;
+/// A resizable window's minimum size when its manifest gives none.
+pub const RESIZE_MIN_W: i32 = 80;
+pub const RESIZE_MIN_H: i32 = 48;
 pub const CLOSE_BTN_MARGIN: i32 = 8;
 /// The desktop's own top strip -- every touch inside it goes to the
 /// desktop window unconditionally (see router.rs).

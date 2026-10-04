@@ -17,9 +17,9 @@ use acid_platform::sync::Mutex;
 
 use crate::TaskId;
 use crate::event::EventQueue;
-use crate::layout::{CART_WINDOW_MAX, DESKTOP_STRIP_H, Screen, window_size_ok};
+use crate::layout::{CART_WINDOW_MAX, DESKTOP_STRIP_H, RESIZE_GRIP, RESIZE_MIN_H, RESIZE_MIN_W, Screen, TITLE_BAR_H, window_size_ok};
 use crate::router::{self, KernelState};
-use crate::theme::{ACID_OVERLAY_KEY, THEME_BG};
+use crate::theme::{ACID_OVERLAY_KEY, THEME_BG, THEME_HARD};
 use crate::window::Window;
 
 /// Everything one app's VM host needs -- its kernel context plus its spawn
@@ -51,6 +51,11 @@ pub struct ManifestFlags {
     pub cart: bool,
     /// `font = scalable`: draws at Config's font size.
     pub scalable: bool,
+    /// `resizable = true`: the user may drag the window's grip.
+    pub resizable: bool,
+    /// `min_w`/`min_h`: the smallest size it may be resized to; 0 when absent.
+    pub min_w: i32,
+    pub min_h: i32,
 }
 
 /// Spec §14.2: an app is built-in only if it is a `.lua` file under
@@ -62,7 +67,7 @@ pub struct ManifestFlags {
 /// lowercased) and the key matched case-insensitively, so `Source = "Cart"`
 /// counts.
 pub fn manifest_flags(platform: &dyn Platform, script_path: &str) -> ManifestFlags {
-    let outside = ManifestFlags { cart: true, scalable: false };
+    let outside = ManifestFlags { cart: true, scalable: false, resizable: false, min_w: 0, min_h: 0 };
     if !(crate::fs_path::fs_path_is_allowed(script_path)
         && script_path.starts_with("v3/apps/")
         && script_path.ends_with(".lua"))
@@ -77,9 +82,18 @@ pub fn manifest_flags(platform: &dyn Platform, script_path: &str) -> ManifestFla
             // Any spelling of the key counts (`Source`, `SOURCE`): fail closed.
             let cart = fields.iter().any(|(k, v)| k.eq_ignore_ascii_case("source") && unquote(v).eq_ignore_ascii_case("cart"));
             let scalable = fields.iter().any(|(k, v)| k.eq_ignore_ascii_case("font") && unquote(v) == "scalable");
-            ManifestFlags { cart, scalable }
+            let has = |key: &str, val: &str| fields.iter().any(|(k, v)| k.eq_ignore_ascii_case(key) && unquote(v) == val);
+            let num = |key: &str| {
+                fields
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(key))
+                    .and_then(|(_, v)| unquote(v).parse::<i32>().ok())
+                    .filter(|n| *n > 0)
+                    .unwrap_or(0)
+            };
+            ManifestFlags { cart, scalable, resizable: has("resizable", "true"), min_w: num("min_w"), min_h: num("min_h") }
         }
-        Err(acid_platform::FsError::NotFound) => ManifestFlags { cart: false, scalable: false },
+        Err(acid_platform::FsError::NotFound) => ManifestFlags { cart: false, scalable: false, resizable: false, min_w: 0, min_h: 0 },
         Err(_) => outside,
     }
 }
@@ -164,7 +178,7 @@ impl Kernel {
         Arc::new(Self {
             platform,
             screen,
-            state: Mutex::new(KernelState::new()),
+            state: Mutex::new(KernelState::with_screen(screen)),
             // Starts dirty, so the first tick always draws.
             dirty: AtomicBool::new(true),
             next_task: AtomicU32::new(0),
@@ -244,6 +258,11 @@ impl Kernel {
         );
         win.cart = cart;
         win.font_scale = scale;
+        if flags.resizable {
+            win.resizable = true;
+            win.min_w = (if flags.min_w > 0 { flags.min_w } else { RESIZE_MIN_W }).max(RESIZE_MIN_W).min(w);
+            win.min_h = (if flags.min_h > 0 { flags.min_h } else { RESIZE_MIN_H }).max(TITLE_BAR_H + 8).min(h);
+        }
         {
             // The cap check and the registration share one lock, so two
             // carts spawning at once can't both slip under the cap.
@@ -300,6 +319,11 @@ impl Kernel {
         // Gates off the app's voices on every exit path.
         self.audio_release_owner(task);
         self.mark_dirty();
+    }
+
+    /// Resizes a resizable window (see `KernelState::resize_window`).
+    pub fn resize_window(&self, task: TaskId, w: i32, h: i32) -> Option<(i32, i32)> {
+        self.state.lock().resize_window(task, w, h, &self.dirty)
     }
 
     pub fn mark_dirty(&self) {
@@ -372,13 +396,13 @@ impl Kernel {
     /// window list is copied out under the kernel lock and the canvases
     /// are blitted after it is released.
     pub fn composite_frame(&self) {
-        let layers: Vec<(Arc<Mutex<Canvas>>, i32, i32)> = self
+        let layers: Vec<(Arc<Mutex<Canvas>>, i32, i32, bool, i32, i32)> = self
             .state
             .lock()
             .windows
             .in_z_order()
             .iter()
-            .map(|w| (w.canvas.clone(), w.x, w.y))
+            .map(|w| (w.canvas.clone(), w.x, w.y, w.resizable, w.w, w.h))
             .collect();
         let mut fb = self.framebuffer.lock();
         if self.wallpaper_enabled() {
@@ -386,8 +410,18 @@ impl Kernel {
         } else {
             fb.fill_rect(0, 0, self.screen.w, self.screen.h, THEME_BG);
         }
-        for (canvas, x, y) in layers {
+        for (canvas, x, y, resizable, w, h) in layers {
             fb.blit(&canvas.lock(), x, y);
+            if resizable {
+                // Three diagonal strokes in the bottom-right corner.
+                for gx in 1..=6 {
+                    for gy in 1..=6 {
+                        if matches!(gx + gy, 8 | 10 | 12) {
+                            fb.fill_rect(x + w - RESIZE_GRIP + gx, y + h - RESIZE_GRIP + gy, 1, 1, THEME_HARD);
+                        }
+                    }
+                }
+            }
         }
         // Last, colour-keyed: the overlay draws above every window. The
         // overlay lock is a leaf, taken here only after the window canvases.
@@ -722,10 +756,10 @@ mod tests {
         std::fs::write(t.0.join("v3/apps/plain.app.toml"), "name = Plain\nw = 100\nh = 60\n").unwrap();
         std::fs::write(t.0.join("v3/apps/odd.app.toml"), "font = scalable-ish\n").unwrap();
         let p = FakePlatform::new(t.0.clone());
-        assert_eq!(manifest_flags(&*p, "v3/apps/big.lua"), ManifestFlags { cart: false, scalable: true });
-        assert_eq!(manifest_flags(&*p, "v3/apps/plain.lua"), ManifestFlags { cart: false, scalable: false });
+        assert_eq!(manifest_flags(&*p, "v3/apps/big.lua"), ManifestFlags { cart: false, scalable: true, resizable: false, min_w: 0, min_h: 0 });
+        assert_eq!(manifest_flags(&*p, "v3/apps/plain.lua"), ManifestFlags { cart: false, scalable: false, resizable: false, min_w: 0, min_h: 0 });
         assert_eq!(manifest_flags(&*p, "v3/apps/odd.lua").scalable, false, "only the exact value counts");
-        assert_eq!(manifest_flags(&*p, "v3/fsroot/Home/x.lua"), ManifestFlags { cart: true, scalable: false });
+        assert_eq!(manifest_flags(&*p, "v3/fsroot/Home/x.lua"), ManifestFlags { cart: true, scalable: false, resizable: false, min_w: 0, min_h: 0 });
     }
 
     #[test]
@@ -789,5 +823,80 @@ mod tests {
         let t1 = k.spawn_app(SpawnRequest { script_path: "v3/apps/big.lua".into(), ..req(400, 300, 220, 160) }).unwrap();
         recv(&rx);
         assert_eq!(k.with_state(|st| st.windows.by_task(t1).map(|w| (w.x, w.y))), Some((200, 176)), "pulled back to fit 440x304");
+    }
+
+    #[test]
+    fn manifest_flags_reads_resizable_and_its_minimums() {
+        let t = temp_tree("resize_flags");
+        std::fs::create_dir_all(t.0.join("v3/apps")).unwrap();
+        std::fs::write(t.0.join("v3/apps/r.app.toml"), "Resizable = 'true'\nmin_w = 120\nmin_h = 70\n").unwrap();
+        std::fs::write(t.0.join("v3/apps/n.app.toml"), "resizable = yes\n").unwrap();
+        std::fs::write(t.0.join("v3/apps/c.app.toml"), "resizable = true\nsource = cart\n").unwrap();
+        let p = FakePlatform::new(t.0.clone());
+        let r = manifest_flags(&*p, "v3/apps/r.lua");
+        assert_eq!((r.resizable, r.min_w, r.min_h), (true, 120, 70));
+        assert!(!manifest_flags(&*p, "v3/apps/n.lua").resizable, "only the exact value `true` counts");
+        let c = manifest_flags(&*p, "v3/apps/c.lua");
+        assert!(c.cart && c.resizable, "a cart may opt in");
+    }
+
+    fn resizable_kernel(tag: &str) -> (TempTree, Arc<Kernel>, mpsc::Receiver<AppContext>) {
+        let t = temp_tree(tag);
+        std::fs::create_dir_all(t.0.join("v3/apps")).unwrap();
+        std::fs::write(t.0.join("v3/apps/r.app.toml"), "resizable = true\nmin_w = 100\nmin_h = 60\n").unwrap();
+        let p = FakePlatform::new(t.0.clone());
+        let k = Kernel::with_screen(p.clone(), crate::layout::Screen::DEFAULT);
+        let (tx, rx) = mpsc::channel();
+        k.set_runner(parked_runner(tx));
+        (t, k, rx)
+    }
+
+    #[test]
+    fn a_resizable_window_resizes_keeping_its_pixels_and_tells_the_app() {
+        let (_t, k, rx) = resizable_kernel("resize_apply");
+        let task = k.spawn_app(SpawnRequest { script_path: "v3/apps/r.lua".into(), ..req(40, 40, 200, 150) }).unwrap();
+        let ctx = recv(&rx);
+        ctx.canvas.lock().fill_rect(0, 0, 10, 10, 0xFF0000);
+        assert_eq!(k.resize_window(task, 300, 200), Some((300, 200)));
+        {
+            let c = ctx.canvas.lock();
+            assert_eq!((c.width(), c.height()), (300, 200), "the app's canvas handle sees the new size");
+            assert_eq!(c.pixel(5, 5), Some(acid_gfx::rgb565(0xFF0000)), "old pixels kept top-left");
+            assert_eq!(c.pixel(250, 180), Some(acid_gfx::rgb565(crate::theme::THEME_BG)), "the new area is background");
+        }
+        assert_eq!(k.with_state(|st| st.windows.by_task(task).map(|w| (w.w, w.h))), Some((300, 200)));
+        assert_eq!(ctx.queue.try_recv(), Some(crate::event::Event::Resized { w: 300, h: 200 }));
+        assert_eq!(k.resize_window(task, 300, 200), None, "the same size changes nothing");
+        assert_eq!(k.resize_window(task, 10, 10), Some((100, 60)), "clamped up to the minimum");
+        assert_eq!(k.resize_window(task, 5000, 5000), Some((600, 440)), "clamped to the screen right and below the window");
+    }
+
+    #[test]
+    fn a_window_without_the_opt_in_never_resizes_and_has_no_grip() {
+        let (p, k, rx) = setup_at(crate::layout::Screen::DEFAULT);
+        let task = k.spawn_app(req(40, 40, 200, 150)).unwrap();
+        recv(&rx);
+        assert_eq!(k.resize_window(task, 300, 200), None);
+        k.composite_frame();
+        let f = p.display.last_frame().unwrap();
+        let grip = |gx: i32, gy: i32| f[((40 + 150 - 8 + gy) * 640 + (40 + 200 - 8 + gx)) as usize];
+        assert_ne!(grip(6, 6), acid_gfx::rgb565(crate::theme::THEME_HARD));
+    }
+
+    #[test]
+    fn a_resizable_window_shows_its_grip() {
+        let (_t, k, rx) = resizable_kernel("resize_grip");
+        k.spawn_app(SpawnRequest { script_path: "v3/apps/r.lua".into(), ..req(40, 40, 200, 150) }).unwrap();
+        recv(&rx);
+        k.composite_frame();
+        let f = k.framebuffer();
+        let grip = |gx: i32, gy: i32| f.pixel(40 + 200 - 8 + gx, 40 + 150 - 8 + gy).unwrap();
+        let hard = acid_gfx::rgb565(crate::theme::THEME_HARD);
+        for (gx, gy) in [(6, 6), (5, 5), (4, 6), (6, 4), (2, 6), (6, 2)] {
+            assert_eq!(grip(gx, gy), hard, "({gx},{gy})");
+        }
+        for (gx, gy) in [(1, 1), (3, 3)] {
+            assert_ne!(grip(gx, gy), hard, "({gx},{gy})");
+        }
     }
 }
