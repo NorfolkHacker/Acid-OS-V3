@@ -311,3 +311,29 @@ fn acid_spin_matches_golden() {
     let grip = ((wx + ww - 8) as usize, (wy + wh - 8) as usize, 8, 8);
     assert_matches_golden_masked(&p.display.last_frame().unwrap(), "acid_spin.ppm", 640, &[clock_mask(Screen::DEFAULT), grip]);
 }
+
+#[test]
+fn sprite_paint_matches_golden() {
+    let p = FakePlatform::new(FakePlatform::repo_root());
+    let k = boot_with(p.clone(), Screen::DEFAULT);
+    wait_for_desktop(&k, Screen::DEFAULT);
+    let (w, h) = (360, 260); // the manifest's size
+    let (x, y) = acid_kernel::placement::cascade_position(k.screen(), k.with_state(|st| st.windows.count()), w, h);
+    let sprite = k
+        .spawn_app(SpawnRequest {
+            script_path: format!("{APPS_DIR}/sprite.lua"),
+            x, y, w, h, closable: true,
+            arg: Some("v3/fsroot/Home/acid_ship.spr".into()),
+            libs: Some("lib/acid_sprite.lua, sprite/doc.lua, sprite/tools.lua, sprite/layout.lua, sprite/picker.lua".into()),
+            force_cart: false,
+        })
+        .expect("Sprite Paint opens");
+    k.activate_window(sprite);
+    // Sprite Paint draws its border last, so a border means a whole frame.
+    wait_for_border(&k, sprite, w, h);
+    k.composite_frame();
+    // Resizable, so the kernel draws a grip in the window's bottom-right 8x8.
+    let (wx, wy, ww, wh) = k.with_state(|st| st.windows.by_task(sprite).map(|win| (win.x, win.y, win.w, win.h))).unwrap();
+    let grip = ((wx + ww - 8) as usize, (wy + wh - 8) as usize, 8, 8);
+    assert_matches_golden_masked(&p.display.last_frame().unwrap(), "sprite_paint.ppm", 640, &[clock_mask(Screen::DEFAULT), grip]);
+}
