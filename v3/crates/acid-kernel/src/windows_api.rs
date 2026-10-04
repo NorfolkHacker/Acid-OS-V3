@@ -77,7 +77,7 @@ impl Kernel {
     }
 
     pub fn launcher_register(&self, app: LaunchableApp) -> bool {
-        if !crate::layout::window_size_ok(app.w, app.h) {
+        if !crate::layout::window_size_ok(self.screen(), app.w, app.h) {
             return false;
         }
         self.launcher.lock().register(app)
@@ -149,7 +149,7 @@ impl Kernel {
             self.activate_window(t);
             return true;
         }
-        let (x, y) = cascade_position(self.with_state(|st| st.windows.count()), w, h);
+        let (x, y) = cascade_position(self.screen(), self.with_state(|st| st.windows.count()), w, h);
         match self.spawn_app(SpawnRequest { script_path: path.into(), x, y, w, h, closable: true, arg, libs, force_cart: by_cart }) {
             Some(t) => {
                 self.activate_window(t);

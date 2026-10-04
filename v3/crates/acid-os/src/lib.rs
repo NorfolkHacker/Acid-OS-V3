@@ -3,15 +3,15 @@
 
 use std::sync::Arc;
 
-use acid_kernel::layout::SCREEN_W;
+use acid_kernel::layout::Screen;
 use acid_kernel::manifest::parse_manifest;
 use acid_kernel::placement::cascade_position;
 use acid_kernel::{AppContext, AppRunner, Kernel, SpawnRequest, TaskId};
 use acid_platform::Platform;
 
 pub const APPS_DIR: &str = "v3/apps";
-/// The desktop window's height: it spawns 640x204, which is desktop.lua's
-/// TOTAL_H (strip plus the open dropdown's room).
+/// The desktop window's height: it spawns screen-wide and 204 tall, which is
+/// desktop.lua's TOTAL_H (strip plus the open dropdown's room).
 pub const DESKTOP_H: i32 = 204;
 pub const DESKTOP_PATH: &str = "v3/apps/desktop.lua";
 pub const HELLO_PATH: &str = "v3/apps/hello_acid.lua";
@@ -33,15 +33,20 @@ pub fn runner_with(lua: AppRunner, wasm: AppRunner) -> AppRunner {
     })
 }
 
+/// Boots at the default screen size.
 pub fn boot(platform: Arc<dyn Platform>) -> Arc<Kernel> {
-    let kernel = Kernel::new(platform);
+    boot_with(platform, Screen::DEFAULT)
+}
+
+pub fn boot_with(platform: Arc<dyn Platform>, screen: Screen) -> Arc<Kernel> {
+    let kernel = Kernel::with_screen(platform, screen);
     kernel.set_runner(runner(APPS_DIR));
     // The full 204 px window, so the dropdown has room (spec 11.4).
     let desktop = kernel.spawn_app(SpawnRequest {
         script_path: DESKTOP_PATH.into(),
         x: 0,
         y: 0,
-        w: SCREEN_W,
+        w: screen.w,
         h: DESKTOP_H,
         closable: false,
         arg: None,
@@ -63,7 +68,7 @@ pub fn spawn_from_manifest(kernel: &Arc<Kernel>, name: &str) -> Option<TaskId> {
     let fields = parse_manifest(&String::from_utf8_lossy(&text));
     let w: i32 = fields.get("w")?.parse().ok()?;
     let h: i32 = fields.get("h")?.parse().ok()?;
-    let (x, y) = cascade_position(kernel.with_state(|st| st.windows.count()), w, h);
+    let (x, y) = cascade_position(kernel.screen(), kernel.with_state(|st| st.windows.count()), w, h);
     let ext = if fields.get("runtime").map(String::as_str) == Some("wasm") { "wasm" } else { "lua" };
     kernel.spawn_app(SpawnRequest {
         script_path: format!("{APPS_DIR}/{name}.{ext}"),

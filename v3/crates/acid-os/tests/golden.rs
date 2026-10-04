@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 use acid_gfx::{rgb565, rgb565_to_888};
 use acid_kernel::theme::THEME_HARD;
 use acid_kernel::{Kernel, SpawnRequest, TaskId};
-use acid_os::{APPS_DIR, DESKTOP_PATH, HELLO_PATH, boot};
+use acid_kernel::layout::Screen;
+use acid_os::{APPS_DIR, DESKTOP_PATH, HELLO_PATH, boot, boot_with};
 use acid_testkit::FakePlatform;
 
 fn wait_for_border(k: &Kernel, task: TaskId, w: i32, h: i32) {
@@ -75,7 +76,6 @@ fn assert_matches_golden(actual: &[u16], golden_name: &str) {
 fn assert_matches_golden_masked(actual: &[u16], golden_name: &str, mask: Option<(usize, usize, usize, usize)>) {
     let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden").join(golden_name);
     let (w, h, expected) = load_ppm_565(&golden);
-    assert_eq!((w, h), (640, 360));
     assert_eq!(actual.len(), expected.len());
     let masked = |i: usize| {
         mask.is_some_and(|(mx, my, mw, mh)| {
@@ -98,7 +98,7 @@ fn assert_matches_golden_masked(actual: &[u16], golden_name: &str, mask: Option<
 #[test]
 fn hello_acid_matches_golden_pixel_for_pixel() {
     let p = FakePlatform::new(FakePlatform::repo_root());
-    let k = Kernel::new(p.clone());
+    let k = Kernel::with_screen(p.clone(), Screen::WIDE);
     k.set_runner(acid_lua::lua_runner(APPS_DIR));
     // Same window, same place, as in the golden frame.
     let task = k
@@ -122,7 +122,7 @@ fn overlapping_windows_and_overlay_match_golden() {
     // (z) order. None of them is focused, so hello_acid doesn't animate
     // and the frame is deterministic.
     let p = FakePlatform::new(FakePlatform::repo_root());
-    let k = Kernel::new(p.clone());
+    let k = Kernel::with_screen(p.clone(), Screen::WIDE);
     k.set_runner(acid_lua::lua_runner_trusting(APPS_DIR, "v3/crates/acid-os/tests/fixtures/"));
     let hello = |x, y| SpawnRequest {
         script_path: HELLO_PATH.into(), x, y, w: 200, h: 150, closable: true, arg: None,
@@ -153,7 +153,7 @@ fn overlapping_windows_and_overlay_match_golden() {
 #[test]
 fn desktop_strip_matches_golden_pixel_for_pixel() {
     let p = FakePlatform::new(FakePlatform::repo_root());
-    let k = boot(p.clone());
+    let k = boot_with(p.clone(), Screen::WIDE);
     // Wait for the clock text and the Menu label (TEXT color, outside the
     // masked clock area), so the whole strip is in without a fixed sleep.
     let start = std::time::Instant::now();
@@ -179,7 +179,7 @@ fn desktop_strip_matches_golden_pixel_for_pixel() {
 #[test]
 fn menu_dropdown_matches_golden_pixel_for_pixel() {
     let p = FakePlatform::new(FakePlatform::repo_root());
-    let k = boot(p.clone());
+    let k = boot_with(p.clone(), Screen::WIDE);
     let manifests = std::fs::read_dir(FakePlatform::repo_root().join("v3/apps"))
         .unwrap()
         .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().ends_with(".app.toml"))
@@ -220,4 +220,13 @@ fn menu_dropdown_matches_golden_pixel_for_pixel() {
     k.composite_frame();
     let actual = p.display.last_frame().unwrap();
     assert_matches_golden_masked(&actual, "menu.ppm", Some((550, 0, 90, 24)));
+}
+
+#[test]
+fn boot_with_spawns_the_desktop_screen_wide() {
+    let p = FakePlatform::new(FakePlatform::repo_root());
+    let k = boot_with(p.clone(), Screen::SVGA);
+    assert_eq!(k.screen(), Screen::SVGA);
+    let wins = k.with_state(|st| st.windows.in_z_order().iter().map(|w| (w.x, w.y, w.w, w.h)).collect::<Vec<_>>());
+    assert_eq!(wins, [(0, 0, 800, 204)]);
 }

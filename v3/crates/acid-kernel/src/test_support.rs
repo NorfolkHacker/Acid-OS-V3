@@ -26,9 +26,15 @@ pub(crate) fn req(x: i32, y: i32, w: i32, h: i32) -> SpawnRequest {
     SpawnRequest { script_path: "test".into(), x, y, w, h, closable: true, arg: Some("a".into()), libs: None, force_cart: false }
 }
 
+/// At v2's 640x360: the kernel tests' coordinates were written for it.
 pub(crate) fn setup() -> (Arc<FakePlatform>, Arc<Kernel>, mpsc::Receiver<AppContext>) {
+    setup_at(crate::layout::Screen::WIDE)
+}
+
+/// As `setup`, at `screen`.
+pub(crate) fn setup_at(screen: crate::layout::Screen) -> (Arc<FakePlatform>, Arc<Kernel>, mpsc::Receiver<AppContext>) {
     let p = FakePlatform::new(".");
-    let k = Kernel::new(p.clone());
+    let k = Kernel::with_screen(p.clone(), screen);
     let (tx, rx) = mpsc::channel();
     k.set_runner(parked_runner(tx));
     (p, k, rx)

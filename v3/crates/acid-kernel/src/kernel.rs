@@ -11,13 +11,13 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-use acid_gfx::{Canvas, wallpaper::wallpaper_canvas};
+use acid_gfx::{Canvas, wallpaper::wallpaper_canvas_for};
 use acid_platform::Platform;
 use acid_platform::sync::Mutex;
 
 use crate::TaskId;
 use crate::event::EventQueue;
-use crate::layout::{CART_WINDOW_MAX, SCREEN_H, SCREEN_W, window_size_ok};
+use crate::layout::{CART_WINDOW_MAX, Screen, window_size_ok};
 use crate::router::{self, KernelState};
 use crate::theme::{ACID_OVERLAY_KEY, THEME_BG};
 use crate::window::Window;
@@ -115,6 +115,8 @@ impl Drop for ExitGuard {
 
 pub struct Kernel {
     platform: Arc<dyn Platform>,
+    /// Fixed for the kernel's life (spec: screen size is chosen once at startup).
+    screen: Screen,
     state: Mutex<KernelState>,
     dirty: AtomicBool,
     next_task: AtomicU32,
@@ -132,25 +134,35 @@ pub struct Kernel {
 }
 
 impl Kernel {
+    /// A kernel at the default screen size.
     pub fn new(platform: Arc<dyn Platform>) -> Arc<Self> {
+        Self::with_screen(platform, Screen::DEFAULT)
+    }
+
+    pub fn with_screen(platform: Arc<dyn Platform>, screen: Screen) -> Arc<Self> {
         Arc::new(Self {
             platform,
+            screen,
             state: Mutex::new(KernelState::new()),
             // Starts dirty, so the first tick always draws.
             dirty: AtomicBool::new(true),
             next_task: AtomicU32::new(0),
             runner: Mutex::new(None),
-            framebuffer: Mutex::new(Canvas::new(SCREEN_W, SCREEN_H)),
-            overlay: Mutex::new(crate::overlay::Overlay::new()),
+            framebuffer: Mutex::new(Canvas::new(screen.w, screen.h)),
+            overlay: Mutex::new(crate::overlay::Overlay::new(screen)),
             launcher: Mutex::new(crate::launcher::Launcher::new()),
             audio: crate::audio::AudioRuntime::new(),
             tasks: Mutex::new(Default::default()),
-            wallpaper: wallpaper_canvas(),
+            wallpaper: wallpaper_canvas_for(screen.w, screen.h),
             // On at boot; the setting lives in memory only.
             wallpaper_enabled: AtomicBool::new(true),
             composited: AtomicU32::new(0),
             skipped: AtomicU32::new(0),
         })
+    }
+
+    pub fn screen(&self) -> Screen {
+        self.screen
     }
 
     pub fn platform(&self) -> &dyn Platform {
@@ -181,7 +193,7 @@ impl Kernel {
     /// for, when CART_WINDOW_MAX cart-level windows are open), then starts
     /// the app's task, rolling the registration back if it can't start.
     pub fn spawn_app(self: &Arc<Self>, req: SpawnRequest) -> Option<TaskId> {
-        if !window_size_ok(req.w, req.h) {
+        if !window_size_ok(self.screen, req.w, req.h) {
             return None;
         }
         let runner = self.runner.lock().clone()?;
@@ -322,7 +334,7 @@ impl Kernel {
         if self.wallpaper_enabled() {
             fb.blit(&self.wallpaper, 0, 0);
         } else {
-            fb.fill_rect(0, 0, SCREEN_W, SCREEN_H, THEME_BG);
+            fb.fill_rect(0, 0, self.screen.w, self.screen.h, THEME_BG);
         }
         for (canvas, x, y) in layers {
             fb.blit(&canvas.lock(), x, y);
@@ -332,7 +344,7 @@ impl Kernel {
         if let Some(o) = self.overlay.lock().canvas() {
             fb.blit_keyed(o, 0, 0, ACID_OVERLAY_KEY);
         }
-        self.platform.display().present(fb.pixels(), SCREEN_W as usize, SCREEN_H as usize);
+        self.platform.display().present(fb.pixels(), self.screen.w as usize, self.screen.h as usize);
     }
 
     /// One router tick. Recompositing only when something changed matters:
@@ -379,7 +391,7 @@ impl Kernel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use acid_gfx::{rgb565, wallpaper::wallpaper_canvas};
+    use acid_gfx::{rgb565, wallpaper::{wallpaper_canvas, wallpaper_canvas_for}};
     use acid_testkit::FakePlatform;
     use crate::test_support::*;
     use std::sync::mpsc;
@@ -608,5 +620,33 @@ mod tests {
         wait_until(|| k.composited_frames() >= 1);
         p.input.request_quit();
         h.join().unwrap();
+    }
+
+    #[test]
+    fn new_uses_the_default_screen() {
+        let k = Kernel::new(FakePlatform::new("."));
+        assert_eq!(k.screen(), crate::layout::Screen::DEFAULT);
+    }
+
+    #[test]
+    fn the_frame_and_wallpaper_follow_the_screen() {
+        for s in crate::layout::Screen::PRESETS {
+            let (p, k, _rx) = setup_at(s);
+            k.composite_frame();
+            let f = p.display.last_frame().unwrap();
+            assert_eq!(f.len(), (s.w * s.h) as usize, "{s:?}");
+            let wall = wallpaper_canvas_for(s.w, s.h);
+            assert_eq!(f[0], wall.pixel(0, 0).unwrap(), "{s:?}");
+            let last = (s.w * s.h - 1) as usize;
+            assert_eq!(f[last], wall.pixel(s.w - 1, s.h - 1).unwrap(), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn spawn_accepts_a_window_only_as_big_as_the_screen() {
+        let (_p, k, _rx) = setup_at(crate::layout::Screen::SVGA);
+        assert!(k.spawn_app(req(0, 0, 800, 600)).is_some());
+        let (_p, k, _rx) = setup_at(crate::layout::Screen::DEFAULT);
+        assert!(k.spawn_app(req(0, 0, 800, 600)).is_none());
     }
 }

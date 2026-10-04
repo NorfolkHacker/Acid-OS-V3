@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use core::fmt::Write as _;
 use core::ops::Range;
 
-use acid_kernel::layout::{SCREEN_H, SCREEN_W, TITLE_BAR_H};
+use acid_kernel::layout::TITLE_BAR_H;
 use wasmi::errors::LinkerError;
 use wasmi::{Caller, Error, Extern, Linker, Memory, TrapCode};
 
@@ -55,13 +55,10 @@ fn fuel_cost(bytes: u64) -> u64 {
 }
 
 /// Pixels are charged as bytes moved: 2 per RGB565 pixel, so a full-screen
-/// fill costs 640 × 360 × 2 / 8 = 57,600 fuel. A draw call moves no cart
+/// fill costs w × h × 2 / 8 fuel (76,800 at 640×480). A draw call moves no cart
 /// bytes, but the host may fill the whole window for it; without this a
 /// cart could make millions of full-window fills in one callback (§15.2).
 const BYTES_PER_PX: u64 = 2;
-
-/// Every pixel on the screen; no draw does more work than this.
-const SCREEN_PX: u64 = SCREEN_W as u64 * SCREEN_H as u64;
 
 /// One glyph cell of the system font (acid-gfx's 6 × 8 font).
 const GLYPH_PX: u64 = 6 * 8;
@@ -72,28 +69,40 @@ const GLYPH_PX: u64 = 6 * 8;
 /// such calls fit in one callback, far more than a real cart makes (§15.2).
 pub(crate) const FS_CALL_BYTES: u64 = 1 << 20;
 
+/// The screen as `(w, h)`: no draw does more work than covering it.
+type ScreenWh = (i32, i32);
+
+fn screen(c: &Caller<'_, Host>) -> ScreenWh {
+    c.data().api.screen_size()
+}
+
+/// Every pixel on the screen.
+fn screen_px(s: ScreenWh) -> u64 {
+    s.0 as u64 * s.1 as u64
+}
+
 /// Bytes charged for a `w × h` fill, each side clamped to the screen (the
 /// host clips to it), so hostile sizes neither overflow nor overcharge.
-fn rect_bytes(w: i32, h: i32) -> u64 {
-    let w = w.clamp(0, SCREEN_W) as u64;
-    let h = h.clamp(0, SCREEN_H) as u64;
+fn rect_bytes(s: ScreenWh, w: i32, h: i32) -> u64 {
+    let w = w.clamp(0, s.0) as u64;
+    let h = h.clamp(0, s.1) as u64;
     w * h * BYTES_PER_PX
 }
 
 /// Bytes charged for a circle of radius `r`: its bounding square, at most the
 /// screen. A negative radius draws nothing and costs nothing.
-fn circle_bytes(r: i32) -> u64 {
+fn circle_bytes(s: ScreenWh, r: i32) -> u64 {
     if r < 0 {
         return 0;
     }
     let d = (r as u64) * 2 + 1;
-    d.saturating_mul(d).min(SCREEN_PX) * BYTES_PER_PX
+    d.saturating_mul(d).min(screen_px(s)) * BYTES_PER_PX
 }
 
 /// Bytes charged for drawing a `len`-byte string: one glyph cell per byte (a
 /// byte count never undercounts the glyphs), at most the screen.
-fn text_bytes(len: i32) -> u64 {
-    (len as u32 as u64).saturating_mul(GLYPH_PX).min(SCREEN_PX) * BYTES_PER_PX
+fn text_bytes(s: ScreenWh, len: i32) -> u64 {
+    (len as u32 as u64).saturating_mul(GLYPH_PX).min(screen_px(s)) * BYTES_PER_PX
 }
 
 /// Charges the fuel for `bytes` of host work (§15.2). If the callback's
@@ -175,12 +184,14 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
     // Colours are passed as i32 and handed on as u32, as acid-lua does.
     // Draws are charged for the pixels they can touch, before drawing (§15.2).
     linker.func_wrap(MODULE, "fill_rect", |mut c: Caller<'_, Host>, x: i32, y: i32, w: i32, h: i32, color: i32| -> Result<(), Error> {
-        charge(&mut c, rect_bytes(w, h))?;
+        let s = screen(&c);
+        charge(&mut c, rect_bytes(s, w, h))?;
         c.data().api.fill_rect(x, y, w, h, color as u32);
         Ok(())
     })?;
     linker.func_wrap(MODULE, "fill_circle", |mut c: Caller<'_, Host>, x: i32, y: i32, r: i32, color: i32| -> Result<(), Error> {
-        charge(&mut c, circle_bytes(r))?;
+        let s = screen(&c);
+        charge(&mut c, circle_bytes(s, r))?;
         c.data().api.fill_circle(x, y, r, color as u32);
         Ok(())
     })?;
@@ -192,7 +203,8 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
             // charges fuel) for as long as it is in use. The glyphs are
             // charged on top of the string's bytes.
             let api = c.data().api.clone();
-            charge(&mut c, text_bytes(len))?;
+            let s = screen(&c);
+            charge(&mut c, text_bytes(s, len))?;
             let text = read_str(&mut c, ptr, len)?;
             api.draw_text(text, x, y, fg as u32, bg as u32);
             Ok(())
@@ -202,20 +214,23 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
         // The title bar spans at most the screen's width; its text is clipped
         // to the bar, so it is covered by the same area.
         let api = c.data().api.clone();
-        charge(&mut c, rect_bytes(SCREEN_W, TITLE_BAR_H))?;
+        let s = screen(&c);
+        charge(&mut c, rect_bytes(s, s.0, TITLE_BAR_H))?;
         let title = read_str(&mut c, ptr, len)?;
         api.draw_window_frame(title);
         Ok(())
     })?;
     // The border is the window's perimeter, at most the screen's.
     linker.func_wrap(MODULE, "draw_window_border", |mut c: Caller<'_, Host>| -> Result<(), Error> {
-        charge(&mut c, 2 * (SCREEN_W as u64 + SCREEN_H as u64) * BYTES_PER_PX)?;
+        let s = screen(&c);
+        charge(&mut c, 2 * (s.0 as u64 + s.1 as u64) * BYTES_PER_PX)?;
         c.data().api.draw_window_border();
         Ok(())
     })?;
     // The user area is at most the whole screen.
     linker.func_wrap(MODULE, "clear_user_area", |mut c: Caller<'_, Host>| -> Result<(), Error> {
-        charge(&mut c, rect_bytes(SCREEN_W, SCREEN_H))?;
+        let s = screen(&c);
+        charge(&mut c, rect_bytes(s, s.0, s.1))?;
         c.data().api.clear_user_area();
         Ok(())
     })?;
@@ -258,18 +273,21 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
     linker.func_wrap(MODULE, "overlay_open", |c: Caller<'_, Host>| i32::from(c.data().api.overlay_open()))?;
     // The overlay is screen-sized: clearing it fills every pixel.
     linker.func_wrap(MODULE, "overlay_clear", |mut c: Caller<'_, Host>| -> Result<(), Error> {
-        charge(&mut c, rect_bytes(SCREEN_W, SCREEN_H))?;
+        let s = screen(&c);
+        charge(&mut c, rect_bytes(s, s.0, s.1))?;
         c.data().api.overlay_clear();
         Ok(())
     })?;
     linker.func_wrap(MODULE, "overlay_fill_rect", |mut c: Caller<'_, Host>, x: i32, y: i32, w: i32, h: i32, color: i32| -> Result<(), Error> {
-        charge(&mut c, rect_bytes(w, h))?;
+        let s = screen(&c);
+        charge(&mut c, rect_bytes(s, w, h))?;
         c.data().api.overlay_fill_rect(x, y, w, h, color as u32);
         Ok(())
     })?;
     linker.func_wrap(MODULE, "overlay_close", |c: Caller<'_, Host>| c.data().api.overlay_close())?;
     linker.func_wrap(MODULE, "repaint_region", |mut c: Caller<'_, Host>, x: i32, y: i32, w: i32, h: i32| -> Result<(), Error> {
-        charge(&mut c, rect_bytes(w, h))?;
+        let s = screen(&c);
+        charge(&mut c, rect_bytes(s, w, h))?;
         c.data().api.repaint_region(x, y, w, h);
         Ok(())
     })?;
@@ -438,6 +456,8 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
 mod tests {
     use super::{circle_bytes, fuel_cost, range, rect_bytes, text_bytes};
 
+    const W: (i32, i32) = (640, 360);
+
     #[test]
     fn fuel_is_one_per_8_bytes_rounded_up() {
         assert_eq!([0, 1, 8, 9, 16, 1 << 20].map(fuel_cost), [0, 1, 1, 2, 2, 131_072]);
@@ -445,17 +465,21 @@ mod tests {
 
     #[test]
     fn draw_charges_are_clipped_to_the_screen_and_overflow_safe() {
-        assert_eq!(rect_bytes(640, 336), 640 * 336 * 2);
-        assert_eq!(rect_bytes(i32::MAX, i32::MAX), 640 * 360 * 2);
-        assert_eq!(rect_bytes(-5, 100), 0);
-        assert_eq!(rect_bytes(10, i32::MIN), 0);
-        assert_eq!(circle_bytes(0), 2);
-        assert_eq!(circle_bytes(10), 21 * 21 * 2);
-        assert_eq!(circle_bytes(i32::MAX), 640 * 360 * 2);
-        assert_eq!(circle_bytes(-1), 0);
-        assert_eq!(text_bytes(2), 2 * 48 * 2);
-        assert_eq!(text_bytes(i32::MAX), 640 * 360 * 2);
-        assert_eq!(text_bytes(-1), 640 * 360 * 2, "a negative length is a huge u32; it traps out of bounds anyway");
+        assert_eq!(rect_bytes(W, 640, 336), 640 * 336 * 2);
+        assert_eq!(rect_bytes(W, i32::MAX, i32::MAX), 640 * 360 * 2);
+        assert_eq!(rect_bytes(W, -5, 100), 0);
+        assert_eq!(rect_bytes(W, 10, i32::MIN), 0);
+        assert_eq!(circle_bytes(W, 0), 2);
+        assert_eq!(circle_bytes(W, 10), 21 * 21 * 2);
+        assert_eq!(circle_bytes(W, i32::MAX), 640 * 360 * 2);
+        assert_eq!(circle_bytes(W, -1), 0);
+        assert_eq!(text_bytes(W, 2), 2 * 48 * 2);
+        assert_eq!(text_bytes(W, i32::MAX), 640 * 360 * 2);
+        assert_eq!(text_bytes(W, -1), 640 * 360 * 2, "a negative length is a huge u32; it traps out of bounds anyway");
+        let svga = (800, 600);
+        assert_eq!(rect_bytes(svga, i32::MAX, i32::MAX), 800 * 600 * 2, "a full fill costs more on a bigger screen");
+        assert_eq!(circle_bytes(svga, i32::MAX), 800 * 600 * 2);
+        assert_eq!(text_bytes(svga, i32::MAX), 800 * 600 * 2);
     }
 
     #[test]

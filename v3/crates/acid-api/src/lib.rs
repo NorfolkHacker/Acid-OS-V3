@@ -91,6 +91,8 @@ pub trait AcidApi: Send + Sync {
     fn wallpaper_enabled(&self) -> bool;
     /// Number of window slots.
     fn window_max(&self) -> i32;
+    /// The screen's size in pixels, `(w, h)`; fixed for the whole run.
+    fn screen_size(&self) -> (i32, i32);
     /// The window in a slot; None for an empty or invalid slot.
     fn window_info(&self, index: i64) -> Option<WindowInfo>;
     /// Raise a window. A cart may raise only its own window; for any other
@@ -326,6 +328,11 @@ impl AcidApi for KernelApi {
 
     fn window_max(&self) -> i32 {
         WINDOW_MAX as i32
+    }
+
+    fn screen_size(&self) -> (i32, i32) {
+        let s = self.ctx.kernel.screen();
+        (s.w, s.h)
     }
 
     fn window_info(&self, i: i64) -> Option<WindowInfo> {
@@ -1188,5 +1195,11 @@ mod tests {
         let mut buf = [0u8; 64];
         k.render_audio(&mut buf);
         assert_eq!(a.active_voice_count(), 0, "release by owner stopped it");
+    }
+
+    #[test]
+    fn screen_size_is_the_kernels() {
+        let (k, a) = spawn(100, 100);
+        assert_eq!(a.screen_size(), (k.screen().w, k.screen().h));
     }
 }

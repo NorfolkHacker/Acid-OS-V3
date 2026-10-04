@@ -68,6 +68,7 @@ impl AcidApi for Rec {
     fn set_wallpaper_enabled(&self, on: bool) { self.log(format!("wallpaper {on}")) }
     fn wallpaper_enabled(&self) -> bool { true }
     fn window_max(&self) -> i32 { 8 }
+    fn screen_size(&self) -> (i32, i32) { (640, 360) }
     fn window_info(&self, i: i64) -> Option<WindowInfo> {
         (i == 1).then(|| WindowInfo { app_name: "v3/apps/x.lua".into(), x: 1, y: 2, w: 3, h: 4, focused: true })
     }

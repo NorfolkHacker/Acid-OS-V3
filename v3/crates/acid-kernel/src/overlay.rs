@@ -7,18 +7,18 @@ use acid_gfx::Canvas;
 
 use crate::TaskId;
 use crate::kernel::Kernel;
-use crate::layout::{SCREEN_H, SCREEN_W};
+use crate::layout::Screen;
 use crate::theme::ACID_OVERLAY_KEY;
 
-#[derive(Default)]
 pub struct Overlay {
     canvas: Option<Canvas>,
     owner: Option<TaskId>,
+    screen: Screen,
 }
 
 impl Overlay {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(screen: Screen) -> Self {
+        Self { canvas: None, owner: None, screen }
     }
 
     /// Opens (or, for the current owner, re-opens and clears) the overlay.
@@ -27,9 +27,10 @@ impl Overlay {
         if self.owner.is_some_and(|o| o != owner) {
             return false;
         }
-        // Allocated on first use: nobody pays for 460 KB until an app wants it.
-        let c = self.canvas.get_or_insert_with(|| Canvas::new(SCREEN_W, SCREEN_H));
-        c.fill_rect(0, 0, SCREEN_W, SCREEN_H, ACID_OVERLAY_KEY);
+        // Allocated on first use: nobody pays for a screen-sized canvas until an app wants it.
+        let s = self.screen;
+        let c = self.canvas.get_or_insert_with(|| Canvas::new(s.w, s.h));
+        c.fill_rect(0, 0, s.w, s.h, ACID_OVERLAY_KEY);
         self.owner = Some(owner);
         true
     }
@@ -72,7 +73,7 @@ impl Kernel {
 
     pub fn overlay_clear(&self, task: TaskId) {
         if let Some(c) = self.overlay.lock().canvas_for(task) {
-            c.fill_rect(0, 0, SCREEN_W, SCREEN_H, ACID_OVERLAY_KEY);
+            c.fill_rect(0, 0, self.screen().w, self.screen().h, ACID_OVERLAY_KEY);
             self.mark_dirty();
         }
     }
@@ -107,7 +108,7 @@ mod tests {
 
     #[test]
     fn one_owner_at_a_time() {
-        let mut o = Overlay::new();
+        let mut o = Overlay::new(Screen::WIDE);
         assert!(!o.is_open());
         assert!(o.open(TaskId(1)));
         assert!(!o.open(TaskId(2)), "held by 1");
@@ -121,7 +122,7 @@ mod tests {
 
     #[test]
     fn open_fills_with_the_key_and_only_the_owner_draws() {
-        let mut o = Overlay::new();
+        let mut o = Overlay::new(Screen::WIDE);
         o.open(TaskId(1));
         assert_eq!(o.canvas().unwrap().pixel(0, 0), Some(KEY565));
         assert!(o.canvas_for(TaskId(2)).is_none());
@@ -131,7 +132,7 @@ mod tests {
 
     #[test]
     fn reopen_clears_previous_drawing() {
-        let mut o = Overlay::new();
+        let mut o = Overlay::new(Screen::WIDE);
         o.open(TaskId(1));
         o.canvas_for(TaskId(1)).unwrap().fill_rect(0, 0, 1, 1, 0xFFFFFF);
         o.open(TaskId(1));
@@ -140,7 +141,7 @@ mod tests {
 
     #[test]
     fn a_closed_overlay_is_not_composited() {
-        let mut o = Overlay::new();
+        let mut o = Overlay::new(Screen::WIDE);
         o.open(TaskId(1));
         o.close(TaskId(1));
         assert!(o.canvas().is_none());
@@ -210,5 +211,17 @@ mod tests {
         assert!(k.take_dirty());
         k.overlay_close(t);
         assert!(!k.take_dirty(), "closing a closed overlay changes nothing");
+    }
+
+    #[test]
+    fn the_overlay_covers_a_bigger_screen() {
+        let (p, k, rx) = setup_at(crate::layout::Screen::SVGA);
+        let t = k.spawn_app(req(0, 30, 10, 10)).unwrap();
+        recv(&rx);
+        assert!(k.overlay_open(t));
+        k.overlay_fill_rect(t, 790, 590, 20, 20, 0x00E5FF);
+        k.composite_frame();
+        let f = p.display.last_frame().unwrap();
+        assert_eq!(f[(599 * 800 + 799) as usize], rgb565(0x00E5FF));
     }
 }

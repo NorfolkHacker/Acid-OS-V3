@@ -123,6 +123,7 @@ impl AcidApi for FakeApi {
     }
     fn wallpaper_enabled(&self) -> bool { self.wallpaper.load(Ordering::SeqCst) }
     fn window_max(&self) -> i32 { 8 }
+    fn screen_size(&self) -> (i32, i32) { (640, 360) }
     fn window_info(&self, i: i64) -> Option<WindowInfo> {
         (i == 2).then(|| WindowInfo { app_name: "v3/apps/x.lua".into(), x: 1, y: 2, w: 3, h: 4, focused: true })
     }
