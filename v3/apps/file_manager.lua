@@ -230,7 +230,7 @@ function FileManagerApp:draw_listing()
       entry_label = " " .. e.name .. " (" .. e.size .. "B)"
     end
     local color = self:entry_color(e)
-    acid_draw_text(entry_label:sub(1, self.HEAD_COLS), 2, y + 2, color, row_bg)
+    acid_draw_text(entry_label:sub(1, self.CLIP_COLS), 2, y + 2, color, row_bg)
     y = y + self.ROW_H
     i = i + 1
   end

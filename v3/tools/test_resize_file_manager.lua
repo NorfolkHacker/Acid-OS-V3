@@ -1,6 +1,23 @@
 -- File Manager re-counts its rows, moves its scroll bar, keeps the selection
 -- visible and clamps a preview's scroll when the window is resized.
 local G = GAME
+-- At the opening size, entry rows stay clear of the scroll bar: each label
+-- here draws as 36 characters, two past what fits beside the bar.
+local wide = {}
+for i = 1, 30 do wide[i] = string.format("wide_entry_name_for_the_bar_%02d", i) end
+FS["v3/fsroot/Wide"] = wide
+for _, n in ipairs(wide) do FS["v3/fsroot/Wide/" .. n] = "x" end
+G.dir = "v3/fsroot/Wide"
+G:scan_dir()
+TEXT_AT, RECTS = {}, {}
+G:redraw()
+local bar_x = G:bar_geometry()
+local widest = 0
+for _, t in ipairs(TEXT_AT) do
+  if t[3] > 16 + G.ROW_H - 1 then widest = math.max(widest, 2 + #t[1] * FONT_W) end
+end
+ok(widest > 0 and widest <= bar_x, "entry rows stop short of the scroll bar (" .. widest .. " <= " .. bar_x .. ")")
+
 local many = {}
 for i = 1, 30 do many[i] = string.format("a_rather_long_file_name_%02d.txt", i) end
 FS["v3/fsroot/Many"] = many
