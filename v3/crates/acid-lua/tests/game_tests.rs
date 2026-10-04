@@ -124,6 +124,11 @@ fn terminal() {
 }
 
 #[test]
+fn terminal_large() {
+    run_suite_with("FONT_W, FONT_H, WIN_W, WIN_H = 12, 16, 520, 304", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/lib/acid_eggs.lua", "v3/apps/terminal.lua", "v3/tools/test_terminal_large.lua"]), 3);
+}
+
+#[test]
 fn file_manager() {
     run_suite_with("WIN_W, WIN_H = 220, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/file_manager.lua", "v3/tools/test_file_manager.lua"]), 33);
 }

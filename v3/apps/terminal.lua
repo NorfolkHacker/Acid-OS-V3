@@ -24,12 +24,16 @@ end
 
 local function strip(s) return (s:match("^%s*(.-)%s*$")) end
 
+local CW, CH = acid_font_size()
+local WW, WH = acid_window_size()
+
 TerminalApp = AcidApp:extend("TerminalApp")
 
-TerminalApp.WINDOW_W = 260
-TerminalApp.WINDOW_H = 160
+TerminalApp.WINDOW_W = WW
+TerminalApp.WINDOW_H = WH
+TerminalApp.COLS = (WW - 8) // CW -- columns that fit, past the 2 px margins
 TerminalApp.TITLE_BAR_H = 16
-TerminalApp.LINE_H = 10
+TerminalApp.LINE_H = CH + 2
 TerminalApp.ROOT_DIR = "v3/fsroot"
 TerminalApp.ROOT_SEGMENTS = split_path(TerminalApp.ROOT_DIR)
 TerminalApp.PROMPT = "$ "
@@ -67,7 +71,7 @@ function TerminalApp:draw_scrollback()
   local i = start
   while i < #self.lines do
     acid_fill_rect(0, y, T.WINDOW_W, T.LINE_H, T.BODY_BG)
-    acid_draw_text(self.lines[i + 1]:sub(1, 42), 2, y + 1, T.TEXT_COLOR, T.BODY_BG)
+    acid_draw_text(self.lines[i + 1]:sub(1, T.COLS), 2, y + 1, T.TEXT_COLOR, T.BODY_BG)
     y = y + T.LINE_H
     i = i + 1
   end
@@ -84,9 +88,9 @@ function TerminalApp:draw_input_line()
   local y = T.WINDOW_H - T.LINE_H
   acid_fill_rect(0, y, T.WINDOW_W, T.LINE_H, T.BODY_BG)
   local text = T.PROMPT .. self.input
-  acid_draw_text(text:sub(1, 42), 2, y + 1, T.PROMPT_COLOR, T.BODY_BG)
-  local cx = 2 + #text * 6
-  acid_fill_rect(cx, y + T.LINE_H - 2, 6, 2, T.CURSOR_COLOR)
+  acid_draw_text(text:sub(1, T.COLS), 2, y + 1, T.PROMPT_COLOR, T.BODY_BG)
+  local cx = 2 + math.min(#text, T.COLS) * CW
+  acid_fill_rect(cx, y + T.LINE_H - 2, CW, 2, T.CURSOR_COLOR)
 end
 
 function TerminalApp:on_key(code, pressed)
