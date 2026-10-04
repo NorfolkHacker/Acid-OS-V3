@@ -10,7 +10,7 @@ use crate::TaskId;
 use crate::event::{Event, EventQueue};
 use acid_gfx::Canvas;
 
-use crate::layout::{CLOSE_BTN_MARGIN, CLOSE_BTN_R, DESKTOP_STRIP_H, Screen, TITLE_BAR_H};
+use crate::layout::{CLOSE_BTN_MARGIN, CLOSE_BTN_R, DESKTOP_STRIP_H, RESIZE_GRIP, Screen, TITLE_BAR_H};
 use crate::theme::THEME_BG;
 use crate::window::{Window, WindowRegistry};
 
@@ -21,9 +21,23 @@ struct Drag {
     off_y: i32,
 }
 
+/// A grip gesture in progress: where it began, the size it began at, and
+/// the clamped size the pointer currently asks for (applied on release).
+#[derive(Debug, Clone, Copy)]
+struct Resize {
+    task: TaskId,
+    press_x: i32,
+    press_y: i32,
+    orig_w: i32,
+    orig_h: i32,
+    w: i32,
+    h: i32,
+}
+
 #[derive(Default)]
 pub struct RouterState {
     drag: Option<Drag>,
+    resize: Option<Resize>,
     was_pressed: bool,
     /// Owns the top strip unconditionally.
     pub desktop: Option<TaskId>,
@@ -79,6 +93,14 @@ pub fn resize_clamp(win: &Window, screen: Screen, w: i32, h: i32) -> (i32, i32) 
 }
 
 impl KernelState {
+    /// The outline of an in-progress grip gesture: the window's top-left
+    /// and the size it would get on release.
+    pub fn resize_outline(&self) -> Option<(i32, i32, i32, i32)> {
+        let rs = self.router.resize?;
+        let win = self.windows.by_task(rs.task)?;
+        Some((win.x, win.y, rs.w, rs.h))
+    }
+
     /// Resizes a resizable window, clamped by `resize_clamp`: a new canvas
     /// with the old picture top-left and THEME_BG elsewhere is swapped in
     /// under the canvas lock (so the app's handle sees it), then the app
@@ -148,7 +170,7 @@ pub(crate) fn touch_task_for_test(st: &KernelState) -> Option<TaskId> {
 }
 
 /// Drops every router reference to `task`: focus, the touch owner and a
-/// drag in progress. For a task whose window is already gone (spawn
+/// drag or resize in progress. For a task whose window is already gone (spawn
 /// rollback, app exit), so no state keeps pointing at a dead id. Clearing
 /// the touch owner and drag here, rather than leaving a later poll to
 /// notice the missing window, makes the desktop strip usable again at once
@@ -163,6 +185,9 @@ pub fn forget_task(st: &mut KernelState, task: TaskId) {
     }
     if r.drag.is_some_and(|d| d.task == task) {
         r.drag = None;
+    }
+    if r.resize.is_some_and(|g| g.task == task) {
+        r.resize = None;
     }
 }
 
@@ -183,7 +208,7 @@ pub fn poll(st: &mut KernelState, key: Option<i32>, touch: TouchState, dirty: &A
 
     // A gesture that started in a window keeps going to that window even over the strip (touch_task check); otherwise the strip always belongs to the desktop, unconditionally.
     if let Some(desktop) = st.router.desktop {
-        if st.router.drag.is_none() && st.router.touch_task.is_none() && last_y < DESKTOP_STRIP_H {
+        if st.router.drag.is_none() && st.router.resize.is_none() && st.router.touch_task.is_none() && last_y < DESKTOP_STRIP_H {
             if fresh_press || pressed || fresh_release {
                 if let Some(w) = st.windows.by_task(desktop) {
                     send(&w.queue, Event::Touch { x: last_x - w.x, y: last_y - w.y, pressed });
@@ -206,12 +231,43 @@ pub fn poll(st: &mut KernelState, key: Option<i32>, touch: TouchState, dirty: &A
         return;
     }
 
+    if let Some(rs) = st.router.resize {
+        let screen = st.screen;
+        let Some(w) = st.windows.by_task(rs.task) else {
+            st.router.resize = None;
+            return;
+        };
+        let (tw, th) = resize_clamp(w, screen, rs.orig_w + (x - rs.press_x), rs.orig_h + (y - rs.press_y));
+        if pressed {
+            if (tw, th) != (rs.w, rs.h) {
+                if let Some(g) = st.router.resize.as_mut() {
+                    g.w = tw;
+                    g.h = th;
+                }
+                mark(dirty);
+            }
+        } else {
+            // The last held position decides; release coordinates are not trusted.
+            st.router.resize = None;
+            if (rs.w, rs.h) != (w.w, w.h) {
+                st.resize_window(rs.task, rs.w, rs.h, dirty);
+            }
+            mark(dirty); // the outline goes away
+        }
+        return;
+    }
+
     if fresh_press {
         let Some(task) = st.windows.find_at(x, y) else { return };
-        let (rel_x, rel_y, win_w, closable) = {
+        let (rel_x, rel_y, win_w, win_h, closable, resizable) = {
             let w = st.windows.by_task(task).expect("find_at returned a live window");
-            (x - w.x, y - w.y, w.w, w.closable)
+            (x - w.x, y - w.y, w.w, w.h, w.closable, w.resizable)
         };
+        if resizable && rel_x >= win_w - RESIZE_GRIP && rel_y >= win_h - RESIZE_GRIP {
+            activate_window(st, task, dirty);
+            st.router.resize = Some(Resize { task, press_x: x, press_y: y, orig_w: win_w, orig_h: win_h, w: win_w, h: win_h });
+            return;
+        }
         if rel_y < TITLE_BAR_H {
             if closable {
                 let dx = rel_x - (win_w - CLOSE_BTN_MARGIN);
@@ -357,10 +413,83 @@ mod tests {
         poll(&mut st, None, touch(200, 200, true), &d);
         assert_eq!(st.windows.by_task(TaskId(1)).unwrap().x, 100, "drag is gone");
         poll(&mut st, None, UP, &d);
+        add_resizable(&mut st, 3, 300, 300, 100, 100);
+        poll(&mut st, None, touch(396, 396, true), &d); // grip on 3
+        assert!(st.resize_outline().is_some());
+        forget_task(&mut st, TaskId(3));
+        assert_eq!(st.resize_outline(), None, "resize is gone");
+        poll(&mut st, None, UP, &d);
         poll(&mut st, None, touch(450, 140, true), &d); // owner 2
         forget_task(&mut st, TaskId(2));
         poll(&mut st, None, UP, &d);
         assert_eq!(drain(&qb), [Event::Touch { x: 50, y: 40, pressed: true }], "no release for a forgotten owner");
+    }
+
+    fn add_resizable(st: &mut KernelState, task: u32, x: i32, y: i32, w: i32, h: i32) -> Arc<EventQueue> {
+        let q = add(st, task, x, y, w, h, true);
+        let win = st.windows.by_task_mut(TaskId(task)).unwrap();
+        win.resizable = true;
+        win.min_w = 80;
+        win.min_h = 48;
+        q
+    }
+
+    #[test]
+    fn dragging_the_grip_resizes_on_release_and_only_then() {
+        let mut st = KernelState::new(); // 640x480
+        let d = AtomicBool::new(false);
+        let q = add_resizable(&mut st, 1, 100, 100, 200, 150);
+        // grip spans x 292..300, y 242..250 on screen
+        poll(&mut st, None, touch(296, 246, true), &d);
+        assert!(drain(&q).is_empty(), "a grip press is not a touch for the app");
+        poll(&mut st, None, touch(346, 296, true), &d);
+        assert_eq!(st.resize_outline(), Some((100, 100, 250, 200)), "the outline follows the pointer");
+        assert_eq!(st.windows.by_task(TaskId(1)).map(|w| (w.w, w.h)), Some((200, 150)), "nothing applied yet");
+        poll(&mut st, None, UP, &d);
+        assert_eq!(st.windows.by_task(TaskId(1)).map(|w| (w.w, w.h)), Some((250, 200)));
+        assert_eq!(drain(&q), [Event::Resized { w: 250, h: 200 }]);
+        assert_eq!(st.resize_outline(), None);
+    }
+
+    #[test]
+    fn the_resize_target_clamps_to_the_minimum_and_the_screen() {
+        let mut st = KernelState::new();
+        let d = AtomicBool::new(false);
+        add_resizable(&mut st, 1, 100, 100, 200, 150);
+        poll(&mut st, None, touch(296, 246, true), &d);
+        poll(&mut st, None, touch(0, 0, true), &d);
+        assert_eq!(st.resize_outline(), Some((100, 100, 80, 48)));
+        poll(&mut st, None, touch(2000, 2000, true), &d);
+        assert_eq!(st.resize_outline(), Some((100, 100, 540, 380)));
+    }
+
+    #[test]
+    fn a_grip_press_on_a_fixed_window_is_an_ordinary_touch() {
+        let mut st = KernelState::new();
+        let d = AtomicBool::new(false);
+        let q = add(&mut st, 1, 100, 100, 200, 150, true);
+        poll(&mut st, None, touch(296, 246, true), &d);
+        assert_eq!(drain(&q), [Event::Touch { x: 196, y: 146, pressed: true }]);
+    }
+
+    #[test]
+    fn releasing_where_it_started_sends_nothing() {
+        let mut st = KernelState::new();
+        let d = AtomicBool::new(false);
+        let q = add_resizable(&mut st, 1, 100, 100, 200, 150);
+        poll(&mut st, None, touch(296, 246, true), &d);
+        poll(&mut st, None, UP, &d);
+        assert!(drain(&q).is_empty());
+    }
+
+    #[test]
+    fn forget_task_ends_a_resize() {
+        let mut st = KernelState::new();
+        let d = AtomicBool::new(false);
+        add_resizable(&mut st, 1, 100, 100, 200, 150);
+        poll(&mut st, None, touch(296, 246, true), &d);
+        forget_task(&mut st, TaskId(1));
+        assert_eq!(st.resize_outline(), None);
     }
 
     #[test]

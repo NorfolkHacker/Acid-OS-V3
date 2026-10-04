@@ -19,7 +19,7 @@ use crate::TaskId;
 use crate::event::EventQueue;
 use crate::layout::{CART_WINDOW_MAX, DESKTOP_STRIP_H, RESIZE_GRIP, RESIZE_MIN_H, RESIZE_MIN_W, Screen, TITLE_BAR_H, window_size_ok};
 use crate::router::{self, KernelState};
-use crate::theme::{ACID_OVERLAY_KEY, THEME_BG, THEME_HARD};
+use crate::theme::{ACID_OVERLAY_KEY, THEME_BG, THEME_HARD, THEME_VIOLET};
 use crate::window::Window;
 
 /// Everything one app's VM host needs -- its kernel context plus its spawn
@@ -396,14 +396,11 @@ impl Kernel {
     /// window list is copied out under the kernel lock and the canvases
     /// are blitted after it is released.
     pub fn composite_frame(&self) {
-        let layers: Vec<(Arc<Mutex<Canvas>>, i32, i32, bool, i32, i32)> = self
-            .state
-            .lock()
-            .windows
-            .in_z_order()
-            .iter()
-            .map(|w| (w.canvas.clone(), w.x, w.y, w.resizable, w.w, w.h))
-            .collect();
+        let (layers, outline): (Vec<(Arc<Mutex<Canvas>>, i32, i32, bool, i32, i32)>, _) = {
+            let st = self.state.lock();
+            let layers = st.windows.in_z_order().iter().map(|w| (w.canvas.clone(), w.x, w.y, w.resizable, w.w, w.h)).collect();
+            (layers, st.resize_outline())
+        };
         let mut fb = self.framebuffer.lock();
         if self.wallpaper_enabled() {
             fb.blit(&self.wallpaper, 0, 0);
@@ -427,6 +424,12 @@ impl Kernel {
         // overlay lock is a leaf, taken here only after the window canvases.
         if let Some(o) = self.overlay.lock().canvas() {
             fb.blit_keyed(o, 0, 0, ACID_OVERLAY_KEY);
+        }
+        if let Some((x, y, w, h)) = outline {
+            fb.fill_rect(x, y, w, 1, THEME_VIOLET);
+            fb.fill_rect(x, y + h - 1, w, 1, THEME_VIOLET);
+            fb.fill_rect(x, y, 1, h, THEME_VIOLET);
+            fb.fill_rect(x + w - 1, y, 1, h, THEME_VIOLET);
         }
         self.platform.display().present(fb.pixels(), self.screen.w as usize, self.screen.h as usize);
     }
@@ -881,6 +884,25 @@ mod tests {
         let f = p.display.last_frame().unwrap();
         let grip = |gx: i32, gy: i32| f[((40 + 150 - 8 + gy) * 640 + (40 + 200 - 8 + gx)) as usize];
         assert_ne!(grip(6, 6), acid_gfx::rgb565(crate::theme::THEME_HARD));
+    }
+
+    #[test]
+    fn composite_draws_the_resize_outline_above_everything() {
+        let (_t, k, rx) = resizable_kernel("resize_outline");
+        k.spawn_app(SpawnRequest { script_path: "v3/apps/r.lua".into(), ..req(100, 100, 200, 150) }).unwrap();
+        recv(&rx);
+        let d = AtomicBool::new(false);
+        k.with_state(|st| {
+            router::poll(st, None, acid_platform::TouchState { x: 296, y: 246, pressed: true }, &d);
+            router::poll(st, None, acid_platform::TouchState { x: 346, y: 296, pressed: true }, &d);
+        });
+        k.composite_frame();
+        let f = k.framebuffer();
+        let v = acid_gfx::rgb565(crate::theme::THEME_VIOLET);
+        assert_eq!(f.pixel(150, 100), Some(v), "top edge");
+        assert_eq!(f.pixel(100, 150), Some(v), "left edge");
+        assert_eq!(f.pixel(349, 250), Some(v), "right edge");
+        assert_eq!(f.pixel(150, 299), Some(v), "bottom edge");
     }
 
     #[test]
