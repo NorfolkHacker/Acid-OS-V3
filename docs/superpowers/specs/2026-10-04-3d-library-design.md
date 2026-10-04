@@ -33,15 +33,17 @@ shows it off.
 
 ### 1.1 Primitives (`raster.rs`)
 
-- `Canvas::draw_line(x1, y1, x2, y2, color: u32)` uses Bresenham. Every
-  pixel is clipped to the canvas, and coordinates are handled in i64, so
-  extreme values can't overflow or panic.
+- `Canvas::draw_line(x1, y1, x2, y2, color: u32)` is a closed form along
+  the major axis. Each pixel's minor coordinate is computed from the true
+  endpoints in i128 (rounding half up, from the smaller major coordinate),
+  and only the part of the major range on the canvas is visited. A
+  clipped line therefore draws exactly the pixels the unclipped line would,
+  for any i32 input.
 - `Canvas::fill_triangle(x1, y1, x2, y2, x3, y3, color: u32)` fills by
-  scanline. The vertices are sorted by y and the edges interpolated with
-  integer maths. Each span is clipped to the canvas. A degenerate triangle
-  (zero area) draws its outline span only, so it is never silently dropped
-  and never panics. Very large coordinates are clamped before
-  interpolating.
+  scanline against the true vertices (i128), with no clamping of the
+  vertices themselves. Only each row's span is clipped. A triangle whose x
+  range misses the canvas returns at once. Rows are limited to the canvas,
+  so the loop never depends on the input coordinates.
 
 ### 1.2 Fixed-point maths (`three_d.rs`)
 
@@ -92,7 +94,8 @@ Vec<(u16, u16)> }`.
 3. **Solid mode (1):** for each triangle with all three points in front
    of the camera:
    - compute the rotated face normal (cross product, i64);
-   - cull the face if it points away from the camera;
+   - cull the face if its projected screen-space signed area shows it
+     facing away (equivalent to the normal test under this projection);
    - work out the brightness: `light = 64 + 192·max(0, n·L)/|n|` out of
      256, where `L` is a fixed unit light toward the upper-left front.
      Use an integer square root for `|n|`;
@@ -180,7 +183,9 @@ does no mesh work.
     transform, projection, culling and lighting;
   - plus, per drawn edge, the `draw_line` cost of that edge;
   - plus, per drawn triangle, its `fill_triangle` cost;
-  - the total capped at 64 screens' worth of pixels.
+  - each triangle charged like `fill_triangle`: its bounding box's
+    size clamped to the screen size, wherever it sits, with no other cap
+    on the total (saturating arithmetic).
 
   To keep the charge computable before drawing, it is worked out from the
   projected geometry, then charged, then the mesh is drawn.
