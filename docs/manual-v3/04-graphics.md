@@ -555,6 +555,45 @@ end
 SpriteApp:new():start()
 ```
 
+### Sprite files
+
+Sprite Paint saves sprites as `.spr` text files, normally in `Home`. Any app
+can load one with `AcidSprite.load` and draw its frames with
+`AcidSprite.draw`, because each frame is a list of picture-strings and the
+palette is keyed by the same characters:
+
+```lua snippet
+local ship = AcidSprite.load("v3/fsroot/Home/acid_ship.spr")
+AcidSprite.draw(ship.frames[1], x, y, 2, ship.palette)
+```
+
+The format is plain text, one item per line:
+
+```text
+acid-sprite 1
+size 16 16
+fps 6
+pal 1 ff00ff
+frame
+..11............
+...
+```
+
+- The first line is `acid-sprite 1`. Blank lines and lines starting with `#`
+  are ignored, anywhere in the file.
+- `size W H` gives the width and height, each from 1 to 32. It comes before
+  the first `frame`.
+- `fps N` (1 to 30) is the animation speed. It is optional and defaults to 6.
+- `pal K RRGGBB` gives one palette entry. K is one of `0`–`9` or `a`–`f`, so
+  there are at most 16 entries, and they come before the first `frame`.
+- `frame` starts a frame of exactly H rows of W characters. Each character
+  is `.` (transparent) or a palette key. A file has 1 to 8 frames.
+
+`AcidSprite.parse(text)` returns the same table from a string, and
+`AcidSprite.serialize(sprite)` turns a table back into text. A bad file
+makes `load` and `parse` return `nil` and a message such as
+`"line 4: row is 3 wide, expected 16"`. They never raise an error.
+
 ## 4.7 The wallpaper
 
 ```lua snippet

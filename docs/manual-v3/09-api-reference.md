@@ -1078,12 +1078,19 @@ Coordinates are measured from the top-left of the screen.
 AcidSprite.draw(rows, x, y, scale, palette, flip)   -- flip is optional
 local cols = AcidSprite.width(rows)    -- in characters
 local lines = AcidSprite.height(rows)  -- in characters
+local s, err = AcidSprite.load(path)    -- read and parse a .spr file
+local s, err = AcidSprite.parse(text)   -- parse .spr text
+local text = AcidSprite.serialize(s)    -- .spr text for a sprite table
 ```
 
 - `rows` is a list of strings, all the same length, with one character per
   pixel. `.` is transparent.
 - `palette` maps each character to a `0xRRGGBB` colour. A character with no
   entry is transparent too.
+- `load` and `parse` return a sprite table,
+  `{ w, h, fps, palette, frames }`, where each of `frames` is a `rows` list
+  you can pass to `draw` with `palette`. On a bad file they return `nil` and
+  `"line N: reason"`. See [Sprite files](04-graphics.md#sprite-files).
 
 Runs of the same colour are drawn as one rectangle, to save work. You must own
 the overlay to draw, so a cart draws nothing.

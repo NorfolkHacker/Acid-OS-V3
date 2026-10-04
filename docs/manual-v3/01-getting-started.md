@@ -246,6 +246,12 @@ Editor) opens app source from the running system, and the **File Manager**
 launches an app when you click its `.app.toml`. Editing an app inside the OS
 it runs in is a perfectly good way to work.
 
+**Sprite Paint** (Menu → Sprite Paint) draws pixel-art sprites, with
+animation frames, and saves them as `.spr` files in `Home`. Your apps can
+load them with `AcidSprite.load`
+([§4.6](04-graphics.md#sprite-files)). Open `Home/acid_ship.spr` from the
+File Manager to see one.
+
 ---
 
 [← Contents](README.md) · [Next: Apps and manifests →](02-apps-and-manifests.md)

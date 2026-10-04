@@ -327,7 +327,7 @@ fn every_wat_example_runs() {
 }
 
 /// Words that look like calls but are file or crate names.
-const NOT_CALLS: &[&str] = &["acid_app", "acid_game", "acid_keys", "acid_palette", "acid_sprite", "acid_waveform", "acid_eggs", "acid_blaster", "acid_cart", "acid_wasm", "acid_os", "acid_lua", "acid_api", "acid_kernel"];
+const NOT_CALLS: &[&str] = &["acid_app", "acid_game", "acid_keys", "acid_palette", "acid_sprite", "acid_waveform", "acid_eggs", "acid_blaster", "acid_cart", "acid_wasm", "acid_os", "acid_lua", "acid_api", "acid_kernel", "acid_ship"];
 
 /// The acid_* globals a fresh built-in app sees (core libs loaded),
 /// collected by an app that writes them to Home and quits.
