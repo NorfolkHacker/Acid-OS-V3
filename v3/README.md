@@ -37,6 +37,8 @@ standard library.
 cargo run --release --manifest-path v3/Cargo.toml -p acid-os
 ```
 
+Acid OS opens on a screen-size picker; add `-- --screen 640x480` (or `640x360`, `800x600`) to skip it.
+
 Add `-- --app tetris` to open an app straight away. Any app in `v3/apps/` with
 an `.app.toml` manifest works, using the file's name (`tetris`, `piano`,
 `file_manager` and so on). Setting `menu = false` in a manifest hides that app

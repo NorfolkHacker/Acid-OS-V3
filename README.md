@@ -27,6 +27,8 @@ Then, from the top folder of this repository:
 cargo run --release --manifest-path v3/Cargo.toml -p acid-os
 ```
 
+Acid OS opens on a screen-size picker; add `-- --screen 640x480` (or `640x360`, `800x600`) to skip it.
+
 That boots you to the desktop. Open apps from the Menu.
 
 If you want to jump straight into a game, name it at the end:

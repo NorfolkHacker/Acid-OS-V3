@@ -39,8 +39,10 @@ From the top folder of the repository:
 cargo run --manifest-path v3/Cargo.toml -p acid-os
 ```
 
-A 640×360 window titled "Acid OS v3" opens on the desktop. **Menu** is at the
-top left.
+A window titled "Acid OS v3" opens on the screen-size picker: 640×480 (the
+default), 640×360 or 800×600. Choose with the arrow keys and Enter or a click,
+or wait three seconds for the default. `-- --screen 800x600` skips the picker.
+Then the desktop appears. **Menu** is at the top left.
 
 > **Run it from the top folder of the repository.** Acid OS finds app scripts
 > by a path relative to that folder (`v3/apps/<name>.lua`). Run it from
@@ -65,7 +67,7 @@ A few things to know:
 - If it can't open the app, it prints
   `Acid OS v3: --app <name>: no such app` to the terminal and boots normally.
   That happens when the name is unknown, when the manifest has no `w` or `h`,
-  or when the window can't be opened (a size outside 1 to 640 by 1 to 360, or
+  or when the window can't be opened (a size bigger than the screen, or
   all eight window slots already in use).
 - `--app` takes exactly one name, and there are no other flags.
 
@@ -101,7 +103,7 @@ every shorter fragment parses.
 ## 1.2 There is no hardware build
 
 This build only runs hosted, on an x64 desktop, and nothing in the manual needs
-a device. But Acid OS is still designed for small hardware: a 640×360 screen,
+a device. But Acid OS is still designed for small hardware: a 640×480 screen (640×360 at the smallest),
 at most 8 windows, one task per app. So keep one rule in mind: **an app should
 be small and polite.** [§8](08-cookbook.md) covers the conventions.
 

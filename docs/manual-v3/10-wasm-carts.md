@@ -240,12 +240,12 @@ its budget allows. The host charges for:
   whole result even when `cap` is smaller, because the host has already made
   it. So asking for just the length with `cap` 0 costs as much as reading it;
 - **every draw, by the area it covers**, at 2 bytes per pixel. Each side is
-  first clamped to the 640 × 360 screen, and the charge is made before
+  first clamped to the screen, and the charge is made before
   drawing:
   - `fill_rect`, `overlay_fill_rect` and `repaint_region`: `w × h`;
   - `fill_circle`: the bounding square, `(2r + 1)²`;
   - `draw_text`: one 6 × 8 glyph cell per byte, on top of the string's bytes;
-  - `draw_window_frame`: a 640 × 16 title bar;
+  - `draw_window_frame`: a screen-wide, 16 px title bar;
   - `draw_window_border`: the screen's perimeter;
   - `clear_user_area` and `overlay_clear`: the whole screen, **57,600 fuel**;
 - **every file system and spawn call**, a flat **131,072 fuel** (the cost of
@@ -254,6 +254,10 @@ its budget allows. The host charges for:
   cost more because their real work, such as a trip to the disk or starting a
   new task, doesn't show in the byte count. About 1,500 of these calls fit in
   one callback, far more than a real cart needs.
+
+Because charges are counted in pixels, a full-screen draw costs more on a bigger
+screen: 640×480 costs a third more than 640×360, and 800×600 a little over
+twice as much.
 
 If a charge is more than the budget has left, the budget is emptied and the
 cart ends as out of fuel, just as if an instruction had run out.

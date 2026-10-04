@@ -460,8 +460,8 @@ Adds an app to the launcher registry.
 - `multi` is a boolean: can the app have more than one window open?
 - `libs` is a comma-separated string of modules. Use `""` or `nil` for none.
 
-Returns `false` if the registry is full, if `w` is outside 1 to 640, or if `h`
-is outside 1 to 360.
+Returns `false` if the registry is full, if `w` or `h` is bigger than the
+screen.
 
 The desktop (`desktop.lua`) calls this when it scans the app manifests at
 boot. You only need it yourself if you are writing a replacement desktop.
@@ -580,7 +580,7 @@ acid_overlay_fill_rect(x, y, w, h, color)
 ```
 
 Draws a filled rectangle on the overlay. Coordinates are **measured from the
-top-left of the screen**, not your window, on a 640×360 screen. The rectangle
+top-left of the screen**, not your window. The rectangle
 is clipped to the screen, so negative coordinates are fine.
 
 If you don't own the overlay, it quietly draws nothing.
@@ -755,8 +755,8 @@ The `multi` flag and `libs` come from the launcher registry, matched on the
 window only) and no modules. If a singleton is already open, its window is
 brought to the front instead of opening a second one.
 
-Returns `false` if the width is outside 1 to 640, the height is outside 1 to
-360, or no window slot is free.
+Returns `false` if the size is bigger than the screen, or no window slot is
+free.
 
 A path that isn't a `.lua` or `.wasm` file under `v3/apps` or `v3/fsroot`
 still returns `true`. The new app then ends straight away and logs
@@ -979,7 +979,7 @@ constants.
 
 | | |
 |---|---|
-| Screen | 640 × 360 |
+| Screen | 640 × 480 by default; 640 × 360 or 800 × 600 ([`acid_screen_size`](#acid_screen_size)) |
 | Window slots | 8 |
 | Launcher registry | 48 apps |
 | Tracked tasks | 16 |

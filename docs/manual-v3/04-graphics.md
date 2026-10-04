@@ -15,7 +15,9 @@ filled rectangles.
 
 Lean into it. The blocky look is on purpose.
 
-The screen is **640×360** pixels. Each window has its own canvas, exactly the
+The screen is **640×480** pixels by default (640×360 and 800×600 are the other
+sizes; ask with [`acid_screen_size`](09-api-reference.md#acid_screen_size)). To
+fit every size, keep a window within 640×336 below the strip. Each window has its own canvas, exactly the
 size of the `w` and `h` in its manifest. The system stacks those canvases onto
 the screen in order, with the top window last. Your drawing calls only ever
 touch your own canvas.
@@ -356,7 +358,7 @@ owner, so you can never close someone else's animation.
 
 ### Coordinates are screen-absolute
 
-`acid_overlay_fill_rect` takes coordinates on the 640×360 screen, not in your
+`acid_overlay_fill_rect` takes coordinates on the screen, not in your
 window. It clips to the screen edges, so negative coordinates are fine. That's
 how a sprite flies in from off-screen.
 
@@ -372,6 +374,7 @@ effect is running and a long one the rest of the time:
 
 ```lua app
 local FlyApp = AcidApp:extend("FlyApp")
+local SCREEN_W = acid_screen_size()
 
 local FRAME_MS = 33
 
@@ -395,7 +398,7 @@ end
 function FlyApp:on_idle()
   if not self.effect_running then return end
   self.x = self.x + 6
-  if self.x > 640 then
+  if self.x > SCREEN_W then
     acid_overlay_close()
     self.effect_running = false
     return
@@ -467,6 +470,7 @@ manifest's `libs` instead ([§2.3](02-apps-and-manifests.md#23-loading-modules))
 ```lua app
 -- libs: lib/acid_sprite.lua
 local SpriteApp = AcidApp:extend("SpriteApp")
+local SCREEN_W = acid_screen_size()
 
 local FRAME_MS = 33
 local SCALE = 4
@@ -495,14 +499,14 @@ function SpriteApp:on_touch(x, y, pressed)
   if not acid_overlay_open() then return end
   self.flying = true
   local w = AcidSprite.width(SHIP) * SCALE
-  if self.dir == 1 then self.x = -w else self.x = 640 end
+  if self.dir == 1 then self.x = -w else self.x = SCREEN_W end
 end
 
 function SpriteApp:on_idle()
   if not self.flying then return end
   local w = AcidSprite.width(SHIP) * SCALE
   self.x = self.x + 6 * self.dir
-  if self.x > 640 or self.x < -w then
+  if self.x > SCREEN_W or self.x < -w then
     acid_overlay_close()
     self.flying = false
     self.dir = -self.dir

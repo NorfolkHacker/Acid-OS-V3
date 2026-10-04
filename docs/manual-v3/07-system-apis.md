@@ -147,7 +147,7 @@ acid_spawn_app("v3/apps/editor.lua", 420, 280, "v3/fsroot/Home/notes.txt")
 
 It returns `false` when:
 
-- the size isn't 1 to 640 wide and 1 to 360 high
+- the size is bigger than the screen
 - all eight window slots are in use
 - you're a cart and the path doesn't start with `v3/apps/`
   ([§7.11](#711-what-a-cart-is-refused))

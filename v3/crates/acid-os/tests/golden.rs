@@ -68,13 +68,18 @@ fn write_ppm(path: &Path, w: usize, h: usize, px: &[u16]) {
 /// Compares a frame with a committed golden frame, pixel for pixel. On a
 /// mismatch it writes the actual frame next to the target dir for
 /// inspection. Never regenerate a golden to make a test pass.
-fn assert_matches_golden(actual: &[u16], golden_name: &str) {
-    assert_matches_golden_masked(actual, golden_name, None);
+fn assert_matches_golden(actual: &[u16], golden_name: &str, w: usize) {
+    assert_matches_golden_masked(actual, golden_name, w, None);
 }
 
 /// As `assert_matches_golden`, skipping pixels inside `mask` = (x, y, w, h).
-fn assert_matches_golden_masked(actual: &[u16], golden_name: &str, mask: Option<(usize, usize, usize, usize)>) {
+fn assert_matches_golden_masked(actual: &[u16], golden_name: &str, w: usize, mask: Option<(usize, usize, usize, usize)>) {
     let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden").join(golden_name);
+    if !golden.exists() {
+        let out = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/actual-{golden_name}"));
+        write_ppm(&out, w, actual.len() / w, actual);
+        panic!("no golden {golden_name} yet: review {} and, once approved, copy it to tests/golden/", out.display());
+    }
     let (w, h, expected) = load_ppm_565(&golden);
     assert_eq!(actual.len(), expected.len());
     let masked = |i: usize| {
@@ -113,7 +118,7 @@ fn hello_acid_matches_golden_pixel_for_pixel() {
     k.composite_frame();
     let actual = p.display.last_frame().unwrap();
 
-    assert_matches_golden(&actual, "hello_acid.ppm");
+    assert_matches_golden(&actual, "hello_acid.ppm", 640);
 }
 
 #[test]
@@ -147,33 +152,50 @@ fn overlapping_windows_and_overlay_match_golden() {
     k.overlay_fill_rect(probe, -10, 330, 40, 40, 0x00E5FF);
     assert!(k.overlay_is_open());
     k.composite_frame();
-    assert_matches_golden(&p.display.last_frame().unwrap(), "overlap_overlay.ppm");
+    assert_matches_golden(&p.display.last_frame().unwrap(), "overlap_overlay.ppm", 640);
 }
 
-#[test]
-fn desktop_strip_matches_golden_pixel_for_pixel() {
+/// Boots at `screen`, waits until the desktop has drawn its clock and Menu
+/// label, and returns the composited frame.
+fn desktop_frame(screen: Screen) -> Vec<u16> {
     let p = FakePlatform::new(FakePlatform::repo_root());
-    let k = boot_with(p.clone(), Screen::WIDE);
-    // Wait for the clock text and the Menu label (TEXT color, outside the
-    // masked clock area), so the whole strip is in without a fixed sleep.
+    let k = boot_with(p.clone(), screen);
+    let text = Some(rgb565(0xD4E6DB));
     let start = std::time::Instant::now();
     loop {
-        let clock_drawn = k.with_state(|st| {
+        let drawn = k.with_state(|st| {
             st.windows.in_z_order().iter().find(|w| w.app_name == DESKTOP_PATH).is_some_and(|w| {
                 let c = w.canvas.lock();
-                let text = Some(rgb565(0xD4E6DB));
-                (570..636).any(|x| (8..16).any(|y| c.pixel(x, y) == text))
+                (screen.w - 70..screen.w - 4).any(|x| (8..16).any(|y| c.pixel(x, y) == text))
                     && (5..30).any(|x| (7..16).any(|y| c.pixel(x, y) == text))
             })
         });
-        if clock_drawn { break; }
+        if drawn { break; }
         assert!(start.elapsed() < Duration::from_secs(10), "desktop never drew its clock");
         std::thread::sleep(Duration::from_millis(10));
     }
     k.composite_frame();
-    let actual = p.display.last_frame().unwrap();
-    // The clock shows the time of capture, so its reserved CLOCK_W area is masked.
-    assert_matches_golden_masked(&actual, "desktop.ppm", Some((550, 0, 90, 24)));
+    p.display.last_frame().unwrap()
+}
+
+/// The clock shows the time of capture, so its reserved CLOCK_W area is masked.
+fn clock_mask(screen: Screen) -> Option<(usize, usize, usize, usize)> {
+    Some(((screen.w - 90) as usize, 0, 90, 24))
+}
+
+#[test]
+fn desktop_strip_matches_golden_pixel_for_pixel() {
+    assert_matches_golden_masked(&desktop_frame(Screen::WIDE), "desktop.ppm", 640, clock_mask(Screen::WIDE));
+}
+
+#[test]
+fn desktop_at_640x480_matches_golden() {
+    assert_matches_golden_masked(&desktop_frame(Screen::DEFAULT), "desktop_640x480.ppm", Screen::DEFAULT.w as usize, clock_mask(Screen::DEFAULT));
+}
+
+#[test]
+fn desktop_at_800x600_matches_golden() {
+    assert_matches_golden_masked(&desktop_frame(Screen::SVGA), "desktop_800x600.ppm", Screen::SVGA.w as usize, clock_mask(Screen::SVGA));
 }
 
 #[test]
@@ -219,7 +241,7 @@ fn menu_dropdown_matches_golden_pixel_for_pixel() {
     std::thread::sleep(Duration::from_millis(200));
     k.composite_frame();
     let actual = p.display.last_frame().unwrap();
-    assert_matches_golden_masked(&actual, "menu.ppm", Some((550, 0, 90, 24)));
+    assert_matches_golden_masked(&actual, "menu.ppm", 640, Some((550, 0, 90, 24)));
 }
 
 #[test]
@@ -229,23 +251,4 @@ fn boot_with_spawns_the_desktop_screen_wide() {
     assert_eq!(k.screen(), Screen::SVGA);
     let wins = k.with_state(|st| st.windows.in_z_order().iter().map(|w| (w.x, w.y, w.w, w.h)).collect::<Vec<_>>());
     assert_eq!(wins, [(0, 0, 800, 204)]);
-}
-
-#[test]
-fn desktop_draws_its_clock_at_the_right_edge_of_a_wider_screen() {
-    let p = FakePlatform::new(FakePlatform::repo_root());
-    let k = boot_with(p.clone(), Screen::SVGA);
-    let text = Some(rgb565(0xD4E6DB));
-    let start = std::time::Instant::now();
-    loop {
-        let clock_at_800 = k.with_state(|st| {
-            st.windows.in_z_order().iter().find(|w| w.app_name == DESKTOP_PATH).is_some_and(|w| {
-                let c = w.canvas.lock();
-                (730..796).any(|x| (8..16).any(|y| c.pixel(x, y) == text))
-            })
-        });
-        if clock_at_800 { break; }
-        assert!(start.elapsed() < Duration::from_secs(10), "desktop never drew its clock at the 800 px edge");
-        std::thread::sleep(Duration::from_millis(10));
-    }
 }

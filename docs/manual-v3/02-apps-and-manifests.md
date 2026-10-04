@@ -50,8 +50,8 @@ libs = lib/acid_sprite.lua, lib/acid_eggs.lua
 | Key | Required | Meaning |
 |---|---|---|
 | `name` | **yes** | The name shown in the Menu, the taskbar and window lists. Keep it short: the Menu cuts it off at 22 characters, and `AcidApp`'s default window title at 16. |
-| `w` | **yes** | Window width in pixels, including the 1px border. 1 to 640. |
-| `h` | **yes** | Window height in pixels, including the 16px title bar. 1 to 360. |
+| `w` | **yes** | Window width in pixels, including the 1px border. 1 to the screen width (640 by default). |
+| `h` | **yes** | Window height in pixels, including the 16px title bar. 1 to the screen height (480 by default). |
 | `desc` | no | A one-line description shown alongside the app. It doesn't change how the app behaves. |
 | `menu` | no | `menu = false` hides the app from the Menu. You can still launch it by path (File Manager, `acid_spawn_app`, `--app`, Terminal's `run`). Any other value, or leaving the key out, means the app is shown. Only the exact string `false` hides it. |
 | `multi` | no | `multi = true` lets several windows of this app be open at once. By default an app is **single-instance**: launching it again raises and focuses the window that's already open instead of opening a second one. If a cart tries to launch it, the cart gets `false` and nothing is raised. And if a cart started the open copy, a built-in app launching it gets a new, trusted window of its own instead of raising the cart's copy. |
@@ -66,7 +66,9 @@ for a typo in its own manifest first; the rest of the system is probably fine.
 
 ### Sizing a window
 
-The screen is **640×360**. `w` and `h` are the size of the whole window,
+The screen is **640×480** by default (640×360 and 800×600 are the other sizes;
+ask with [`acid_screen_size`](09-api-reference.md#acid_screen_size)). To fit
+every size, keep a window within 640×336 below the strip. `w` and `h` are the size of the whole window,
 frame included:
 
 ```text
@@ -239,7 +241,7 @@ All five keys are optional. The rules for reading them:
 | Key | Default if absent, and limits |
 |---|---|
 | `name` | Made from the filename (`my_game.cart` → "My Game"). At most 40 characters. |
-| `w` | 220, clamped to 80–640 |
+| `w` | 220, clamped to 80 to the screen width |
 | `h` | 160, clamped to 48–336 |
 | `desc` | Empty. At most 40 characters. |
 | `libs` | None. Only entries naming modules that exist in `v3/apps/lib/` (written `lib/<file>.lua`) are kept, and at most eight. |
