@@ -202,6 +202,15 @@ fn callbacks_run_in_order() {
 }
 
 #[test]
+fn resized_event_passes_size_then_redraws() {
+    let (end, log) = run(MIN, vec![Some(PolledEvent::Resized { w: 300, h: 200 })], WasmLimits::default());
+    assert_eq!(end, CartEnd::Closed);
+    let d = draws(&log);
+    let i = d.iter().position(|l| l == "fill_rect 5 300 200 0 0x000007").unwrap_or_else(|| panic!("{log:?}"));
+    assert_eq!(d[i + 1], "fill_rect 0 0 0 0 0x000000", "redraw follows");
+}
+
+#[test]
 fn key_event_passes_code_and_pressed() {
     let (end, log) = run(MIN, vec![Some(PolledEvent::Key { code: 65, pressed: true })], WasmLimits::default());
     assert_eq!(end, CartEnd::Closed);

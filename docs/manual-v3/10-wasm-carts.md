@@ -73,7 +73,7 @@ the module has a start function, that has already run by this point.)
 | `acid_on_create()` | yes | called once, then `acid_redraw` |
 | `acid_on_event(kind, a, b, c)` | yes | one input event; the kinds are below |
 | `acid_on_idle()` | yes | each poll timeout with no event |
-| `acid_redraw()` | yes | on create, and after a "moved" event |
+| `acid_redraw()` | yes | on create, and after a "moved" or "resized" event |
 | `acid_poll_timeout_ms() -> i32` | no | asked before each poll; 200 if not exported |
 | `acid_on_destroy()` | no | once, after the close event; then the cart ends |
 
@@ -87,6 +87,7 @@ All parameters and results are `i32`.
 | 2 | key | `code`, `pressed` (0/1), 0 | |
 | 3 | moved | 0, 0, 0 | the host calls `acid_redraw` |
 | 4 | close | 0, 0, 0 | the host calls `acid_on_destroy`, if exported, and the cart ends |
+| 5 | resized | `w`, `h`, 0 | the host calls `acid_redraw` |
 
 Touch coordinates are relative to your window, and key codes are the same ones
 a Lua app gets ([§3.1](03-app-lifecycle.md#31-the-callbacks)). Ignore any kind
@@ -374,6 +375,8 @@ pub enum Event {
     Key { code: i32, pressed: bool },
     /// The window moved; the host calls `redraw` right after this.
     Moved,
+    /// The window was resized to `w` x `h`; the host calls `redraw` right after this.
+    Resized { w: i32, h: i32 },
     /// The window is closing; `on_destroy` follows, then the cart ends.
     Close,
 }

@@ -29,6 +29,7 @@ const PAGE: usize = 64 * 1024;
 const EV_TOUCH: i32 = 1;
 const EV_KEY: i32 = 2;
 const EV_MOVED: i32 = 3;
+const EV_RESIZED: i32 = 5;
 const EV_CLOSE: i32 = 4;
 
 /// Host state in the store: what imports reach, and the memory limiter.
@@ -186,6 +187,10 @@ fn run(api: Arc<dyn AcidApi>, module_bytes: &[u8], limits: WasmLimits) -> Result
             Some(PolledEvent::Key { code, pressed }) => call(&mut store, &ex.on_event, (EV_KEY, code, i32::from(pressed), 0))?,
             Some(PolledEvent::Moved) => {
                 call(&mut store, &ex.on_event, (EV_MOVED, 0, 0, 0))?;
+                call(&mut store, &ex.redraw, ())?;
+            }
+            Some(PolledEvent::Resized { w, h }) => {
+                call(&mut store, &ex.on_event, (EV_RESIZED, w, h, 0))?;
                 call(&mut store, &ex.redraw, ())?;
             }
             Some(PolledEvent::Close) => {

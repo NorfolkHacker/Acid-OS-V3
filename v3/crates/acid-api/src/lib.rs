@@ -34,6 +34,8 @@ fn non_empty(s: &str) -> Option<String> {
 pub enum PolledEvent {
     Close,
     Moved,
+    /// The window was resized to `w` x `h`; the app re-lays out.
+    Resized { w: i32, h: i32 },
     /// `pressed` is always true: only presses are generated.
     Key { code: i32, pressed: bool },
     Touch { x: i32, y: i32, pressed: bool },
@@ -220,9 +222,17 @@ impl KernelApi {
                 self.window_y.store(y, Ordering::SeqCst);
                 PolledEvent::Moved
             }
+            Event::Resized { w, h } => PolledEvent::Resized { w, h },
             Event::Key { code } => PolledEvent::Key { code, pressed: true },
             Event::Touch { x, y, pressed } => PolledEvent::Touch { x, y, pressed },
         }
+    }
+
+    /// The canvas's current size. Read it before `draw`, which holds the
+    /// (non-re-entrant) canvas lock.
+    fn live_size(&self) -> (i32, i32) {
+        let c = self.ctx.canvas.lock();
+        (c.width(), c.height())
     }
 
     fn draw(&self, f: impl FnOnce(&mut acid_gfx::Canvas)) {
@@ -258,17 +268,17 @@ impl AcidApi for KernelApi {
     }
 
     fn draw_window_frame(&self, title: &str) {
-        let w = self.ctx.w;
+        let (w, _) = self.live_size();
         self.draw(|c| chrome::draw_window_frame(c, w, title));
     }
 
     fn draw_window_border(&self) {
-        let (w, h) = (self.ctx.w, self.ctx.h);
+        let (w, h) = self.live_size();
         self.draw(|c| chrome::draw_window_border(c, w, h));
     }
 
     fn clear_user_area(&self) {
-        let (w, h) = (self.ctx.w, self.ctx.h);
+        let (w, h) = self.live_size();
         self.draw(|c| chrome::clear_user_area(c, w, h));
     }
 
@@ -350,7 +360,7 @@ impl AcidApi for KernelApi {
     }
 
     fn window_size(&self) -> (i32, i32) {
-        (self.ctx.w, self.ctx.h)
+        self.live_size()
     }
 
     fn font_scale(&self) -> i32 {
@@ -728,6 +738,22 @@ mod tests {
         assert_eq!(api.poll_event(100), Some(PolledEvent::Moved));
         assert_eq!(api.window_pos(), (7, 8), "Moved updates the app's idea of its position");
         assert_eq!(api.poll_event(100), Some(PolledEvent::Close));
+    }
+
+    #[test]
+    fn poll_event_maps_resized() {
+        let (_k, api) = spawn(10, 10);
+        api.context().queue.send(Event::Resized { w: 300, h: 200 });
+        assert_eq!(api.poll_event(100), Some(PolledEvent::Resized { w: 300, h: 200 }));
+    }
+
+    #[test]
+    fn window_size_and_chrome_follow_the_live_canvas() {
+        let (_k, api) = spawn(100, 80);
+        *api.context().canvas.lock() = acid_gfx::Canvas::new(150, 90);
+        assert_eq!(api.window_size(), (150, 90));
+        api.draw_window_border();
+        assert_eq!(px(&api, 149, 45), rgb565(THEME_HARD));
     }
 
     #[test]

@@ -183,6 +183,17 @@ is slow to collect them, the extra events are dropped rather than holding up
 the system. So a slow callback can lose keys and touches. **Keep your
 callbacks short.**
 
+### `on_resize(w, h)`
+
+Called when the user resized a resizable window, with the new size. Re-run
+your layout here; `redraw` follows straight after. The default does nothing.
+
+```lua snippet
+function MyApp:on_resize(w, h)
+  self.cols = math.floor(w / 6)
+end
+```
+
 ### `on_idle`
 
 Called whenever the app has waited for an event and none arrived. How long it
@@ -253,6 +264,10 @@ function AcidApp:start()
     elseif kind == "moved" then
       self:redraw()
       acid_notify_redraw_done()
+    elseif kind == "resized" then
+      self:on_resize(a, b)
+      self:redraw()
+      acid_notify_redraw_done()
     elseif kind == "key" then
       self:on_key(a, b)
     elseif kind == "touch" then
@@ -274,6 +289,7 @@ is:
 | nothing (`nil`) | The timeout expired with nothing waiting → `on_idle` |
 | `"close"` | The close button, or the kernel ending your app → loop ends |
 | `"moved"` | Your window was dragged; repaint and then acknowledge |
+| `"resized", w, h` | Your window was resized; re-lay out (`on_resize`), repaint and then acknowledge |
 | `"key", code, pressed` | A key event |
 | `"touch", x, y, pressed` | A touch event |
 

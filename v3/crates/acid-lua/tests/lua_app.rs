@@ -196,6 +196,31 @@ fn run_loop_dispatches_each_event_kind() {
 }
 
 #[test]
+fn resized_polls_with_its_size() {
+    let api = FakeApi::with_events(vec![Some(PolledEvent::Resized { w: 300, h: 200 })]);
+    let lua = state(api.clone());
+    run(&lua, r#"
+        local k, w, h = acid_poll_event(0)
+        acid_draw_text(k .. " " .. w .. "x" .. h, 0, 0, 0, 0)
+    "#);
+    assert_eq!(api.texts(), ["resized 300x200"]);
+}
+
+#[test]
+fn run_loop_calls_on_resize_before_redraw() {
+    let api = FakeApi::with_events(vec![Some(PolledEvent::Resized { w: 300, h: 200 }), Some(PolledEvent::Close)]);
+    let lua = state(api.clone());
+    run(&lua, r#"
+        local T = AcidApp:extend("TApp")
+        function T:redraw() acid_draw_text("redraw", 0, 0, 0, 0) end
+        function T:on_resize(w, h) acid_draw_text("resize " .. w .. " " .. h, 0, 0, 0, 0) end
+        T:new():start()
+    "#);
+    assert_eq!(api.texts(), ["redraw", "resize 300 200", "redraw"]);
+    assert!(api.calls().contains(&"notify".to_string()));
+}
+
+#[test]
 fn quit_ends_the_loop_from_inside() {
     let api = FakeApi::with_events(vec![None, None, None]);
     let lua = state(api.clone());

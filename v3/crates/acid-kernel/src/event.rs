@@ -14,6 +14,8 @@ pub enum Event {
     /// Reserved for window moves; the router never sends it yet.
     Moved { x: i32, y: i32 },
     Key { code: i32 },
+    /// The window was resized; the app re-lays out (resizable windows).
+    Resized { w: i32, h: i32 },
 }
 
 pub const EVENT_QUEUE_CAP: usize = 8;

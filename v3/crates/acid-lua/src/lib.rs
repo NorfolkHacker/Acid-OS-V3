@@ -378,6 +378,7 @@ fn poll_event_values(lua: &Lua, ev: Option<PolledEvent>) -> mlua::Result<MultiVa
         None => Ok(MultiValue::new()),
         Some(PolledEvent::Close) => "close".into_lua_multi(lua),
         Some(PolledEvent::Moved) => "moved".into_lua_multi(lua),
+        Some(PolledEvent::Resized { w, h }) => ("resized", w, h).into_lua_multi(lua),
         Some(PolledEvent::Key { code, pressed }) => ("key", code, pressed).into_lua_multi(lua),
         Some(PolledEvent::Touch { x, y, pressed }) => ("touch", x, y, pressed).into_lua_multi(lua),
     }

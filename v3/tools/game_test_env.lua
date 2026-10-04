@@ -243,6 +243,7 @@ function AcidApp:on_create() end
 function AcidApp:on_touch(x, y, pressed) end
 function AcidApp:on_key(code, pressed) end
 function AcidApp:on_idle() end
+function AcidApp:on_resize(w, h) end
 function AcidApp:on_destroy() end
 AcidApp.FSROOT_APP_PREFIX = "v3/fsroot/App/"
 AcidApp.CANONICAL_APP_PREFIX = "v3/apps/"

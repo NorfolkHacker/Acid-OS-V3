@@ -23,6 +23,8 @@ function AcidGame:start()
       running = false
     elseif kind == "moved" then
       acid_notify_redraw_done()
+    elseif kind == "resized" then
+      self:on_resize(a, b)
     elseif kind == "key" then
       self:on_key(a, b)
     elseif kind == "touch" then

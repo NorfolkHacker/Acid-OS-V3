@@ -142,6 +142,8 @@ pub enum Event {
     Key { code: i32, pressed: bool },
     /// The window moved; the host calls `redraw` right after this.
     Moved,
+    /// The window was resized to `w` x `h`; the host calls `redraw` right after this.
+    Resized { w: i32, h: i32 },
     /// The window is closing; `on_destroy` follows, then the cart ends.
     Close,
 }
@@ -154,6 +156,7 @@ impl Event {
             2 => Some(Event::Key { code: a, pressed: b != 0 }),
             3 => Some(Event::Moved),
             4 => Some(Event::Close),
+            5 => Some(Event::Resized { w: a, h: b }),
             _ => None,
         }
     }
@@ -514,7 +517,7 @@ macro_rules! acid_cart {
         // import, so no two references to it are ever live at once. It is
         // reached only through raw pointers (`&raw mut`), never `&STATIC`.
         static mut __ACID_CART: ::core::option::Option<$t> = ::core::option::Option::None;
-        // Set by a "moved" event: the host calls acid_redraw next, after
+        // Set by a "moved" or "resized" event: the host calls acid_redraw next, after
         // which the redraw is reported done, as AcidApp:start does in Lua.
         static mut __ACID_MOVED: bool = false;
 
@@ -538,7 +541,7 @@ macro_rules! acid_cart {
         #[unsafe(no_mangle)]
         pub extern "C" fn acid_on_event(kind: i32, a: i32, b: i32, c: i32) {
             let ::core::option::Option::Some(e) = $crate::Event::decode(kind, a, b, c) else { return };
-            if e == $crate::Event::Moved {
+            if ::core::matches!(e, $crate::Event::Moved | $crate::Event::Resized { .. }) {
                 unsafe { *&raw mut __ACID_MOVED = true };
             }
             if let ::core::option::Option::Some(cart) = __acid_cart() {
