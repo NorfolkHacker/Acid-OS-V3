@@ -418,23 +418,29 @@ On the hosted build:
 reachable. There's no live connection check, no sockets and no HTTP client.
 This is information for a status display, not a networking API.
 
-## 7.7 Master volume and the wallpaper
+## 7.7 Volume, wallpaper and font size
 
 ```lua snippet
 acid_set_volume(percent)           -- 0-100, clamped
 local v = acid_get_volume()        -- 0-100
 acid_set_wallpaper_enabled(true)
 local on = acid_get_wallpaper_enabled()   -- true / false
+local n = acid_get_font_scale()       -- 1 Normal, 2 Large
+acid_set_font_scale(2)
 ```
 
-Both of these are **system-wide settings that belong to the Config app**. Read
+All three are **system-wide settings that belong to the Config app**. Read
 them as much as you like, but think twice before changing them.
+
+`acid_get_font_scale()` and `acid_set_font_scale(n)` are Config's FONT setting
+(1 is Normal, 2 is Large). It applies to apps opened afterwards that opted in
+with `font = scalable`. It never changes a window that is already open.
 
 An app that turns the user's volume down because it's loud, or turns their
 wallpaper off because it wants a plain background, is misbehaving. Scale your
 own note volumes and draw your own background instead.
 
-Carts can still use both calls. These are the user's settings to protect, so
+Carts can still use all of these calls. These are the user's settings to protect, so
 the kernel doesn't block them.
 
 ## 7.8 The file system

@@ -171,7 +171,7 @@ function EditorApp:draw_status()
   -- "  hl" is 20 chars), so 28 was clipping real messages mid-word, e.g.
   -- "unsaved -- ESC q again to close" (31 chars) lost its last word.
   -- 48 leaves the right field a comfortable margin: left[0,48] ends at
-  -- pixel 2+48*6=290, and `right` only reaches x=298 (its start pixel)
+  -- pixel 2+48*6=290 (at Normal), and `right` only reaches x=298 (its start pixel, at Normal)
   -- at a 4-digit cursor row/col or line count -- an 8px gap -- and stays
   -- clear at any line count this editor is actually used at (nothing in
   -- this codebase's own source, the largest realistic file it edits,

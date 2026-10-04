@@ -44,14 +44,6 @@ pub struct AppContext {
     pub font_scale: i32,
 }
 
-/// Spec §14.2: an app is built-in only if it is a `.lua` file under
-/// `v3/apps/` that passes the fs path guard (no `..`, `.` or empty
-/// segments) and its own manifest (`<path without .lua>.app.toml`) does not
-/// say `source = cart`. Everything else is cart-level: this fails closed. A
-/// missing manifest (NotFound) is built-in; any other read error is cart.
-/// The source value is normalised (trimmed, surrounding quotes stripped,
-/// lowercased) and the key matched case-insensitively, so `Source = "Cart"`
-/// counts.
 /// What an app's own manifest says about it, from one read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ManifestFlags {
@@ -61,6 +53,14 @@ pub struct ManifestFlags {
     pub scalable: bool,
 }
 
+/// Spec §14.2: an app is built-in only if it is a `.lua` file under
+/// `v3/apps/` that passes the fs path guard (no `..`, `.` or empty
+/// segments) and its own manifest (`<path without .lua>.app.toml`) does not
+/// say `source = cart`. Everything else is cart-level: this fails closed. A
+/// missing manifest (NotFound) is built-in; any other read error is cart.
+/// The source value is normalised (trimmed, surrounding quotes stripped,
+/// lowercased) and the key matched case-insensitively, so `Source = "Cart"`
+/// counts.
 pub fn manifest_flags(platform: &dyn Platform, script_path: &str) -> ManifestFlags {
     let outside = ManifestFlags { cart: true, scalable: false };
     if !(crate::fs_path::fs_path_is_allowed(script_path)
@@ -215,6 +215,9 @@ impl Kernel {
     /// for, when CART_WINDOW_MAX cart-level windows are open), then starts
     /// the app's task, rolling the registration back if it can't start.
     pub fn spawn_app(self: &Arc<Self>, req: SpawnRequest) -> Option<TaskId> {
+        if !window_size_ok(self.screen, req.w, req.h) {
+            return None;
+        }
         let flags = manifest_flags(&*self.platform, &req.script_path);
         // Spec §16.2: what a cart starts runs as a cart.
         let cart = req.force_cart || flags.cart;
@@ -750,6 +753,27 @@ mod tests {
             assert_eq!(st.windows.by_task(normal).map(|w| (w.font_scale, w.w)), Some((1, 220)), "an open window keeps its scale");
             assert_eq!(st.windows.by_task(big).map(|w| (w.font_scale, w.w, w.h)), Some((2, 440, 304)));
         });
+    }
+
+    #[test]
+    fn bad_sizes_are_refused_before_growing_and_force_cart_ignores_the_opt_in() {
+        let t = temp_tree("font_bad");
+        std::fs::create_dir_all(t.0.join("v3/apps")).unwrap();
+        std::fs::write(t.0.join("v3/apps/big.app.toml"), "font = scalable\n").unwrap();
+        let p = FakePlatform::new(t.0.clone());
+        let k = Kernel::with_screen(p.clone(), crate::layout::Screen::DEFAULT);
+        let (tx, rx) = mpsc::channel();
+        k.set_runner(parked_runner(tx));
+        k.set_font_scale(2);
+        let at = |w, h| SpawnRequest { script_path: "v3/apps/big.lua".into(), ..req(0, 30, w, h) };
+        for (w, h) in [(5000, 5000), (i32::MAX, 10), (10, i32::MAX)] {
+            assert!(k.spawn_app(at(w, h)).is_none(), "{w}x{h}");
+        }
+        assert_eq!(k.with_state(|st| st.windows.count()), 0);
+        let forced = SpawnRequest { force_cart: true, ..at(220, 160) };
+        k.spawn_app(forced).unwrap();
+        let ctx = recv(&rx);
+        assert_eq!((ctx.font_scale, ctx.w, ctx.h), (1, 220, 160));
     }
 
     #[test]

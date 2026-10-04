@@ -57,3 +57,9 @@ eq(#CALLS, 1, "holding the tap doesn't set it again")
 GAME:on_touch(20, 160, false)
 GAME:on_touch(20, 160, true)
 eq(CALLS[2], { "set_font_scale", 1 }, "tapping NORMAL sets Normal")
+
+CALLS = {}
+FONT_SCALE = 2
+GAME:on_touch(20, 160, false)
+GAME:on_touch(20, 160, true)
+eq(CALLS[1], { "set_font_scale", 1 }, "NORMAL still works after a cart changed the setting behind Config's back")

@@ -209,7 +209,7 @@ size and window size once, in `on_create`, and work from those:
 
 ```lua snippet
 local CW, CH = acid_font_size()
-local cols = (acid_window_size() - 8) // CW
+local cols = (acid_window_size() - 8) // CW   -- 4 px margin each side
 ```
 
 ## 4.3 Window chrome

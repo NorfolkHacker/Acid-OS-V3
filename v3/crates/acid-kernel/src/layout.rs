@@ -57,8 +57,9 @@ pub fn grown_size(screen: Screen, w: i32, h: i32, scale: i32) -> (i32, i32) {
     if scale <= 1 {
         return (w, h);
     }
-    let w2 = (w * scale).min(screen.w);
-    let h2 = (TITLE_BAR_H + (h - TITLE_BAR_H) * scale).max(h).min(screen.h - DESKTOP_STRIP_H);
+    let w2 = w.saturating_mul(scale).min(screen.w);
+    let grown = TITLE_BAR_H.saturating_add((h - TITLE_BAR_H).saturating_mul(scale));
+    let h2 = grown.min(screen.h - DESKTOP_STRIP_H).max(h);
     (w2, h2)
 }
 
@@ -99,5 +100,6 @@ mod tests {
         assert_eq!(grown_size(Screen::WIDE, 420, 280, 2), (640, 336));
         assert_eq!(grown_size(Screen::SVGA, 420, 280, 2), (800, 544));
         assert_eq!(grown_size(Screen::DEFAULT, 50, 10, 2), (100, 10), "a window no taller than its title bar keeps its height");
+        assert_eq!(grown_size(Screen::DEFAULT, 200, 470, 2), (400, 470), "never shrunk");
     }
 }

@@ -166,7 +166,8 @@ function ConfigApp:set_wallpaper(on)
 end
 
 function ConfigApp:set_font(scale)
-  if scale == self.font_scale then return end
+  -- Guard on the live setting: a cart may have changed it since we drew.
+  if scale == acid_get_font_scale() then return end
   self.font_scale = scale
   acid_set_font_scale(self.font_scale)
   self:redraw()

@@ -718,7 +718,8 @@ acid_set_font_scale(2)
 ```
 
 Sets Config's font setting. Only 1 and 2 are accepted. Apps opened afterwards
-that set `font = scalable` use it.
+that set `font = scalable` use it. This is a system setting that belongs to
+the Config app. Carts can call it too.
 
 ### `acid_set_ring_partner`
 
@@ -890,7 +891,8 @@ local w, h = acid_window_size()
 ```
 
 This window's real size in pixels. It can be larger than the manifest's `w`
-and `h` when the app opted into the font setting.
+and `h` when the app opted into the font setting (it is larger at Large,
+clamped to the screen).
 
 ---
 
