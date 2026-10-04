@@ -22,10 +22,10 @@ pub fn cos(a: i32) -> i32 {
     SIN[(a.wrapping_add(64) & 255) as usize]
 }
 
-/// Rotate about X, then Y, then Z. Angles are any i32. Coordinates must be
-/// within +-COORD_MAX (Mesh::new enforces it), which keeps every product in i64.
+/// Rotate about X, then Y, then Z. Angles are any i32. Results are meaningful
+/// only for coordinates within +-COORD_MAX (Mesh::new enforces it); anything
+/// else cannot overflow i64 and the outputs saturate to the i32 range.
 pub fn rotate(p: (i32, i32, i32), rx: i32, ry: i32, rz: i32) -> (i32, i32, i32) {
-    debug_assert!([p.0, p.1, p.2].iter().all(|c| c.unsigned_abs() <= COORD_MAX as u32));
     let (mut x, mut y, mut z) = (p.0 as i64, p.1 as i64, p.2 as i64);
     let (s, c) = (sin(rx) as i64, cos(rx) as i64);
     (y, z) = ((y * c - z * s) >> 12, (y * s + z * c) >> 12);
@@ -33,7 +33,8 @@ pub fn rotate(p: (i32, i32, i32), rx: i32, ry: i32, rz: i32) -> (i32, i32, i32) 
     (x, z) = ((x * c + z * s) >> 12, (-x * s + z * c) >> 12);
     let (s, c) = (sin(rz) as i64, cos(rz) as i64);
     (x, y) = ((x * c - y * s) >> 12, (x * s + y * c) >> 12);
-    (x as i32, y as i32, z as i32)
+    let sat = |v: i64| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    (sat(x), sat(y), sat(z))
 }
 
 /// Perspective-project an already rotated point; `None` when it is behind
@@ -314,6 +315,13 @@ mod tests {
         assert_eq!(cos(i32::MIN), SIN[64]);
         assert_eq!(sin(i32::MIN), 0);
         assert_eq!(sub((i32::MAX, i32::MIN, 0), (-1, i32::MAX, 0)).0, i32::MAX as i64 + 1);
+    }
+
+    #[test]
+    fn rotate_never_panics() {
+        let (x, y, z) = rotate((i32::MAX, i32::MIN, 7), i32::MAX, i32::MIN, 3);
+        let _ = (x, y, z);
+        assert_eq!(rotate((i32::MAX, 0, 0), 0, 0, 0), (i32::MAX, 0, 0));
     }
 
     fn isqrt(n: i64) -> i64 {
