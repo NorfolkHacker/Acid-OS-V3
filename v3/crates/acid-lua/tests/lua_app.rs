@@ -124,6 +124,10 @@ impl AcidApi for FakeApi {
     fn wallpaper_enabled(&self) -> bool { self.wallpaper.load(Ordering::SeqCst) }
     fn window_max(&self) -> i32 { 8 }
     fn screen_size(&self) -> (i32, i32) { (640, 360) }
+    fn font_size(&self) -> (i32, i32) { (6, 8) }
+    fn window_size(&self) -> (i32, i32) { (200, 150) }
+    fn font_scale(&self) -> i32 { 1 }
+    fn set_font_scale(&self, n: i32) { self.log(format!("font_scale {n}")) }
     fn window_info(&self, i: i64) -> Option<WindowInfo> {
         (i == 2).then(|| WindowInfo { app_name: "v3/apps/x.lua".into(), x: 1, y: 2, w: 3, h: 4, focused: true })
     }
@@ -551,6 +555,20 @@ fn canonical_app_path_maps_the_fsroot_app_symlink_back() {
       assert(AcidApp:canonical_app_path("v3/apps/y.lua") == "v3/apps/y.lua", "canonical unchanged")
       assert(AcidApp:canonical_app_path("v3/fsroot/Home/n.txt") == "v3/fsroot/Home/n.txt", "other fsroot unchanged")
     "#);
+}
+
+#[test]
+fn font_and_window_size_bindings() {
+    let api = FakeApi::with_events(vec![]);
+    let lua = state(api.clone());
+    run(&lua, r#"
+        local fw, fh = acid_font_size()
+        local ww, wh = acid_window_size()
+        acid_draw_text(fw .. "x" .. fh .. " " .. ww .. "x" .. wh .. " " .. acid_get_font_scale(), 0, 0, 0, 0)
+        acid_set_font_scale(2)
+    "#);
+    assert_eq!(api.texts(), ["6x8 200x150 1"]);
+    assert!(api.calls().contains(&"font_scale 2".to_string()));
 }
 
 #[test]

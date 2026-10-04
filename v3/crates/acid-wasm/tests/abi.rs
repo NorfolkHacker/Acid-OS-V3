@@ -69,6 +69,10 @@ impl AcidApi for Rec {
     fn wallpaper_enabled(&self) -> bool { true }
     fn window_max(&self) -> i32 { 8 }
     fn screen_size(&self) -> (i32, i32) { (640, 360) }
+    fn font_size(&self) -> (i32, i32) { (6, 8) }
+    fn window_size(&self) -> (i32, i32) { (200, 150) }
+    fn font_scale(&self) -> i32 { 1 }
+    fn set_font_scale(&self, n: i32) { self.log(format!("font_scale {n}")) }
     fn window_info(&self, i: i64) -> Option<WindowInfo> {
         (i == 1).then(|| WindowInfo { app_name: "v3/apps/x.lua".into(), x: 1, y: 2, w: 3, h: 4, focused: true })
     }
@@ -1006,11 +1010,24 @@ fn screen_size_imports() {
 }
 
 #[test]
+fn font_and_window_size_imports() {
+    let imports = r#"
+  (import "acid" "font_w" (func $fw (result i32)))
+  (import "acid" "font_h" (func $fh (result i32)))
+  (import "acid" "window_w" (func $ww (result i32)))
+  (import "acid" "window_h" (func $wh (result i32)))
+  (import "acid" "get_font_scale" (func $gfs (result i32)))
+  (import "acid" "set_font_scale" (func $sfs (param i32)))"#;
+    let log = run_api(imports, "", "call $fw call $say call $fh call $say call $ww call $say call $wh call $say call $gfs call $say i32.const 2 call $sfs");
+    assert_eq!(log, exp![said(6), said(8), said(200), said(150), said(1), "font_scale 2"]);
+}
+
+#[test]
 fn import_names_match_the_linker() {
     use std::collections::BTreeSet;
     use acid_wasm::IMPORT_NAMES;
-    assert_eq!(IMPORT_NAMES.len(), 58);
-    assert_eq!(IMPORT_NAMES.iter().collect::<BTreeSet<_>>().len(), 58, "duplicate import name");
+    assert_eq!(IMPORT_NAMES.len(), 64);
+    assert_eq!(IMPORT_NAMES.iter().collect::<BTreeSet<_>>().len(), 64, "duplicate import name");
     // wasmi's Linker cannot list or `get` host functions, so probe each name:
     // import it with a signature no real import has. A defined name fails on
     // the signature; an undefined one fails on the missing definition.

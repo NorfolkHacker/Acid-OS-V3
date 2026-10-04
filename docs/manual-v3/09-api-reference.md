@@ -52,7 +52,7 @@ limits or errors, then what a cart gets (if that differs).
 
 **Audio** — [`acid_play_note`](#acid_play_note) · [`acid_stop_note`](#acid_stop_note) · [`acid_configure_voice`](#acid_configure_voice) · [`acid_configure_osc`](#acid_configure_osc) · [`acid_configure_filter`](#acid_configure_filter) · [`acid_set_ring_partner`](#acid_set_ring_partner) · [`acid_trigger_arp`](#acid_trigger_arp) · [`acid_set_volume`](#acid_set_volume) · [`acid_get_volume`](#acid_get_volume) · [`acid_active_voice_count`](#acid_active_voice_count)
 
-**Windows** — [`acid_window_max`](#acid_window_max) · [`acid_screen_size`](#acid_screen_size) · [`acid_window_info`](#acid_window_info) · [`acid_activate_window`](#acid_activate_window) · [`acid_close_window`](#acid_close_window) · [`acid_send_self_to_back`](#acid_send_self_to_back) · [`acid_am_i_focused`](#acid_am_i_focused)
+**Windows** — [`acid_window_max`](#acid_window_max) · [`acid_screen_size`](#acid_screen_size) · [`acid_window_size`](#acid_window_size) · [`acid_font_size`](#acid_font_size) · [`acid_get_font_scale`](#acid_get_font_scale) · [`acid_set_font_scale`](#acid_set_font_scale) · [`acid_window_info`](#acid_window_info) · [`acid_activate_window`](#acid_activate_window) · [`acid_close_window`](#acid_close_window) · [`acid_send_self_to_back`](#acid_send_self_to_back) · [`acid_am_i_focused`](#acid_am_i_focused)
 
 **Launching** — [`acid_launcher_register`](#acid_launcher_register) · [`acid_launcher_count`](#acid_launcher_count) · [`acid_launcher_name`](#acid_launcher_name) · [`acid_launcher_path`](#acid_launcher_path) · [`acid_launcher_spawn`](#acid_launcher_spawn) · [`acid_spawn_app`](#acid_spawn_app) · [`acid_launch_arg`](#acid_launch_arg)
 
@@ -304,6 +304,15 @@ Draws a filled rectangle. Coordinates are relative to your window, and
 **You can never paint outside your own window.** A rectangle that runs off an
 edge is trimmed, and one that is entirely outside draws nothing.
 
+### `acid_font_size`
+
+```lua snippet
+local w, h = acid_font_size()   -- 6, 8 (Large: 12, 16)
+```
+
+This window's character cell in pixels. It is fixed for the window's life, so
+lay text out from it.
+
 ### `acid_fs_delete`
 
 ```lua snippet
@@ -396,6 +405,14 @@ Errors:
 - Writing to a folder gives the operating system's own message.
 
 **Cart:** only under `v3/fsroot/Home/`; elsewhere `nil, "read only"`.
+
+### `acid_get_font_scale`
+
+```lua snippet
+local n = acid_get_font_scale()   -- 1 Normal, 2 Large
+```
+
+Config's font setting.
 
 ### `acid_get_volume`
 
@@ -694,6 +711,15 @@ acid_send_self_to_back()
 Sends your app's own window behind all the others. It always acts on your own
 window.
 
+### `acid_set_font_scale`
+
+```lua snippet
+acid_set_font_scale(2)
+```
+
+Sets Config's font setting. Only 1 and 2 are accepted. Apps opened afterwards
+that set `font = scalable` use it.
+
 ### `acid_set_ring_partner`
 
 ```lua snippet
@@ -856,6 +882,15 @@ local n = acid_window_max()   -- 8
 How many window slots there are. Valid
 [`acid_window_info`](#acid_window_info) indexes run from 0 up to one less
 than this.
+
+### `acid_window_size`
+
+```lua snippet
+local w, h = acid_window_size()
+```
+
+This window's real size in pixels. It can be larger than the manifest's `w`
+and `h` when the app opted into the font setting.
 
 ---
 

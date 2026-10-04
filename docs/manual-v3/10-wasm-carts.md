@@ -677,6 +677,12 @@ Here is every import in the module `"acid"`, for ABI version 1, in order.
 | `window_max` | → i32 | | [`acid_window_max`](09-api-reference.md#acid_window_max) |
 | `screen_w` | → i32 | screen width in pixels | [`acid_screen_size`](09-api-reference.md#acid_screen_size) |
 | `screen_h` | → i32 | screen height in pixels | [`acid_screen_size`](09-api-reference.md#acid_screen_size) |
+| `font_w` | → i32 | this window's character width in pixels | [`acid_font_size`](09-api-reference.md#acid_font_size) |
+| `font_h` | → i32 | this window's character height in pixels | [`acid_font_size`](09-api-reference.md#acid_font_size) |
+| `window_w` | → i32 | this window's width in pixels | [`acid_window_size`](09-api-reference.md#acid_window_size) |
+| `window_h` | → i32 | this window's height in pixels | [`acid_window_size`](09-api-reference.md#acid_window_size) |
+| `get_font_scale` | → i32 (1 or 2) | Config's font setting | [`acid_get_font_scale`](09-api-reference.md#acid_get_font_scale) |
+| `set_font_scale` | n (1 or 2) | anything else is ignored | [`acid_set_font_scale`](09-api-reference.md#acid_set_font_scale) |
 | `window_info` | index, buf, cap → len \| −1 | record `name\tx\ty\tw\th\tfocused` | [`acid_window_info`](09-api-reference.md#acid_window_info) |
 | `activate_window` | index | a cart may raise only its own window | [`acid_activate_window`](09-api-reference.md#acid_activate_window) |
 | `close_window` | index → i32 (0/1) | **−4 for a cart**, so always −4 for a WASM cart | [`acid_close_window`](09-api-reference.md#acid_close_window) |

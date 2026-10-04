@@ -53,6 +53,12 @@ pub mod sys {
         pub fn window_max() -> i32;
         pub fn screen_w() -> i32;
         pub fn screen_h() -> i32;
+        pub fn font_w() -> i32;
+        pub fn font_h() -> i32;
+        pub fn window_w() -> i32;
+        pub fn window_h() -> i32;
+        pub fn get_font_scale() -> i32;
+        pub fn set_font_scale(n: i32);
         pub fn window_info(index: i32, buf: *mut u8, cap: i32) -> i32;
         pub fn activate_window(index: i32);
         pub fn close_window(index: i32) -> i32;
@@ -314,6 +320,26 @@ pub fn window_max() -> i32 {
 /// The screen's size in pixels, `(w, h)`; fixed for the whole run.
 pub fn screen_size() -> (i32, i32) {
     unsafe { (sys::screen_w(), sys::screen_h()) }
+}
+
+/// This window's character cell in pixels, `(w, h)`: (6, 8) at Normal, (12, 16) at Large.
+pub fn font_size() -> (i32, i32) {
+    unsafe { (sys::font_w(), sys::font_h()) }
+}
+
+/// This window's size in pixels, `(w, h)`.
+pub fn window_size() -> (i32, i32) {
+    unsafe { (sys::window_w(), sys::window_h()) }
+}
+
+/// Config's font setting: 1 Normal, 2 Large.
+pub fn font_scale() -> i32 {
+    unsafe { sys::get_font_scale() }
+}
+
+/// Sets Config's font setting (only 1 or 2); applies to apps opened afterwards.
+pub fn set_font_scale(n: i32) {
+    unsafe { sys::set_font_scale(n) }
 }
 
 /// Writes the record `name\tx\ty\tw\th\tfocused`; `None` if no window has

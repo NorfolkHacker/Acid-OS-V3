@@ -100,9 +100,11 @@ fn circle_bytes(s: ScreenWh, r: i32) -> u64 {
 }
 
 /// Bytes charged for drawing a `len`-byte string: one glyph cell per byte (a
-/// byte count never undercounts the glyphs), at most the screen.
-fn text_bytes(s: ScreenWh, len: i32) -> u64 {
-    (len as u32 as u64).saturating_mul(GLYPH_PX).min(screen_px(s)) * BYTES_PER_PX
+/// byte count never undercounts the glyphs), at most the screen. A glyph at
+/// `scale` covers `scale²` times the pixels.
+fn text_bytes(s: ScreenWh, len: i32, scale: i32) -> u64 {
+    let glyph = GLYPH_PX * (scale * scale) as u64;
+    (len as u32 as u64).saturating_mul(glyph).min(screen_px(s)) * BYTES_PER_PX
 }
 
 /// Charges the fuel for `bytes` of host work (§15.2). If the callback's
@@ -204,7 +206,8 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
             // charged on top of the string's bytes.
             let api = c.data().api.clone();
             let s = screen(&c);
-            charge(&mut c, text_bytes(s, len))?;
+            let scale = api.font_size().0 / 6;
+            charge(&mut c, text_bytes(s, len, scale))?;
             let text = read_str(&mut c, ptr, len)?;
             api.draw_text(text, x, y, fg as u32, bg as u32);
             Ok(())
@@ -298,6 +301,12 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
     linker.func_wrap(MODULE, "window_max", |c: Caller<'_, Host>| c.data().api.window_max())?;
     linker.func_wrap(MODULE, "screen_w", |c: Caller<'_, Host>| c.data().api.screen_size().0)?;
     linker.func_wrap(MODULE, "screen_h", |c: Caller<'_, Host>| c.data().api.screen_size().1)?;
+    linker.func_wrap(MODULE, "font_w", |c: Caller<'_, Host>| c.data().api.font_size().0)?;
+    linker.func_wrap(MODULE, "font_h", |c: Caller<'_, Host>| c.data().api.font_size().1)?;
+    linker.func_wrap(MODULE, "window_w", |c: Caller<'_, Host>| c.data().api.window_size().0)?;
+    linker.func_wrap(MODULE, "window_h", |c: Caller<'_, Host>| c.data().api.window_size().1)?;
+    linker.func_wrap(MODULE, "get_font_scale", |c: Caller<'_, Host>| c.data().api.font_scale())?;
+    linker.func_wrap(MODULE, "set_font_scale", |c: Caller<'_, Host>, n: i32| c.data().api.set_font_scale(n))?;
     linker.func_wrap(MODULE, "window_info", |mut c: Caller<'_, Host>, index: i32, buf: i32, cap: i32| -> Result<i32, Error> {
         let rec = c.data().api.window_info(i64::from(index)).map(|w| {
             let mut s = String::new();
@@ -475,14 +484,14 @@ mod tests {
         assert_eq!(circle_bytes(W, 10), 21 * 21 * 2);
         assert_eq!(circle_bytes(W, i32::MAX), 640 * 360 * 2);
         assert_eq!(circle_bytes(W, -1), 0);
-        assert_eq!(text_bytes(W, 2), 2 * 48 * 2);
-        assert_eq!(text_bytes(W, i32::MAX), 640 * 360 * 2);
-        assert_eq!(text_bytes(W, -1), 640 * 360 * 2, "a negative length is a huge u32; it traps out of bounds anyway");
+        assert_eq!(text_bytes(W, 2, 1), 2 * 48 * 2);
+        assert_eq!(text_bytes(W, i32::MAX, 1), 640 * 360 * 2);
+        assert_eq!(text_bytes(W, -1, 1), 640 * 360 * 2, "a negative length is a huge u32; it traps out of bounds anyway");
         assert_eq!(rect_bytes((640, 480), i32::MAX, i32::MAX), 640 * 480 * 2);
         let svga = (800, 600);
         assert_eq!(rect_bytes(svga, i32::MAX, i32::MAX), 800 * 600 * 2, "a full fill costs more on a bigger screen");
         assert_eq!(circle_bytes(svga, i32::MAX), 800 * 600 * 2);
-        assert_eq!(text_bytes(svga, i32::MAX), 800 * 600 * 2);
+        assert_eq!(text_bytes(svga, i32::MAX, 1), 800 * 600 * 2);
     }
 
     #[test]

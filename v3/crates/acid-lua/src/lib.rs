@@ -470,6 +470,14 @@ fn register_api(lua: &Lua, api: Arc<dyn AcidApi>, last_poll: Arc<AtomicU64>) -> 
     let a = api.clone();
     g.set("acid_screen_size", lua.create_function(move |_, ()| Ok(a.screen_size()))?)?;
     let a = api.clone();
+    g.set("acid_font_size", lua.create_function(move |_, ()| Ok(a.font_size()))?)?;
+    let a = api.clone();
+    g.set("acid_window_size", lua.create_function(move |_, ()| Ok(a.window_size()))?)?;
+    let a = api.clone();
+    g.set("acid_get_font_scale", lua.create_function(move |_, ()| Ok(a.font_scale()))?)?;
+    let a = api.clone();
+    g.set("acid_set_font_scale", lua.create_function(move |_, n: i32| { a.set_font_scale(n); Ok(()) })?)?;
+    let a = api.clone();
     g.set("acid_window_info", lua.create_function(move |lua, i: i64| match a.window_info(i) {
         None => Ok(MultiValue::new()),
         Some(w) => (w.app_name, w.x, w.y, w.w, w.h, w.focused).into_lua_multi(lua),

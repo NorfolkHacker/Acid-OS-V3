@@ -93,6 +93,14 @@ pub trait AcidApi: Send + Sync {
     fn window_max(&self) -> i32;
     /// The screen's size in pixels, `(w, h)`; fixed for the whole run.
     fn screen_size(&self) -> (i32, i32);
+    /// This window's character cell in pixels, (w, h): (6, 8) at Normal, (12, 16) at Large.
+    fn font_size(&self) -> (i32, i32);
+    /// This window's size in pixels, (w, h).
+    fn window_size(&self) -> (i32, i32);
+    /// Config's font setting (1 Normal, 2 Large).
+    fn font_scale(&self) -> i32;
+    /// Sets it (only 1 or 2); applies to apps opened afterwards.
+    fn set_font_scale(&self, scale: i32);
     /// The window in a slot; None for an empty or invalid slot.
     fn window_info(&self, index: i64) -> Option<WindowInfo>;
     /// Raise a window. A cart may raise only its own window; for any other
@@ -245,7 +253,8 @@ impl AcidApi for KernelApi {
     }
 
     fn draw_text(&self, text: &str, x: i32, y: i32, fg: u32, bg: u32) {
-        self.draw(|c| c.draw_text(x, y, text, fg, bg));
+        let scale = self.ctx.font_scale;
+        self.draw(|c| c.draw_text_scaled(x, y, text, fg, bg, scale));
     }
 
     fn draw_window_frame(&self, title: &str) {
@@ -333,6 +342,23 @@ impl AcidApi for KernelApi {
     fn screen_size(&self) -> (i32, i32) {
         let s = self.ctx.kernel.screen();
         (s.w, s.h)
+    }
+
+    fn font_size(&self) -> (i32, i32) {
+        let s = self.ctx.font_scale;
+        (6 * s, 8 * s)
+    }
+
+    fn window_size(&self) -> (i32, i32) {
+        (self.ctx.w, self.ctx.h)
+    }
+
+    fn font_scale(&self) -> i32 {
+        self.ctx.kernel.font_scale()
+    }
+
+    fn set_font_scale(&self, scale: i32) {
+        self.ctx.kernel.set_font_scale(scale)
     }
 
     fn window_info(&self, i: i64) -> Option<WindowInfo> {
@@ -534,7 +560,13 @@ mod tests {
     }
 
     fn spawn_path_on(p: Arc<FakePlatform>, path: &str, w: i32, h: i32) -> (Arc<Kernel>, KernelApi) {
+        spawn_scaled_on(p, path, w, h, 1)
+    }
+
+    /// Like `spawn_path_on`, with Config's font setting at `scale` first.
+    fn spawn_scaled_on(p: Arc<FakePlatform>, path: &str, w: i32, h: i32, scale: i32) -> (Arc<Kernel>, KernelApi) {
         let k = Kernel::new(p);
+        k.set_font_scale(scale);
         let (tx, rx) = mpsc::channel();
         let tx = std::sync::Mutex::new(tx);
         // Hands the context over and parks without touching the event
@@ -1195,6 +1227,44 @@ mod tests {
         let mut buf = [0u8; 64];
         k.render_audio(&mut buf);
         assert_eq!(a.active_voice_count(), 0, "release by owner stopped it");
+    }
+
+    #[test]
+    fn text_draws_at_the_windows_scale_and_chrome_stays_normal() {
+        let (k, a) = spawn(200, 100);
+        assert_eq!((a.font_size(), a.window_size(), a.font_scale()), ((6, 8), (200, 100), 1));
+        a.set_font_scale(2);
+        assert_eq!(a.font_scale(), 2, "the setting changed");
+        assert_eq!(a.font_size(), (6, 8), "but this window keeps the scale it opened with");
+        let _ = k;
+
+        let root = std::env::temp_dir().join(format!("acid-api-font-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("v3/apps")).unwrap();
+        std::fs::write(root.join("v3/apps/t.lua"), "-- t").unwrap();
+        std::fs::write(root.join("v3/apps/t.app.toml"), "font = scalable\n").unwrap();
+        let (_k2, b) = spawn_scaled_on(FakePlatform::new(root.clone()), "v3/apps/t.lua", 200, 100, 2);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(b.font_size(), (12, 16));
+        let (_k1, one) = spawn(200, 100);
+        let (fg, bg) = (0xFFFFFF_u32, 0x000000_u32);
+        one.draw_text("A", 0, 0, fg, bg);
+        b.draw_text("A", 0, 20, fg, bg);
+        let mut lit_seen = false;
+        for gy in 0..8 {
+            for gx in 0..6 {
+                let want = px(&one, gx, gy);
+                lit_seen |= want == rgb565(fg);
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    assert_eq!(px(&b, gx * 2 + dx, 20 + gy * 2 + dy), want, "glyph pixel ({gx}, {gy}) is a 2x2 block");
+                }
+            }
+        }
+        assert!(lit_seen);
+        b.draw_window_frame("T");
+        let (w, _) = b.window_size();
+        let text_rows: Vec<i32> = (0..16).filter(|&y| (0..w - 20).any(|x| px(&b, x, y) == rgb565(THEME_TEXT))).collect();
+        assert!(!text_rows.is_empty() && text_rows.iter().all(|y| (4..12).contains(y)), "title at scale 1: {text_rows:?}");
     }
 
     #[test]
