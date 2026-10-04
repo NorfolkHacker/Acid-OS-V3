@@ -129,16 +129,16 @@ These stop hardcoding the size:
 
 ## 3. Wallpaper (`acid-gfx`)
 
-`wallpaper_canvas()` becomes `wallpaper_canvas_for(w, h)`:
+`wallpaper_canvas()` stays and returns the 640×360 art. A new
+`wallpaper_canvas_for(w, h)` builds the screen's wallpaper from it:
 
-1. Replay the 640×360 run table into a source canvas, as today.
-2. If `(w, h) == (640, 360)`, return it unchanged.
-3. Otherwise `scale = max(w / 640, h / 360)` (as `f32`). The scaled
-   image is `ceil(640 * scale)` × `ceil(360 * scale)`. Crop offsets are
+1. If `(w, h) == (640, 360)`, return the art unchanged.
+2. Otherwise scale by `num / den = max(w / 640, h / 360)`, using integer
+   maths only so every platform draws the same pixels. The scaled image is
+   `ceil(640 * num / den)` × `ceil(360 * num / den)`. Crop offsets are
    `(scaled_w - w) / 2` and `(scaled_h - h) / 2`. Destination pixel
-   `(x, y)` samples source
-   `(floor((x + off_x) / scale), floor((y + off_y) / scale))`, clamped
-   to the source bounds.
+   `(x, y)` samples art pixel `((x + off_x) * den / num, (y + off_y) * den / num)`,
+   clamped to the art's bounds.
 
 At 640×480 that gives scale 1.333 and about 107 px cropped from each
 side. At 800×600 it gives scale 1.667 and about 133 px cropped from each
@@ -156,9 +156,12 @@ pub fn run_window(
     event_loop: EventLoop<UserEvent>,
     platform: Arc<HostedPlatform>,
     preselected: Option<Screen>,
-    boot: Box<dyn FnOnce(Screen)>,
+    boot: Box<dyn FnOnce(Screen) -> Box<dyn Any>>,
 )
 ```
+
+The box `boot` returns is kept for the rest of the run. It holds the
+audio output handle, which is `!Send` and must outlive the closure.
 
 `main.rs` parses `--screen` first. On an error it prints the message and
 exits with code 2. Kernel boot, the `--app` launch, audio start and the
