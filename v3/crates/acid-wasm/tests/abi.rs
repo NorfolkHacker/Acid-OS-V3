@@ -90,6 +90,7 @@ impl AcidApi for Rec {
     // Mirrors KernelApi: a cart never gets the overlay.
     fn overlay_open(&self) -> bool { false }
     fn is_cart(&self) -> bool { true }
+    fn restart(&self) -> bool { false }
     fn overlay_clear(&self) { self.log("overlay_clear".into()) }
     fn overlay_fill_rect(&self, x: i32, y: i32, w: i32, h: i32, c: u32) { self.log(format!("overlay_fill_rect {x} {y} {w} {h} {c:#08x}")) }
     fn overlay_close(&self) { self.log("overlay_close".into()) }

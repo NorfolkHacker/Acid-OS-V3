@@ -40,6 +40,7 @@ impl FakeApi {
 
 impl AcidApi for FakeApi {
     fn is_cart(&self) -> bool { false }
+    fn restart(&self) -> bool { self.log("restart".into()); true }
     fn local_time(&self) -> LocalTime { LocalTime { year: 2026, month: 10, day: 2, hour: 9, min: 5, sec: 7 } }
     fn mem_used_kb(&self) -> i64 { 4321 }
     fn network_info(&self) -> NetworkInfo { NetworkInfo { host: "box".into(), ip: "10.1.2.3".into(), connected: true } }
@@ -414,6 +415,15 @@ fn window_bindings_use_ids_and_multi_return() {
     assert_eq!(api.texts(), ["8", "v3/apps/x.lua,1,2,3,4,true", "0", "truefalse", "7/9"]);
     assert!(api.calls().contains(&"activate 3".to_string()));
     assert!(api.calls().contains(&"to_back".to_string()));
+}
+
+#[test]
+fn restart_binding_returns_the_api_result() {
+    let api = FakeApi::with_events(vec![]);
+    let lua = state(api.clone());
+    run(&lua, r#"acid_draw_text(tostring(acid_restart()), 0, 0, 0, 0)"#);
+    assert_eq!(api.texts(), ["true"]);
+    assert_eq!(api.calls().iter().filter(|c| *c == "restart").count(), 1);
 }
 
 #[test]

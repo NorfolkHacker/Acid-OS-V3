@@ -389,6 +389,12 @@ impl Kernel {
         router::activate_window(&mut self.state.lock(), task, &self.dirty);
     }
 
+    /// Restarts the whole OS from its boot screen, if the platform can;
+    /// false if it can't (on success the hosted platform never returns).
+    pub fn restart(&self) -> bool {
+        self.platform().restart()
+    }
+
     pub fn close_window(&self, task: TaskId) {
         router::close_window(&mut self.state.lock(), task, &self.dirty);
     }

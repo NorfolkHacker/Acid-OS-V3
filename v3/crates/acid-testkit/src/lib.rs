@@ -92,6 +92,7 @@ pub struct FakePlatform {
     threads: Mutex<Vec<ThreadSample>>,
     carts: Mutex<HostCarts>,
     fs_root: PathBuf,
+    restarts: AtomicUsize,
 }
 
 impl FakePlatform {
@@ -109,6 +110,7 @@ impl FakePlatform {
             threads: Mutex::new(Vec::new()),
             carts: Mutex::new(HostCarts::with_roots(root.clone(), Vec::new())),
             fs_root: root,
+            restarts: AtomicUsize::new(0),
         })
     }
 
@@ -135,6 +137,11 @@ impl FakePlatform {
         *c = HostCarts::with_roots(self.fs_root.clone(), roots);
     }
 
+    /// How many times restart() has been asked for.
+    pub fn restart_count(&self) -> usize {
+        self.restarts.load(Ordering::SeqCst)
+    }
+
     pub fn set_thread_samples(&self, s: Vec<ThreadSample>) {
         *self.threads.lock().unwrap() = s;
     }
@@ -147,6 +154,11 @@ impl FakePlatform {
 }
 
 impl Platform for FakePlatform {
+    /// Counts the call and reports success, without restarting anything.
+    fn restart(&self) -> bool {
+        self.restarts.fetch_add(1, Ordering::SeqCst);
+        true
+    }
     fn spawn(&self, name: &str, f: TaskFn) -> Result<(), SpawnError> {
         if self.fail_spawns.swap(false, Ordering::SeqCst) {
             return Err(SpawnError);

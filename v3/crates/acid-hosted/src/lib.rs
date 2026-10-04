@@ -6,6 +6,7 @@
 pub mod audio;
 pub mod keymap;
 pub mod picker;
+pub mod restart;
 pub mod window;
 
 use std::collections::VecDeque;
@@ -179,6 +180,10 @@ impl Platform for HostedPlatform {
 
     fn fs(&self) -> &dyn Fs {
         &self.fs
+    }
+
+    fn restart(&self) -> bool {
+        restart::restart_process()
     }
 }
 

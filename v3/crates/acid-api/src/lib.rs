@@ -181,6 +181,10 @@ pub trait AcidApi: Send + Sync {
     /// uses it to answer −4 where the api answers false (spec §16.2).
     /// Required, so every implementor decides.
     fn is_cart(&self) -> bool;
+    /// Restart the OS from its boot screen. Always false for a cart
+    /// (spec §16.2); otherwise false only if the platform can't.
+    /// Required, so every implementor decides.
+    fn restart(&self) -> bool;
     /// Send the caller's window to the back.
     fn send_self_to_back(&self);
     /// Add a launcher entry; empty `libs` means none.
@@ -513,6 +517,14 @@ impl AcidApi for KernelApi {
         self.ctx.cart
     }
 
+    fn restart(&self) -> bool {
+        // Ending every app is not a cart's call to make (spec §16.2).
+        if self.ctx.cart {
+            return false;
+        }
+        self.ctx.kernel.restart()
+    }
+
     fn close_window(&self, i: i64) -> bool {
         // Spec §16.2: a cart closes no windows (its own ends with its run loop).
         if self.ctx.cart {
@@ -737,6 +749,17 @@ mod tests {
         let (_k2, built) = spawn_on(p, 10, 10);
         assert!(!built.context().cart);
         assert!(built.launcher_register("v3/apps/x.lua", "X", 100, 80, false, ""), "built-ins unchanged");
+    }
+
+    #[test]
+    fn only_built_in_apps_may_restart() {
+        let p = FakePlatform::new(FakePlatform::repo_root());
+        let (_k, cart) = spawn_cart_on(p.clone(), 10, 10);
+        assert!(!cart.restart(), "a cart is refused");
+        assert_eq!(p.restart_count(), 0, "and the platform never hears of it");
+        let (_k2, built) = spawn_on(p.clone(), 10, 10);
+        assert!(built.restart(), "a built-in app's restart reaches the platform");
+        assert_eq!(p.restart_count(), 1);
     }
 
     #[test]

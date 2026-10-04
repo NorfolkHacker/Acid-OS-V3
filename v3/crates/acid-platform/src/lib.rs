@@ -158,4 +158,9 @@ pub trait Platform: Send + Sync {
     fn cart_read(&self, _path: &str) -> Result<Vec<u8>, FsError> {
         Err(FsError::NotFound)
     }
+    /// Restart the whole OS from its boot screen. Returns false if this
+    /// platform can't (the default); on success it doesn't return.
+    fn restart(&self) -> bool {
+        false
+    }
 }
