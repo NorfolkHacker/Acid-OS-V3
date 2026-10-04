@@ -289,3 +289,25 @@ fn file_manager_resized_matches_golden() {
     // The grip is deliberately not masked: this frame shows it.
     assert_matches_golden_masked(&p.display.last_frame().unwrap(), "file_manager_resized.ppm", 640, &[clock_mask(Screen::DEFAULT)]);
 }
+
+#[test]
+fn acid_spin_matches_golden() {
+    let p = FakePlatform::new(FakePlatform::repo_root());
+    let k = boot_with(p.clone(), Screen::DEFAULT);
+    wait_for_desktop(&k, Screen::DEFAULT);
+    let (w, h) = (240, 200); // the manifest's size
+    let (x, y) = acid_kernel::placement::cascade_position(k.screen(), k.with_state(|st| st.windows.count()), w, h);
+    let spin = k
+        .spawn_app(SpawnRequest {
+            script_path: format!("{APPS_DIR}/acid_spin.lua"),
+            x, y, w, h, closable: true, arg: Some("freeze".into()), libs: None, force_cart: false,
+        })
+        .expect("Acid Spin opens");
+    k.activate_window(spin); // AcidGame only draws while focused
+    wait_for_border(&k, spin, w, h);
+    k.composite_frame();
+    // Resizable, so the kernel draws a grip in the window's bottom-right 8x8.
+    let (wx, wy, ww, wh) = k.with_state(|st| st.windows.by_task(spin).map(|win| (win.x, win.y, win.w, win.h))).unwrap();
+    let grip = ((wx + ww - 8) as usize, (wy + wh - 8) as usize, 8, 8);
+    assert_matches_golden_masked(&p.display.last_frame().unwrap(), "acid_spin.ppm", 640, &[clock_mask(Screen::DEFAULT), grip]);
+}

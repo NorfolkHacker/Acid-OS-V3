@@ -456,6 +456,15 @@ start them from the Terminal instead (`run tetris`), or by clicking their
 `.app.toml` in the File Manager. Leave the line out if you want yours in the
 Menu.
 
+## 6.6 A worked example: Acid Spin
+
+`v3/apps/acid_spin.lua` is a complete `AcidGame` that draws 3D meshes
+([§4.8](04-graphics.md#48-lines-triangles-and-3d)). It shows a tick loop that
+only redraws while focused, keyboard and tap controls with a press-once guard,
+afterimages built by remembering previous angles, a window that re-centres
+when it is resized, and a custom mesh built with `acid_mesh_new`. Open it from
+the Menu.
+
 ---
 
 [← Sound](05-sound.md) · [Contents](README.md) · [Next: System APIs →](07-system-apis.md)

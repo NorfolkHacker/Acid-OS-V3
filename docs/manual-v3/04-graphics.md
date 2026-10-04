@@ -4,14 +4,15 @@
 
 Drawing in Acid OS is deliberately simple. You get:
 
-- three shapes: filled rectangles, filled circles and text,
+- filled rectangles, filled circles, text, lines and filled triangles,
+- 3D meshes that spin ([§4.8](#48-lines-triangles-and-3d)),
 - calls to draw the window's title bar and border,
 - a separate full-screen "overlay" for effects that cross the whole screen.
 
-That's the whole graphics API. There are no lines, arcs, rounded rectangles,
-transparency or image files. Everything you see, from Tetris pieces to the
-rounded window corners to the sprites flying across the screen, is built from
-filled rectangles.
+That's the whole graphics API. There are no arcs, rounded rectangles,
+transparency or image files. Almost everything you see, from Tetris pieces to
+the rounded window corners to the sprites flying across the screen, is built
+from filled rectangles.
 
 Lean into it. The blocky look is on purpose.
 
@@ -577,6 +578,96 @@ It copies the wallpaper from *the same coordinates* as the area you give it.
 So it only looks right for a window that sits at the top-left of the screen,
 `(0, 0)`. In practice only the desktop strip uses it, to clear away a
 dropdown menu when it closes.
+
+## 4.8 Lines, triangles and 3D
+
+Two calls draw beyond rectangles. Both take coordinates relative to your
+window, and both are trimmed to it, so any numbers at all are safe.
+
+```lua snippet
+acid_draw_line(x1, y1, x2, y2, color)                -- 1 pixel wide, both ends included
+acid_fill_triangle(x1, y1, x2, y2, x3, y3, color)    -- corners in any order
+```
+
+### Meshes
+
+A **mesh** is a 3D shape: a list of points and a list of faces joining them.
+You make one once, in `on_create`, then draw it every frame.
+
+```lua snippet
+local cube = acid_mesh_builtin("cube")   -- or nil for an unknown name
+```
+
+The built-in names are `"cube"`, `"pyramid"`, `"octahedron"`, `"sphere"` and
+`"torus"`, each scaled to about 100 units either side of centre. For your own
+shape, pass a flat list of `x, y, z` numbers and a list of faces. Each face is
+3 or 4 point numbers, counting **from 1** (the first point is 1, not 0). A
+4-point face becomes two triangles, so keep it flat.
+
+```lua snippet
+-- a flat triangle; a bad mesh gives nil, "bad mesh"
+local id, err = acid_mesh_new({0,0,0, 100,0,0, 0,100,0}, {{1, 2, 3}})
+```
+
+Draw it with `acid_mesh_draw(id, x, y, size, rx, ry, rz, mode, color)`. `(x, y)`
+is the centre, and `size` 64 means one model unit per pixel, so a built-in at
+size 64 is about 200 pixels across. The angles are **0 to 255 for a full
+turn**, around each axis. The modes are:
+
+| `mode` | Draws |
+|---|---|
+| 0 | wire: the edges only |
+| 1 | solid: shaded faces |
+| 2 | both: solid, with the edges in a brighter colour |
+
+Any other mode draws nothing. In solid modes a face is skipped when it points
+away from you, so list your own faces counter-clockwise as seen from outside,
+as the built-ins do. The exact rules are in
+[`acid_mesh_new`](09-api-reference.md#acid_mesh_new).
+
+```lua app
+-- w: 200
+-- h: 160
+local SpinApp = AcidGame:extend("SpinApp")
+SpinApp.TICK_MS = 33
+
+function SpinApp:on_create()
+  self.cube = acid_mesh_builtin("cube")
+  self.angle = 0
+end
+
+function SpinApp:on_tick()
+  self.angle = (self.angle + 2) % 256
+  if not self:focused() then return end
+  acid_clear_user_area()
+  acid_draw_window_frame(self:window_title())
+  acid_mesh_draw(self.cube, 100, 88, 24, self.angle, self.angle // 2, 0, 2, AcidPalette.hue(self.angle))
+  acid_draw_window_border()
+end
+
+function SpinApp:on_destroy()
+  acid_mesh_free(self.cube)
+end
+
+SpinApp:new():start()
+```
+
+### Several objects
+
+There is no depth buffer across objects: whatever you draw last is on top. To
+draw several meshes, draw the **farthest first**. Within one mesh the faces
+are sorted for you.
+
+### Limits
+
+- 16 meshes alive at once, each at most 512 points and 1024 faces, and 4096
+  points across all your live meshes. Over a limit, `acid_mesh_new` and
+  `acid_mesh_builtin` return `nil, "too big"`.
+- `acid_mesh_free(id)` gives a mesh's slot back. Free meshes in `on_destroy`.
+- Anything behind the camera is not drawn.
+
+A longer worked example is the Acid Spin app (`v3/apps/acid_spin.lua`): see
+[§6.6](06-games.md#66-a-worked-example-acid-spin).
 
 ---
 
