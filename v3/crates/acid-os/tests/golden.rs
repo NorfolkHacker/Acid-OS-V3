@@ -69,11 +69,11 @@ fn write_ppm(path: &Path, w: usize, h: usize, px: &[u16]) {
 /// mismatch it writes the actual frame next to the target dir for
 /// inspection. Never regenerate a golden to make a test pass.
 fn assert_matches_golden(actual: &[u16], golden_name: &str, w: usize) {
-    assert_matches_golden_masked(actual, golden_name, w, None);
+    assert_matches_golden_masked(actual, golden_name, w, &[]);
 }
 
-/// As `assert_matches_golden`, skipping pixels inside `mask` = (x, y, w, h).
-fn assert_matches_golden_masked(actual: &[u16], golden_name: &str, w: usize, mask: Option<(usize, usize, usize, usize)>) {
+/// As `assert_matches_golden`, skipping pixels inside any of `masks`, each = (x, y, w, h).
+fn assert_matches_golden_masked(actual: &[u16], golden_name: &str, w: usize, masks: &[(usize, usize, usize, usize)]) {
     let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden").join(golden_name);
     if !golden.exists() {
         let out = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/actual-{golden_name}"));
@@ -83,7 +83,7 @@ fn assert_matches_golden_masked(actual: &[u16], golden_name: &str, w: usize, mas
     let (w, h, expected) = load_ppm_565(&golden);
     assert_eq!(actual.len(), expected.len());
     let masked = |i: usize| {
-        mask.is_some_and(|(mx, my, mw, mh)| {
+        masks.iter().any(|&(mx, my, mw, mh)| {
             let (x, y) = (i % w, i / w);
             x >= mx && x < mx + mw && y >= my && y < my + mh
         })
@@ -184,23 +184,23 @@ fn wait_for_desktop(k: &Kernel, screen: Screen) {
 }
 
 /// The clock shows the time of capture, so its reserved CLOCK_W area is masked.
-fn clock_mask(screen: Screen) -> Option<(usize, usize, usize, usize)> {
-    Some(((screen.w - 90) as usize, 0, 90, 24))
+fn clock_mask(screen: Screen) -> (usize, usize, usize, usize) {
+    ((screen.w - 90) as usize, 0, 90, 24)
 }
 
 #[test]
 fn desktop_strip_matches_golden_pixel_for_pixel() {
-    assert_matches_golden_masked(&desktop_frame(Screen::WIDE), "desktop.ppm", 640, clock_mask(Screen::WIDE));
+    assert_matches_golden_masked(&desktop_frame(Screen::WIDE), "desktop.ppm", 640, &[clock_mask(Screen::WIDE)]);
 }
 
 #[test]
 fn desktop_at_640x480_matches_golden() {
-    assert_matches_golden_masked(&desktop_frame(Screen::DEFAULT), "desktop_640x480.ppm", Screen::DEFAULT.w as usize, clock_mask(Screen::DEFAULT));
+    assert_matches_golden_masked(&desktop_frame(Screen::DEFAULT), "desktop_640x480.ppm", Screen::DEFAULT.w as usize, &[clock_mask(Screen::DEFAULT)]);
 }
 
 #[test]
 fn desktop_at_800x600_matches_golden() {
-    assert_matches_golden_masked(&desktop_frame(Screen::SVGA), "desktop_800x600.ppm", Screen::SVGA.w as usize, clock_mask(Screen::SVGA));
+    assert_matches_golden_masked(&desktop_frame(Screen::SVGA), "desktop_800x600.ppm", Screen::SVGA.w as usize, &[clock_mask(Screen::SVGA)]);
 }
 
 #[test]
@@ -246,7 +246,7 @@ fn menu_dropdown_matches_golden_pixel_for_pixel() {
     std::thread::sleep(Duration::from_millis(200));
     k.composite_frame();
     let actual = p.display.last_frame().unwrap();
-    assert_matches_golden_masked(&actual, "menu.ppm", 640, Some((550, 0, 90, 24)));
+    assert_matches_golden_masked(&actual, "menu.ppm", 640, &[(550, 0, 90, 24)]);
 }
 
 #[test]
@@ -265,9 +265,11 @@ fn file_manager_at_large_matches_golden() {
     wait_for_desktop(&k, Screen::DEFAULT);
     k.set_font_scale(2);
     let fm = acid_os::spawn_from_manifest(&k, "file_manager").expect("file manager opens");
-    let (w, h) = k.with_state(|st| st.windows.by_task(fm).map(|w| (w.w, w.h))).unwrap();
+    let (wx, wy, w, h) = k.with_state(|st| st.windows.by_task(fm).map(|w| (w.x, w.y, w.w, w.h))).unwrap();
     assert_eq!((w, h), (440, 304), "opened grown for Large");
     wait_for_border(&k, fm, w, h);
     k.composite_frame();
-    assert_matches_golden_masked(&p.display.last_frame().unwrap(), "file_manager_large.ppm", 640, clock_mask(Screen::DEFAULT));
+    // The grip appears because File Manager is resizable; it's checked by the kernel's grip tests.
+    let grip = ((wx + w - 8) as usize, (wy + h - 8) as usize, 8, 8);
+    assert_matches_golden_masked(&p.display.last_frame().unwrap(), "file_manager_large.ppm", 640, &[clock_mask(Screen::DEFAULT), grip]);
 }
