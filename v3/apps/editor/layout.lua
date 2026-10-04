@@ -8,22 +8,28 @@ EditorLayout = {}
 -- 420x280 at Normal gives 25 lines of 65 columns; the window is what
 -- acid_window_size reports.
 local CW, CH = acid_font_size()
-local WW, WH = acid_window_size()
-EditorLayout.WINDOW_W = WW
-EditorLayout.WINDOW_H = WH
 EditorLayout.TITLE_BAR_H = 16
 EditorLayout.LINE_H = CH + 2
 EditorLayout.CHAR_W = CW
 
--- The status line sits at the bottom of the window: command mode raises
--- its strip above it, and a command surface that grows upward from the
--- bottom edge doesn't push the text you're looking at around.
-EditorLayout.STATUS_Y = EditorLayout.WINDOW_H - EditorLayout.LINE_H
 EditorLayout.TEXT_Y = EditorLayout.TITLE_BAR_H
 
 EditorLayout.GUTTER_CHARS = 4
 EditorLayout.GUTTER_W = EditorLayout.GUTTER_CHARS * EditorLayout.CHAR_W
 EditorLayout.TEXT_X = EditorLayout.GUTTER_W + 2
+
+-- Everything derived from the window size. Called once below, then again
+-- by EditorApp:on_resize.
+--
+-- The status line sits at the bottom of the window: command mode raises
+-- its strip above it, and a command surface that grows upward from the
+-- bottom edge doesn't push the text you're looking at around.
+function EditorLayout.compute(w, h)
+  EditorLayout.WINDOW_W = w
+  EditorLayout.WINDOW_H = h
+  EditorLayout.STATUS_Y = h - EditorLayout.LINE_H
+end
+EditorLayout.compute(acid_window_size())
 
 -- The editor's own source, plus acid_app.lua (every app loads it, so a
 -- bad save there bricks every app, the editor included) -- the "the

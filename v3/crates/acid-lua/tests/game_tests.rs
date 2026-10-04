@@ -153,6 +153,15 @@ fn editor_app() {
 }
 
 #[test]
+fn editor_resize() {
+    run_suite_with("WIN_W, WIN_H = 420, 280", &with_libs(&[
+        "v3/tools/game_test_env.lua", "v3/apps/editor/buffer.lua", "v3/apps/editor/hl.lua",
+        "v3/apps/editor/layout.lua", "v3/apps/editor/cmdbar.lua", "v3/apps/editor/touch.lua",
+        "v3/apps/editor.lua", "v3/tools/test_resize_editor.lua",
+    ]), 8);
+}
+
+#[test]
 fn editor_large() {
     run_suite_with("FONT_W, FONT_H, WIN_W, WIN_H = 12, 16, 640, 456", &with_libs(&[
         "v3/tools/game_test_env.lua", "v3/apps/editor/buffer.lua", "v3/apps/editor/hl.lua",

@@ -56,6 +56,12 @@ function EditorApp:on_create()
   self.hl_cache = {}
 end
 
+function EditorApp:on_resize(w, h)
+  EditorLayout.compute(w, h)
+  EditorCmd.fit_cells()
+  self:ensure_scroll()
+end
+
 function EditorApp:read_lines()
   local text = acid_fs_read(self.path)
   if text == nil then return { "" } end
