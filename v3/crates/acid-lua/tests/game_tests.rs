@@ -134,6 +134,11 @@ fn file_manager() {
 }
 
 #[test]
+fn file_manager_large() {
+    run_suite_with("FONT_W, FONT_H, WIN_W, WIN_H = 12, 16, 440, 304", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/file_manager.lua", "v3/tools/test_file_manager_large.lua"]), 4);
+}
+
+#[test]
 fn editor_modules() {
     run_suite(&["v3/tools/game_test_env.lua", "v3/apps/editor/buffer.lua", "v3/apps/editor/hl.lua", "v3/tools/test_editor.lua"], 97);
 }

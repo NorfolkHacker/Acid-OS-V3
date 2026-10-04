@@ -3,11 +3,16 @@
 
 FileManagerApp = AcidApp:extend("FileManagerApp")
 
--- Must match file_manager.app.toml and the kernel's title bar height.
-FileManagerApp.WINDOW_W = 220
-FileManagerApp.WINDOW_H = 160
+-- Sizes derive from the font and window size, so the app works at Large too.
+local CW, CH = acid_font_size()
+local WW, WH = acid_window_size()
+
+-- TITLE_BAR_H must match the kernel's title bar height.
+FileManagerApp.WINDOW_W = WW
+FileManagerApp.WINDOW_H = WH
 FileManagerApp.TITLE_BAR_H = 16
-FileManagerApp.ROW_H = 12
+FileManagerApp.ROW_H = CH + 4
+FileManagerApp.CLIP_COLS = (WW - 16) // CW
 FileManagerApp.ROOT_DIR = "v3/fsroot"
 
 FileManagerApp.BG_COLOR = 0x0B1712      -- THEME_PANEL -- header row
@@ -206,7 +211,7 @@ function FileManagerApp:draw_listing()
       entry_label = " " .. e.name .. " (" .. e.size .. "B)"
     end
     local color = self:entry_color(e)
-    acid_draw_text(entry_label:sub(1, 34), 2, y + 2, color, row_bg)
+    acid_draw_text(entry_label:sub(1, self.CLIP_COLS), 2, y + 2, color, row_bg)
     y = y + self.ROW_H
     i = i + 1
   end
@@ -233,7 +238,7 @@ function FileManagerApp:draw_preview()
   local i = self.preview_scroll
   while i < #lines and i < self.preview_scroll + self:visible_listing_rows() do
     acid_fill_rect(0, y, self.WINDOW_W, self.ROW_H, self.BODY_BG)
-    acid_draw_text(lines[i + 1]:sub(1, 34), 2, y + 2, self.TEXT_COLOR, self.BODY_BG)
+    acid_draw_text(lines[i + 1]:sub(1, self.CLIP_COLS), 2, y + 2, self.TEXT_COLOR, self.BODY_BG)
     y = y + self.ROW_H
     i = i + 1
   end

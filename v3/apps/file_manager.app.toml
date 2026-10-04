@@ -4,3 +4,4 @@ h = 160
 desc = Browse the real filesystem
 multi = true
 libs = lib/acid_scrollbar.lua
+font = scalable
