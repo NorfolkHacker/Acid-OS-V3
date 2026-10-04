@@ -42,7 +42,9 @@ cargo run --manifest-path v3/Cargo.toml -p acid-os
 A window titled "Acid OS v3" opens on the screen-size picker: 640×480 (the
 default), 640×360 or 800×600. Choose with the arrow keys and Enter or a click,
 or wait three seconds for the default. `-- --screen 800x600` skips the picker.
-Then the desktop appears. **Menu** is at the top left.
+Then the desktop appears. **Menu** is at the top left. Config's FONT setting
+switches the text apps (Terminal, Editor, File Manager, System Monitor, About
+and Network) between Normal and Large; it applies to apps you open afterwards.
 
 > **Run it from the top folder of the repository.** Acid OS finds app scripts
 > by a path relative to that folder (`v3/apps/<name>.lua`). Run it from

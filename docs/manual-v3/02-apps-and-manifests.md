@@ -58,6 +58,7 @@ libs = lib/acid_sprite.lua, lib/acid_eggs.lua
 | `libs` | no | A comma-separated list of extra modules to load before the app's own script, relative to `v3/apps/` ([§2.3](#23-loading-modules)). |
 | `source` | no | `source = cart` marks an app installed by Load Cart, and makes it run with cart-level trust ([§2.6](#26-built-in-and-cart-level-apps)). Only Load Cart should write this. |
 | `runtime` | no | `runtime = wasm` means the app is `<name>.wasm` rather than `<name>.lua` ([§2.7](#27-wasm-carts)). Any other value, or leaving the key out, means Lua. |
+| `font` | no | `font = scalable` opts the app into Config's FONT setting: at Large its text is drawn at 12×16 and its window opens bigger ([Text size](04-graphics.md#text-size)). Built-in apps only; ignored for carts. |
 
 **A broken manifest is skipped without a word.** If `name`, `w` or `h` is
 missing, or `w` or `h` isn't 1 to the screen's size in each direction, the app simply never appears

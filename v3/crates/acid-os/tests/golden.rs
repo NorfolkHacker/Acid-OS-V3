@@ -160,6 +160,13 @@ fn overlapping_windows_and_overlay_match_golden() {
 fn desktop_frame(screen: Screen) -> Vec<u16> {
     let p = FakePlatform::new(FakePlatform::repo_root());
     let k = boot_with(p.clone(), screen);
+    wait_for_desktop(&k, screen);
+    k.composite_frame();
+    p.display.last_frame().unwrap()
+}
+
+/// Waits until the desktop has drawn its clock and Menu label.
+fn wait_for_desktop(k: &Kernel, screen: Screen) {
     let text = Some(rgb565(0xD4E6DB));
     let start = std::time::Instant::now();
     loop {
@@ -174,8 +181,6 @@ fn desktop_frame(screen: Screen) -> Vec<u16> {
         assert!(start.elapsed() < Duration::from_secs(10), "desktop never drew its clock");
         std::thread::sleep(Duration::from_millis(10));
     }
-    k.composite_frame();
-    p.display.last_frame().unwrap()
 }
 
 /// The clock shows the time of capture, so its reserved CLOCK_W area is masked.
@@ -251,4 +256,18 @@ fn boot_with_spawns_the_desktop_screen_wide() {
     assert_eq!(k.screen(), Screen::SVGA);
     let wins = k.with_state(|st| st.windows.in_z_order().iter().map(|w| (w.x, w.y, w.w, w.h)).collect::<Vec<_>>());
     assert_eq!(wins, [(0, 0, 800, 204)]);
+}
+
+#[test]
+fn file_manager_at_large_matches_golden() {
+    let p = FakePlatform::new(FakePlatform::repo_root());
+    let k = boot_with(p.clone(), Screen::DEFAULT);
+    wait_for_desktop(&k, Screen::DEFAULT);
+    k.set_font_scale(2);
+    let fm = acid_os::spawn_from_manifest(&k, "file_manager").expect("file manager opens");
+    let (w, h) = k.with_state(|st| st.windows.by_task(fm).map(|w| (w.w, w.h))).unwrap();
+    assert_eq!((w, h), (440, 304), "opened grown for Large");
+    wait_for_border(&k, fm, w, h);
+    k.composite_frame();
+    assert_matches_golden_masked(&p.display.last_frame().unwrap(), "file_manager_large.ppm", 640, clock_mask(Screen::DEFAULT));
 }

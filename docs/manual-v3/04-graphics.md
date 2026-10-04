@@ -200,6 +200,18 @@ text over a picture without a box behind it.
 The font covers character codes up to 255. Anything above that shows as an
 outlined box. Stick to ASCII.
 
+### Text size
+
+`acid_draw_text` draws at your window's scale: 1 (the 6×8 above), or 2 (12×16)
+when your app opted in with `font = scalable` and Config's FONT setting was
+Large when the app opened. Don't lay text out from 6 and 8. Read the character
+size and window size once, in `on_create`, and work from those:
+
+```lua snippet
+local CW, CH = acid_font_size()
+local cols = (acid_window_size() - 8) // CW
+```
+
 ## 4.3 Window chrome
 
 "Chrome" means the parts of the window that belong to the system: the title
