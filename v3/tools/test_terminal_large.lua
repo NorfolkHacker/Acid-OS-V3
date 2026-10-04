@@ -13,3 +13,4 @@ ok(fits, "scrollback, prompt and cursor fit the window" .. (what and (": " .. wh
 local longest = 0
 for _, t in ipairs(TEXT_AT) do longest = math.max(longest, #t[1]) end
 eq(longest, 42, "lines are clipped at 42 columns of 12 px")
+eq({ G:bar_geometry() }, { 520 - 7, 16, 15 * 18 }, "the scroll bar spans the 15 Large rows beside them")

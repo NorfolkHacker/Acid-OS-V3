@@ -41,12 +41,16 @@ TerminalApp.CURSOR_COLOR = 0x00FF66  -- THEME_HARD
 
 -- Everything derived from the window size lives here, so a resize can
 -- redo it: the window's extent and the columns that fit past the 2 px
--- margins. The row count follows from WINDOW_H in visible_lines.
+-- margins. The input line gets every column; scroll-back lines stop short
+-- of the scroll bar's column. The row count follows from WINDOW_H in
+-- visible_lines.
 function TerminalApp:layout()
   local ww, wh = acid_window_size()
   TerminalApp.WINDOW_W = ww
   TerminalApp.WINDOW_H = wh
   TerminalApp.COLS = (ww - 8) // CW
+  TerminalApp.BAR_X = ww - 1 - AcidScrollbar.WIDTH
+  TerminalApp.LINE_COLS = (TerminalApp.BAR_X - 1 - 2) // CW
 end
 
 function TerminalApp:on_resize(w, h)
@@ -57,6 +61,10 @@ function TerminalApp:on_create()
   self:layout()
   self.cwd = TerminalApp.ROOT_DIR
   self.lines = { "Acid OS v3 terminal -- type help", "" }
+  -- Scroll-back: the first line shown, used only while `follow` is off.
+  -- Following (the default) always shows the newest lines.
+  self.scroll = 0
+  self.follow = true
   self.input = ""
   self.history = {}
   self.history_pos = 0 -- 0-based; +1 at each history access
@@ -70,28 +78,86 @@ function TerminalApp:redraw()
   acid_clear_user_area()
   acid_draw_window_frame(self:window_title())
   self:draw_scrollback()
+  self:draw_scrollbar()
   self:draw_input_line()
   acid_draw_window_border()
+end
+
+-- The first scroll-back line on screen: the newest screenful while
+-- following, otherwise the scrolled-to line, clamped (a resize or `clear`
+-- can leave it past the end).
+function TerminalApp:scroll_offset()
+  local max = AcidScrollbar.max_offset(#self.lines, self:visible_lines())
+  if self.follow then return max end
+  return math.max(0, math.min(self.scroll, max))
 end
 
 function TerminalApp:draw_scrollback()
   local T = TerminalApp
   local y = T.TITLE_BAR_H
   local n = self:visible_lines()
-  local start = #self.lines > n and #self.lines - n or 0
-  local i = start
-  while i < #self.lines do
-    acid_fill_rect(0, y, T.WINDOW_W, T.LINE_H, T.BODY_BG)
-    acid_draw_text(self.lines[i + 1]:sub(1, T.COLS), 2, y + 1, T.TEXT_COLOR, T.BODY_BG)
+  local i = self:scroll_offset()
+  local last = math.min(#self.lines, i + n)
+  while i < last do
+    acid_fill_rect(0, y, T.BAR_X, T.LINE_H, T.BODY_BG)
+    acid_draw_text(self.lines[i + 1]:sub(1, T.LINE_COLS), 2, y + 1, T.TEXT_COLOR, T.BODY_BG)
     y = y + T.LINE_H
     i = i + 1
   end
   -- Pad any remaining rows (fewer lines than fit) so old content from a
   -- taller previous frame can never show through underneath.
   while y < T.WINDOW_H - T.LINE_H do
-    acid_fill_rect(0, y, T.WINDOW_W, T.LINE_H, T.BODY_BG)
+    acid_fill_rect(0, y, T.BAR_X, T.LINE_H, T.BODY_BG)
     y = y + T.LINE_H
   end
+end
+
+-- The scroll bar (lib/acid_scrollbar.lua): the column just inside the right
+-- border, beside the scroll-back rows; the input line below stays full
+-- width.
+function TerminalApp:bar_geometry()
+  local T = TerminalApp
+  return T.BAR_X, T.TITLE_BAR_H, self:visible_lines() * T.LINE_H
+end
+
+function TerminalApp:draw_scrollbar()
+  local x, y, h = self:bar_geometry()
+  AcidScrollbar.draw(x, y, h, #self.lines, self:visible_lines(), self:scroll_offset())
+end
+
+-- Scrolling to the last screenful turns following back on, so new output
+-- shows again without a key press.
+function TerminalApp:set_scroll(offset)
+  self.scroll = offset
+  self.follow = offset >= AcidScrollbar.max_offset(#self.lines, self:visible_lines())
+end
+
+-- The bar is the only thing in the window that takes a touch. The router
+-- resends a held touch every tick: a thumb drag follows every sample, a
+-- press on the track pages once per press.
+function TerminalApp:on_touch(x, y, pressed)
+  if not pressed then
+    self.touch_held = false
+    self.bar_grab = nil
+    return
+  end
+  local bx, by, h = self:bar_geometry()
+  local total, visible = #self.lines, self:visible_lines()
+  if self.bar_grab then
+    local offset = AcidScrollbar.drag(h, total, visible, self.bar_grab, y - by)
+    if offset ~= self:scroll_offset() then
+      self:set_scroll(offset)
+      self:redraw()
+    end
+    return
+  end
+  if self.touch_held then return end
+  self.touch_held = true
+  if not AcidScrollbar.needed(total, visible) or not AcidScrollbar.hit(bx, by, h, x, y) then return end
+  local offset, grab = AcidScrollbar.press(h, total, visible, self:scroll_offset(), y - by)
+  self.bar_grab = grab
+  self:set_scroll(offset)
+  self:redraw()
 end
 
 function TerminalApp:draw_input_line()
@@ -106,6 +172,8 @@ end
 
 function TerminalApp:on_key(code, pressed)
   if not pressed then return end
+  -- Typing brings scroll-back down to the newest lines.
+  self.follow = true
   if code == AcidKeys.ENTER then
     self:submit()
   elseif code == AcidKeys.BACKSPACE then
