@@ -4,11 +4,9 @@ AboutApp = AcidApp:extend("AboutApp")
 -- sizes derive from the font and window size so it works at Large too.
 
 local CW, CH = acid_font_size()
-local WW, WH = acid_window_size()
 
 AboutApp.TITLE_BAR_H = 16
 AboutApp.LINE_H = CH + 2
-AboutApp.COLS = (WW - 24) // CW
 AboutApp.ABOUT_FILE = "v3/fsroot/Help/about.txt"
 
 AboutApp.TEXT_COLOR = 0xD4E6DB -- THEME_TEXT
@@ -23,7 +21,20 @@ local function split_lines(text)
   return lines
 end
 
+-- Everything derived from the window size lives here, so a resize can
+-- redo it: the columns a line is cut to and the height rows must fit.
+function AboutApp:layout()
+  local ww, wh = acid_window_size()
+  self.wh = wh
+  AboutApp.COLS = (ww - 24) // CW
+end
+
+function AboutApp:on_resize(w, h)
+  self:layout()
+end
+
 function AboutApp:on_create()
+  self:layout()
   self.lines = self:read_lines()
 end
 
@@ -42,7 +53,7 @@ function AboutApp:redraw()
   acid_draw_window_frame(self:window_title())
   local y = AboutApp.TITLE_BAR_H + 4
   for _, line in ipairs(self.lines) do
-    if y + AboutApp.LINE_H > WH then break end
+    if y + AboutApp.LINE_H > self.wh then break end
     acid_draw_text(line:sub(1, AboutApp.COLS), 4, y, AboutApp.TEXT_COLOR, AboutApp.BG_COLOR)
     y = y + AboutApp.LINE_H
   end

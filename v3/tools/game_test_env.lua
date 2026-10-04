@@ -314,3 +314,13 @@ end
 function group(name)
   print(name)
 end
+
+-- Resizes the app under test the way the kernel would: the live window
+-- size changes, then on_resize, then a redraw, with TEXT_AT/RECTS emptied
+-- first so a fit check sees only the new frame.
+function resize_app(w, h)
+  WIN_W, WIN_H = w, h
+  GAME:on_resize(w, h)
+  TEXT_AT, RECTS = {}, {}
+  GAME:redraw()
+end

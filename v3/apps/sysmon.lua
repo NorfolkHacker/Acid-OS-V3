@@ -16,7 +16,6 @@
 SysMon = AcidApp:extend("SysMon")
 
 local CW, CH = acid_font_size()
-local WW, WH = acid_window_size()
 
 SysMon.TITLE_BAR_H = 16
 SysMon.LINE_H = CH + 3
@@ -37,11 +36,25 @@ SysMon.PANEL_COLOR = 0x0B1712 -- THEME_PANEL
 
 SysMon.BTN_W = 5 * CW
 SysMon.ROW_H = CH + 4
--- Columns of a window's name before the close button (68 = the fixed
--- right margin that leaves 22 columns at Normal).
-SysMon.LABEL_COLS = (WW - 68) // CW
+
+-- Everything derived from the window size lives here, so a resize can
+-- redo it. LABEL_COLS is the columns of a window's name before the close
+-- button (68 = the fixed right margin that leaves 22 columns at Normal).
+function SysMon:layout()
+  local ww, wh = acid_window_size()
+  self.ww, self.wh = ww, wh
+  SysMon.LABEL_COLS = (ww - 68) // CW
+end
+
+-- The page and the history are kept; an armed close is dropped, since the
+-- rows it pointed at may have moved.
+function SysMon:on_resize(w, h)
+  self:layout()
+  self.kill_armed = nil
+end
 
 function SysMon:on_create()
+  self:layout()
   self.page = 0
   self.kill_armed = nil
   self.hist_composited = {}
@@ -56,7 +69,7 @@ function SysMon:on_create()
 end
 
 function SysMon:content_bottom()
-  return WH - SysMon.NAV_H
+  return self.wh - SysMon.NAV_H
 end
 
 function SysMon:on_idle()
@@ -152,7 +165,7 @@ function SysMon:draw_close_button(index, y)
   local label = armed and "sure?" or "close"
   local bg = armed and SysMon.HARD_COLOR or SysMon.PANEL_COLOR
   local fg = armed and 0x050607 or SysMon.MUTED_COLOR
-  local x = WW - SysMon.BTN_W - 4
+  local x = self.ww - SysMon.BTN_W - 4
   acid_fill_rect(x, y, SysMon.BTN_W, SysMon.ROW_H - 1, bg)
   acid_draw_text(label, x + 2, y + 2, fg, bg)
 end
@@ -168,7 +181,7 @@ function SysMon:draw_tasks_page()
   local mem = acid_mem_used_kb()
   local mem_text = mem >= 0 and ("MEM " .. mem .. "K") or "MEM n/a"
   acid_draw_text("TASKS", 2, y, SysMon.MUTED_COLOR, SysMon.BG_COLOR)
-  acid_draw_text(mem_text, WW - #mem_text * CW - 2, y, SysMon.MUTED_COLOR, SysMon.BG_COLOR)
+  acid_draw_text(mem_text, self.ww - #mem_text * CW - 2, y, SysMon.MUTED_COLOR, SysMon.BG_COLOR)
   y = y + SysMon.LINE_H
   local count = acid_task_count()
   for i = 0, count - 1 do
@@ -187,7 +200,8 @@ function SysMon:draw_compositor_page()
   y = y + SysMon.LINE_H
   local cur_c = self.hist_composited[#self.hist_composited] or 0
   local cur_s = self.hist_skipped[#self.hist_skipped] or 0
-  acid_draw_text("frames/s: " .. cur_c .. "  skip/s: " .. cur_s, 2, y, SysMon.TEXT_COLOR, SysMon.BG_COLOR)
+  local stats = ("frames/s: " .. cur_c .. "  skip/s: " .. cur_s):sub(1, (self.ww - 4) // CW)
+  acid_draw_text(stats, 2, y, SysMon.TEXT_COLOR, SysMon.BG_COLOR)
   y = y + SysMon.LINE_H + 2
   self:draw_bar_graph(y, self:content_bottom() - y, self.hist_composited, self.hist_skipped)
 end
@@ -205,7 +219,9 @@ function SysMon:draw_bar_graph(y0, h, composited, skipped)
   end
   local col_w = 8
   local x = 2
-  for i = 1, #composited do
+  -- Only the newest seconds that fit the width are drawn.
+  local first = math.max(1, #composited - (self.ww - 4) // col_w + 1)
+  for i = first, #composited do
     local c = composited[i]
     local s = skipped[i]
     local c_h = c * (h - 1) // peak
@@ -230,20 +246,25 @@ function SysMon:draw_synth_page()
   y = y + SysMon.LINE_H + 4
   local box = 18
   local gap = 4
+  -- Boxes wrap onto further rows when the window is too narrow for all 8.
+  local per_row = math.max(1, (self.ww - 2) // (box + gap))
   for i = 0, 7 do
-    local x = 2 + i * (box + gap)
-    local on = i < active
-    acid_fill_rect(x, y, box, box, on and SysMon.HARD_COLOR or SysMon.PANEL_COLOR)
+    local x = 2 + (i % per_row) * (box + gap)
+    local by = y + (i // per_row) * (box + gap)
+    if by + box <= self:content_bottom() then
+      local on = i < active
+      acid_fill_rect(x, by, box, box, on and SysMon.HARD_COLOR or SysMon.PANEL_COLOR)
+    end
   end
 end
 
 function SysMon:draw_nav()
   local y = self:content_bottom()
-  acid_fill_rect(0, y, WW, SysMon.NAV_H, SysMon.PANEL_COLOR)
+  acid_fill_rect(0, y, self.ww, SysMon.NAV_H, SysMon.PANEL_COLOR)
   acid_draw_text("<", 4, y + 2, SysMon.TEXT_COLOR, SysMon.PANEL_COLOR)
-  acid_draw_text(">", WW - CW - 4, y + 2, SysMon.TEXT_COLOR, SysMon.PANEL_COLOR)
+  acid_draw_text(">", self.ww - CW - 4, y + 2, SysMon.TEXT_COLOR, SysMon.PANEL_COLOR)
   local label = (self.page + 1) .. "/" .. #SysMon.PAGES
-  acid_draw_text(label, (WW - #label * CW) // 2, y + 2, SysMon.MUTED_COLOR, SysMon.PANEL_COLOR)
+  acid_draw_text(label, (self.ww - #label * CW) // 2, y + 2, SysMon.MUTED_COLOR, SysMon.PANEL_COLOR)
 end
 
 function SysMon:on_touch(x, y, pressed)
@@ -258,7 +279,7 @@ function SysMon:on_touch(x, y, pressed)
   if y >= self:content_bottom() then
     if x < 20 then
       self:turn_page((self.page - 1 + n) % n)
-    elseif x > WW - CW - 14 then
+    elseif x > self.ww - CW - 14 then
       self:turn_page((self.page + 1) % n)
     end
     return
@@ -267,7 +288,7 @@ function SysMon:on_touch(x, y, pressed)
   if self.page ~= 0 then return end
   local row = (y - SysMon.TITLE_BAR_H - SysMon.LINE_H) // SysMon.ROW_H
   if row < 0 or row >= #self.row_indices then return end
-  if x < WW - SysMon.BTN_W - 4 then return end
+  if x < self.ww - SysMon.BTN_W - 4 then return end
   local index = self.row_indices[row + 1]
   if not index then return end -- index 0 is truthy in Lua; only false skips
   if self.kill_armed == index then

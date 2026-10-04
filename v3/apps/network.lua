@@ -6,11 +6,9 @@
 NetworkApp = AcidApp:extend("NetworkApp")
 
 local CW, CH = acid_font_size()
-local WW = acid_window_size()
 
 NetworkApp.TITLE_BAR_H = 16
 NetworkApp.LINE_H = CH + 4
-NetworkApp.COLS = (WW - 20) // CW
 NetworkApp.REFRESH_MS = 3000
 
 NetworkApp.BG_COLOR = 0x050607    -- THEME_BG
@@ -18,7 +16,22 @@ NetworkApp.TEXT_COLOR = 0xD4E6DB  -- THEME_TEXT
 NetworkApp.MUTED_COLOR = 0x9DAAA3 -- THEME_MUTED
 NetworkApp.HARD_COLOR = 0x00FF66  -- THEME_HARD
 
+-- Everything derived from the window size lives here, so a resize can
+-- redo it: the columns text is cut to, and the gap between the sections,
+-- which closes up when the window is too short for it.
+function NetworkApp:layout()
+  local ww, wh = acid_window_size()
+  NetworkApp.COLS = (ww - 20) // CW
+  local roomy = NetworkApp.TITLE_BAR_H + 6 + 4 * NetworkApp.LINE_H + 8 + CH <= wh
+  self.gap = roomy and 4 or 0
+end
+
+function NetworkApp:on_resize(w, h)
+  self:layout()
+end
+
 function NetworkApp:on_create()
+  self:layout()
   self.host = "?"
   self.ip = "?"
   self.connected = false
@@ -55,12 +68,12 @@ function NetworkApp:redraw()
   acid_fill_rect(4, y + (CH - 4) // 2, 6, 6, dot_color)
   acid_draw_text(self.connected and "connected" or "no address found", 14, y,
     self.connected and NetworkApp.TEXT_COLOR or NetworkApp.MUTED_COLOR, NetworkApp.BG_COLOR)
-  y = y + NetworkApp.LINE_H + 4
+  y = y + NetworkApp.LINE_H + self.gap
 
   acid_draw_text("HOST", 4, y, NetworkApp.MUTED_COLOR, NetworkApp.BG_COLOR)
   y = y + NetworkApp.LINE_H
   acid_draw_text(self.host:sub(1, NetworkApp.COLS), 4, y, NetworkApp.TEXT_COLOR, NetworkApp.BG_COLOR)
-  y = y + NetworkApp.LINE_H + 4
+  y = y + NetworkApp.LINE_H + self.gap
 
   acid_draw_text("IP", 4, y, NetworkApp.MUTED_COLOR, NetworkApp.BG_COLOR)
   y = y + NetworkApp.LINE_H

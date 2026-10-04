@@ -3,3 +3,6 @@ w = 180
 h = 150
 desc = What this OS is
 font = scalable
+resizable = true
+min_w = 120
+min_h = 60

@@ -3,3 +3,6 @@ w = 200
 h = 160
 desc = Live kernel/task/audio stats
 font = scalable
+resizable = true
+min_w = 160
+min_h = 120
