@@ -44,6 +44,15 @@ G:action("redo")
 group("Sprite Paint: fill and picker")
 sp_tap(sp_swatch("2"))
 eq(G.key, "2", "a swatch tap selects its colour")
+TEXT_AT, RECTS = {}, {}
+G:redraw()
+sp_tap(sp_swatch("4"))
+local cleared = false
+for _, r in ipairs(RECTS) do
+  if r[5] == G.BG and r[1] <= G.L.col_x - 1 and r[1] + r[3] > G.L.col_x - 1 then cleared = true end
+end
+ok(cleared, "selecting another swatch clears the old highlight including col_x - 1")
+sp_tap(sp_swatch("2"))
 sp_tap(sp_button("fill"))
 sp_tap_cell(15, 15)
 eq({ G.doc:get(15, 15), G.doc:get(3, 8), G.doc:get(2, 3) }, { "2", "1", "1" }, "fill covers the open area and stops at drawn cells")

@@ -150,7 +150,8 @@ end
 
 function SpritePaintApp:draw_side()
   local L = self.L
-  acid_fill_rect(L.col_x, SpriteLayout.TOP, SpriteLayout.COL_W, L.side_h, self.BG)
+  -- Selected swatch highlight overhangs the column by 1 px on the left, so clear it
+  acid_fill_rect(L.col_x - 1, SpriteLayout.TOP, SpriteLayout.COL_W + 1, L.side_h, self.BG)
   if self.picker_open then
     self:draw_picker()
   else
