@@ -1223,3 +1223,33 @@ fn mesh_new_pays_per_face() {
     assert_eq!(end, CartEnd::StoppedResponding);
     assert!((15_000..25_000).contains(&log.len()), "{} calls", log.len());
 }
+
+#[test]
+fn builtin_meshes_pay_per_face() {
+    // A torus has 72 faces: 72 x 64 bytes = 576 fuel a call, so 200M fuel
+    // allows about 347,000 builds; uncharged (the name's ~1 fuel) it would
+    // allow about 100M+.
+    let src = r#"(module
+  (import "acid" "mesh_builtin" (func $mb (param i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "torus")
+  (func (export "acid_abi_version") (result i32) i32.const 1)
+  (func (export "acid_on_create")
+    (loop i32.const 0 i32.const 5 call $mb drop br 0))
+  (func (export "acid_on_event") (param i32 i32 i32 i32))
+  (func (export "acid_on_idle"))
+  (func (export "acid_redraw")))"#;
+    let (end, log) = run(src, vec![], WasmLimits::default());
+    assert_eq!(end, CartEnd::StoppedResponding);
+    // Rec logs each call; 200M / (72 * 64 / 8 + 1) is about 347,000.
+    assert!(log.len() < 400_000, "{} builds", log.len());
+    assert!(log.len() > 300_000, "{} builds", log.len());
+}
+
+#[test]
+fn mesh_new_traps_out_of_bounds_before_charging_faces() {
+    // Faces out of bounds: a trap, not out-of-fuel, even with a tiny budget.
+    let imports = r#"(import "acid" "mesh_new" (func $mn (param i32 i32 i32 i32) (result i32)))"#;
+    let (end, _) = run(&api_cart(imports, "", "i32.const 0 i32.const 3 i32.const -1 i32.const 1024 call $mn drop"), vec![], WasmLimits { fuel: 5_000, ..WasmLimits::default() });
+    assert!(matches!(end, CartEnd::Trap(_)), "{end:?}");
+}

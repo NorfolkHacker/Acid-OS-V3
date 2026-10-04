@@ -143,6 +143,19 @@ impl Mesh {
     }
 }
 
+/// `(points, faces)` of a built-in, without building it; None for an unknown
+/// name. A test keeps it equal to the built meshes.
+pub fn builtin_counts(name: &str) -> Option<(usize, usize)> {
+    Some(match name {
+        "cube" => (8, 6),
+        "pyramid" => (5, 5),
+        "octahedron" => (6, 8),
+        "sphere" => (42, 48),
+        "torus" => (72, 72),
+        _ => return None,
+    })
+}
+
 pub fn builtin(name: &str) -> Option<Mesh> {
     let (points, faces) = match name {
         "cube" => cube(),
@@ -434,19 +447,71 @@ mod tests {
         assert!(matches!(Mesh::new(tri, vec![[0, 1, 2, NO_INDEX]; MESH_FACES_MAX + 1]), Err(MeshError::TooBig)));
     }
 
-    #[test]
-    fn a_heavily_shared_big_mesh_builds_fast() {
-        // 1024 triangles over 3 points share 3 edges: the quadratic dedupe
-        // is cheap there, so also use 512 points with many distinct edges.
-        let pts: Vec<(i32, i32, i32)> = (0..MESH_POINTS_MAX as i32).map(|i| (i, 0, 0)).collect();
-        let faces: Vec<[u16; 4]> = (0..MESH_FACES_MAX).map(|i| [(i % 509) as u16, (i % 509 + 1) as u16, (i % 509 + 2) as u16, NO_INDEX]).collect();
-        let start = std::time::Instant::now();
-        for _ in 0..800 {
-            let m = Mesh::new(pts.clone(), faces.clone()).unwrap();
-            assert_eq!(m.edges().len(), 1019, "edges shared between neighbours");
+    /// The old quadratic dedupe, kept as the reference for `Mesh::new`.
+    fn naive_edges(faces: &[[u16; 4]]) -> Vec<(u16, u16)> {
+        let mut edges: Vec<(u16, u16)> = Vec::new();
+        for f in faces {
+            let n = if f[3] == NO_INDEX { 3 } else { 4 };
+            for i in 0..n {
+                let (a, b) = (f[i], f[(i + 1) % n]);
+                let e = (a.min(b), a.max(b));
+                if !edges.contains(&e) {
+                    edges.push(e);
+                }
+            }
         }
-        // Quadratic: ~3000 edges x ~500 unique = millions of compares each time.
-        assert!(start.elapsed() < std::time::Duration::from_millis(2500), "{:?}", start.elapsed());
+        edges
+    }
+
+    #[test]
+    fn the_fast_edge_dedupe_matches_the_naive_one_exactly() {
+        let pts = |n: usize| -> Vec<(i32, i32, i32)> { (0..n as i32).map(|i| (i, 0, 0)).collect() };
+        // Heavy sharing: a strip of triangles sharing edges, 1024 faces.
+        let strip: Vec<[u16; 4]> = (0..MESH_FACES_MAX).map(|i| [(i % 509) as u16, (i % 509 + 1) as u16, (i % 509 + 2) as u16, NO_INDEX]).collect();
+        let m = Mesh::new(pts(MESH_POINTS_MAX), strip.clone()).unwrap();
+        assert_eq!(m.edges().len(), 1019);
+        assert_eq!(m.edges(), naive_edges(&strip));
+        // Reversed pairs: each triangle again with its winding reversed.
+        let mut both = Vec::new();
+        for i in 0..200u16 {
+            both.push([i, i + 1, i + 2, NO_INDEX]);
+            both.push([i + 2, i + 1, i, NO_INDEX]);
+        }
+        let m = Mesh::new(pts(MESH_POINTS_MAX), both.clone()).unwrap();
+        assert_eq!(m.edges(), naive_edges(&both));
+        // Pseudo-random quads and triangles from a fixed LCG.
+        let mut x = 12345u32;
+        let mut next = |m: u32| {
+            x = x.wrapping_mul(1664525).wrapping_add(1013904223);
+            (x >> 8) % m
+        };
+        for n_pts in [4usize, 7, 40, 300] {
+            let mut faces = Vec::new();
+            while faces.len() < 300 {
+                let mut f = [0u16; 4];
+                let quad = next(2) == 1 && n_pts > 3;
+                let k = if quad { 4 } else { 3 };
+                let mut ok = true;
+                for i in 0..k {
+                    f[i] = next(n_pts as u32) as u16;
+                    if f[..i].contains(&f[i]) {
+                        ok = false;
+                    }
+                }
+                if !quad {
+                    f[3] = NO_INDEX;
+                }
+                if ok {
+                    faces.push(f);
+                }
+            }
+            let m = Mesh::new(pts(n_pts), faces.clone()).unwrap();
+            assert_eq!(m.edges(), naive_edges(&faces), "{n_pts} points");
+        }
+        for n in BUILTIN_NAMES {
+            let m = builtin(n).unwrap();
+            assert_eq!(m.edges(), naive_edges(m.faces()), "{n}");
+        }
     }
 
     #[test]
@@ -459,7 +524,11 @@ mod tests {
     fn builtins_have_their_counts() {
         let counts: Vec<(usize, usize)> = BUILTIN_NAMES.iter().map(|n| { let m = builtin(n).unwrap(); (m.points().len(), m.faces().len()) }).collect();
         assert_eq!(counts, [(8, 6), (5, 5), (6, 8), (42, 48), (72, 72)]);
+        for (n, c) in BUILTIN_NAMES.iter().zip(&counts) {
+            assert_eq!(builtin_counts(n), Some(*c), "{n}");
+        }
         assert!(builtin("teapot").is_none());
+        assert_eq!(builtin_counts("teapot"), None);
     }
 
     #[test]

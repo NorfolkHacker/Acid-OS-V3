@@ -13,7 +13,7 @@ use acid_kernel::layout::TITLE_BAR_H;
 use wasmi::errors::LinkerError;
 use wasmi::{Caller, Error, Extern, Linker, Memory, TrapCode};
 
-use acid_api::{MESH_FACES_MAX, MESH_POINTS_MAX, NO_INDEX};
+use acid_api::{MESH_FACES_MAX, MESH_POINTS_MAX, NO_INDEX, builtin_counts};
 
 use crate::runner::Host;
 
@@ -361,8 +361,12 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
     // Meshes: -1 unknown built-in, -2 bad mesh, -5 too big (§15.3).
     linker.func_wrap(MODULE, "mesh_builtin", |mut c: Caller<'_, Host>, p: i32, l: i32| -> Result<i32, Error> {
         let api = c.data().api.clone();
-        let name = read_str(&mut c, p, l)?;
-        Ok(match api.mesh_builtin(name) {
+        let name = String::from(read_str(&mut c, p, l)?);
+        // Building a built-in costs host time per face, like a cart's own mesh.
+        if let Some((_, faces)) = builtin_counts(&name) {
+            charge(&mut c, MESH_FACE_BYTES * faces as u64)?;
+        }
+        Ok(match api.mesh_builtin(&name) {
             Ok(id) => id,
             Err(e) if e == "too big" => -5,
             Err(_) => -1,
@@ -378,10 +382,11 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
             return Ok(-5);
         }
         let api = c.data().api.clone();
-        // Building the edge list costs host time per face, on top of the bytes read.
-        charge(&mut c, MESH_FACE_BYTES * nf as u64)?;
         let pts: Vec<(i32, i32, i32)> = read_i32s(&mut c, pp, np as usize * 3)?.chunks_exact(3).map(|t| (t[0], t[1], t[2])).collect();
         let raw = read_i32s(&mut c, fp, nf as usize * 4)?;
+        // Building the edge list costs host time per face, on top of the bytes
+        // read; charged once both reads are known to be in bounds.
+        charge(&mut c, MESH_FACE_BYTES * nf as u64)?;
         let mut faces = Vec::with_capacity(nf as usize);
         for f in raw.chunks_exact(4) {
             let idx = |v: i32, tri_ok: bool| -> Option<u16> {

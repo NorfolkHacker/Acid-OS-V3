@@ -249,6 +249,7 @@ its budget allows. The host charges for:
   - `draw_line`: its longer axis plus one pixel, at most the screen;
   - `fill_triangle`: its bounding box, like `fill_rect`;
   - `mesh_draw`: 64 pixels per point and 64 per face, plus the pixels the draw can touch, at most 64 screens' worth;
+  - `mesh_builtin`: 64 bytes per face of the built-in (the cube has 6, the torus 72), on top of the name's bytes;
   - `mesh_new`: the `3 × n_points` and `4 × n_faces` i32s it reads, as bytes moved, plus 64 bytes per face;
   - `draw_window_frame`: a screen-wide, 16 px title bar;
   - `draw_window_border`: the screen's perimeter;
@@ -692,7 +693,7 @@ Here is every import in the module `"acid"`, for ABI version 1, in order.
 | `set_font_scale` | n (1 or 2) | anything else is ignored | [`acid_set_font_scale`](09-api-reference.md#acid_set_font_scale) |
 | `draw_line` | x1, y1, x2, y2, color | | [`acid_draw_line`](09-api-reference.md#acid_draw_line) |
 | `fill_triangle` | x1, y1, x2, y2, x3, y3, color | | [`acid_fill_triangle`](09-api-reference.md#acid_fill_triangle) |
-| `mesh_builtin` | name_ptr, name_len → i32 | the mesh id, or −1 for an unknown name, −5 over the limits | [`acid_mesh_builtin`](09-api-reference.md#acid_mesh_builtin) |
+| `mesh_builtin` | name_ptr, name_len → i32 | the mesh id; −1 for an unknown name (checked before the limits), else −5 over the limits | [`acid_mesh_builtin`](09-api-reference.md#acid_mesh_builtin) |
 | `mesh_new` | points_ptr, n_points, faces_ptr, n_faces → i32 | the mesh id, −2 bad mesh, −5 too big; layouts below | [`acid_mesh_new`](09-api-reference.md#acid_mesh_new) |
 | `mesh_draw` | id, x, y, size, rx, ry, rz, mode, color | mode 0 wire, 1 solid, 2 both; an unknown id draws nothing | [`acid_mesh_draw`](09-api-reference.md#acid_mesh_draw) |
 | `mesh_free` | id | | [`acid_mesh_free`](09-api-reference.md#acid_mesh_free) |

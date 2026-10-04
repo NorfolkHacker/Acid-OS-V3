@@ -16,7 +16,7 @@ use acid_kernel::AppContext;
 use acid_kernel::event::Event;
 use acid_kernel::launcher::LaunchableApp;
 use acid_kernel::layout::WINDOW_MAX;
-pub use acid_gfx::three_d::{MESH_FACES_MAX, MESH_POINTS_MAX, NO_INDEX};
+pub use acid_gfx::three_d::{MESH_FACES_MAX, MESH_POINTS_MAX, NO_INDEX, builtin_counts};
 pub use acid_kernel::WindowInfo;
 pub use acid_kernel::tasks::TaskInfo;
 pub use acid_platform::{LocalTime, NetworkInfo};
@@ -339,8 +339,10 @@ impl AcidApi for KernelApi {
     }
 
     fn mesh_builtin(&self, name: &str) -> Result<i32, String> {
-        // A built-in has at least 3 points; the exact total is checked on add.
-        self.meshes.lock().room_for(3)?;
+        // An unknown name is "unknown" before any limit; then the limits are
+        // checked against the built-in's known size, before building it.
+        let (points, _) = three_d::builtin_counts(name).ok_or_else(|| String::from("unknown"))?;
+        self.meshes.lock().room_for(points)?;
         #[cfg(test)]
         MESH_BUILDS.with(|c| c.set(c.get() + 1));
         let m = three_d::builtin(name).ok_or_else(|| String::from("unknown"))?;
@@ -1472,6 +1474,31 @@ mod tests {
         let (p, f) = big(3);
         assert_eq!(api.mesh_new(p, f), Err("too big".into()));
         assert_eq!(builds(), before, "no mesh is built over the points limit");
+    }
+
+    #[test]
+    fn a_near_full_store_rejects_a_builtin_without_building_it() {
+        let builds = || MESH_BUILDS.with(|c| c.get());
+        let (_k, api) = spawn(10, 10);
+        for _ in 0..7 {
+            let (p, f) = big(512);
+            api.mesh_new(p, f).unwrap();
+        }
+        let (p, f) = big(500);
+        api.mesh_new(p, f).unwrap(); // 4084 points: 12 free
+        let before = builds();
+        assert_eq!(api.mesh_builtin("torus"), Err("too big".into()), "72 points do not fit");
+        assert_eq!(builds(), before);
+        assert!(api.mesh_builtin("cube").is_ok(), "8 points do");
+    }
+
+    #[test]
+    fn an_unknown_builtin_is_unknown_even_on_a_full_store() {
+        let (_k, api) = spawn(10, 10);
+        for _ in 0..MESH_MAX {
+            api.mesh_builtin("cube").unwrap();
+        }
+        assert_eq!(api.mesh_builtin("nope"), Err("unknown".into()));
     }
 
     fn big(n: usize) -> (Vec<(i32, i32, i32)>, Vec<[u16; 4]>) {
