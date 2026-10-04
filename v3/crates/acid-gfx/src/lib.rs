@@ -82,12 +82,6 @@ impl Canvas {
         }
     }
 
-    pub(crate) fn put(&mut self, x: i32, y: i32, c: u16) {
-        if x >= 0 && y >= 0 && x < self.w && y < self.h {
-            self.px[(y * self.w + x) as usize] = c;
-        }
-    }
-
     /// A line-for-line port of LovyanGFX's fillCircle/fillCircleHelper
     /// (LGFXBase.cpp), so every circle -- the title-bar close dot above
     /// all -- comes out pixel-identical to the golden frames.

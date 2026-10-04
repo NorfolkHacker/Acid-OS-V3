@@ -95,9 +95,9 @@ mod tests {
             let bits = GLCD_FONT[index * 5 + col];
             for row in 0..8 {
                 if (bits >> row) & 1 == 1 {
-                    c.put(col as i32, row, rgb565(FG));
+                    c.fill_rect565(col as i32, row, 1, 1, rgb565(FG));
                 } else if fill_bg {
-                    c.put(col as i32, row, rgb565(BG));
+                    c.fill_rect565(col as i32, row, 1, 1, rgb565(BG));
                 }
             }
         }
@@ -133,7 +133,7 @@ mod tests {
         let mut second = Canvas::new(6, 8);
         for y in 0..8 {
             for x in 0..6 {
-                second.put(x, y, c.pixel(x + 6, y).unwrap());
+                second.fill_rect565(x, y, 1, 1, c.pixel(x + 6, y).unwrap());
             }
         }
         assert_eq!(second, expected_glyph(65, true));
@@ -173,7 +173,7 @@ mod tests {
         for x in 1..5 {
             for y in 1..7 {
                 if x == 1 || x == 4 || y == 1 || y == 6 {
-                    c.put(x, y, rgb565(FG));
+                    c.fill_rect565(x, y, 1, 1, rgb565(FG));
                 }
             }
         }
