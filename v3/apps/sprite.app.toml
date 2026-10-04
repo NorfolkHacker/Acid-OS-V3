@@ -7,3 +7,4 @@ libs = lib/acid_sprite.lua, sprite/doc.lua, sprite/tools.lua, sprite/layout.lua,
 resizable = true
 min_w = 280
 min_h = 200
+menu = false
