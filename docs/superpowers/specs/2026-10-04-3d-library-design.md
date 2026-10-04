@@ -162,12 +162,15 @@ within a run. The limits are:
 
 A built-in shape counts toward the limits like any other mesh. The
 store checks `MESH_MAX` and the total-points limit before it builds a
-mesh, so a call over the limits does no mesh work.
+mesh, using a built-in's known point count, so a call over the limits
+does no mesh work.
 
 ### 2.4 Fuel (carts)
 
 - `mesh_new`: the bytes read, plus 64 fuel-bytes per face for building
   the edge list.
+- `mesh_builtin`: the name's bytes, plus 64 fuel-bytes per face of the
+  built-in shape. An unknown name returns −1 before any limit check.
 - `draw_line`: `max(|dx|, |dy|) + 1` pixels × `BYTES_PER_PX`, capped at
   the screen.
 - `fill_triangle`: the bounding box clamped to the screen, the same as a
@@ -177,8 +180,7 @@ mesh, so a call over the limits does no mesh work.
     transform, projection, culling and lighting;
   - plus, per drawn edge, the `draw_line` cost of that edge;
   - plus, per drawn triangle, its `fill_triangle` cost;
-  - the total capped at the screen's area times the number of faces plus
-    edges.
+  - the total capped at 64 screens' worth of pixels.
 
   To keep the charge computable before drawing, it is worked out from the
   projected geometry, then charged, then the mesh is drawn.
