@@ -51,6 +51,11 @@ LAUNCHER = {
 CALLS = {}
 type_line("run ABOUT")
 eq(CALLS, { { "launch", 0 } }, "run matches a launcher name case-insensitively")
+CALLS = {}
+type_line("run system   Monitor")
+eq(CALLS, { { "launch", 1 } }, "run matches a two-word name, however it's spaced")
+type_line("open sprite thing")
+eq(last(), "run: no app named sprite thing", "a missing two-word name is reported whole")
 type_line("run nothing")
 eq(last(), "run: no app named nothing", "run reports a missing app")
 

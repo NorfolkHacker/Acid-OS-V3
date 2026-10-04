@@ -190,7 +190,7 @@ fn acid_eggs() {
 
 #[test]
 fn terminal() {
-    run_suite_with("WIN_W, WIN_H = 260, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/lib/acid_eggs.lua", "v3/apps/terminal.lua", "v3/tools/test_terminal.lua"]), 26);
+    run_suite_with("WIN_W, WIN_H = 260, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/lib/acid_eggs.lua", "v3/apps/terminal.lua", "v3/tools/test_terminal.lua"]), 28);
 }
 
 #[test]

@@ -277,7 +277,10 @@ function TerminalApp:cmd_run(args)
     self.lines[#self.lines + 1] = "run: missing app name"
     return
   end
-  local query = args[1]:lower()
+  -- Every word, so two-word names ("System Monitor", "Sprite Paint") match;
+  -- split_words already dropped extra spaces.
+  local wanted = table.concat(args, " ")
+  local query = wanted:lower()
   local count = acid_launcher_count()
   local i = 0
   while i < count do
@@ -288,7 +291,7 @@ function TerminalApp:cmd_run(args)
     end
     i = i + 1
   end
-  self.lines[#self.lines + 1] = "run: no app named " .. args[1]
+  self.lines[#self.lines + 1] = "run: no app named " .. wanted
 end
 
 -- While an egg is in flight the loop needs to wake up every frame rather
