@@ -9,6 +9,7 @@ use alloc::{vec, vec::Vec};
 
 mod font;
 mod font_data;
+mod raster;
 pub mod wallpaper;
 mod wallpaper_data;
 
