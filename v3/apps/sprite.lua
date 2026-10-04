@@ -151,7 +151,7 @@ end
 
 function SpritePaintApp:draw_side()
   local L = self.L
-  -- Selected swatch highlight overhangs the column by 1 px on the left, so clear it
+  -- Every swatch's outline overhangs the column by 1 px on the left, so clear it
   acid_fill_rect(L.col_x - 1, SpriteLayout.TOP, SpriteLayout.COL_W + 1, L.side_h, self.BG)
   if self.picker_open then
     self:draw_picker()
@@ -397,6 +397,7 @@ end
 
 function SpritePaintApp:action(id)
   local d = self.doc
+  if id == "cmd" and self.playing then self:stop_playing() end
   if self.playing and id ~= "play" then return end
   if id ~= "new" and id ~= "close" then self.armed = nil end
   self.message = nil
@@ -522,6 +523,7 @@ end
 
 function SpritePaintApp:on_key(code, pressed)
   if not pressed then return end
+  if self.gesture then return end
   if self.prompt then
     self:prompt_key(code)
     return
@@ -535,6 +537,7 @@ function SpritePaintApp:on_key(code, pressed)
   end
   if code == AcidKeys.ESCAPE then
     self.cmd_open = not self.cmd_open
+    if self.cmd_open and self.playing then self:stop_playing() end
     self:draw_bar()
     return
   end

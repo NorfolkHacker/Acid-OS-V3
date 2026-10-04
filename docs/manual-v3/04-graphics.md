@@ -576,7 +576,7 @@ fps 6
 pal 1 ff00ff
 frame
 ..11............
-...
+# ...more rows
 ```
 
 - The first line is `acid-sprite 1`. Blank lines and lines starting with `#`
@@ -584,7 +584,7 @@ frame
 - `size W H` gives the width and height, each from 1 to 32. It comes before
   the first `frame`.
 - `fps N` (1 to 30) is the animation speed. It is optional and defaults to 6.
-- `pal K RRGGBB` gives one palette entry. K is one of `0`–`9` or `a`–`f`, so
+- `pal K RRGGBB` gives one palette entry. K is one of `0`–`9` or `a`–`f` (lowercase), so
   there are at most 16 entries, and they come before the first `frame`.
 - `frame` starts a frame of exactly H rows of W characters. Each character
   is `.` (transparent) or a palette key. A file has 1 to 8 frames.

@@ -1090,7 +1090,8 @@ local text = AcidSprite.serialize(s)    -- .spr text for a sprite table
 - `load` and `parse` return a sprite table,
   `{ w, h, fps, palette, frames }`, where each of `frames` is a `rows` list
   you can pass to `draw` with `palette`. On a bad file they return `nil` and
-  `"line N: reason"`. See [Sprite files](04-graphics.md#sprite-files).
+  `"line N: reason"`; `load` returns `nil` and the read error (such as
+  `"not found"`) when the file can't be read. See [Sprite files](04-graphics.md#sprite-files).
 
 Runs of the same colour are drawn as one rectangle, to save work. You must own
 the overlay to draw, so a cart draws nothing.

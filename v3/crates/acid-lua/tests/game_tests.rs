@@ -95,7 +95,7 @@ fn shipped_sprite_files_parse() {
 
 #[test]
 fn sprite_doc() {
-    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/sprite/doc.lua", "v3/tools/test_sprite_doc.lua"]), 43);
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/sprite/doc.lua", "v3/tools/test_sprite_doc.lua"]), 46);
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn sprite_app() {
 
 #[test]
 fn sprite_app_commands() {
-    sprite_app_suite("v3/tools/test_sprite_app_cmds.lua", 36);
+    sprite_app_suite("v3/tools/test_sprite_app_cmds.lua", 41);
 }
 
 #[test]
