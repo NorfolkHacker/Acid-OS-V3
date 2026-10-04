@@ -160,7 +160,7 @@ fn about() {
 
 #[test]
 fn config() {
-    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/config.lua", "v3/tools/test_config.lua"], 18);
+    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/config.lua", "v3/tools/test_config.lua"], 28);
 }
 
 #[test]

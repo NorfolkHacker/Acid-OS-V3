@@ -239,6 +239,8 @@ function acid_cart_read(path)
   return v
 end
 function acid_launcher_spawn(i) push(CALLS, { "launch", i }); return true end
+RESTART_OK = true  -- what acid_restart answers
+function acid_restart() push(CALLS, { "restart" }); return RESTART_OK end
 function acid_get_wallpaper_enabled() return WALLPAPER end
 function acid_set_wallpaper_enabled(on) WALLPAPER = on; push(CALLS, { "set_wallpaper", on }) end
 function acid_get_volume() return VOLUME end

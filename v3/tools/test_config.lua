@@ -63,3 +63,41 @@ FONT_SCALE = 2
 GAME:on_touch(20, 160, false)
 GAME:on_touch(20, 160, true)
 eq(CALLS[1], { "set_font_scale", 1 }, "NORMAL still works after a cart changed the setting behind Config's back")
+
+group("restart")
+local function restarts()
+  local n = 0
+  for _, c in ipairs(CALLS) do if c[1] == "restart" then n = n + 1 end end
+  return n
+end
+GAME:on_create()
+WIN_W, WIN_H = 180, 242
+TEXTS, TEXT_AT, RECTS = {}, {}, {}
+GAME:redraw()
+ok(has(TEXTS, "SYSTEM") and has(TEXTS, "RESTART"), "a SYSTEM section with a RESTART button is drawn")
+local fits, why = drawn_inside_window()
+ok(fits, "everything fits the 180x242 window" .. (why and (": " .. why) or ""))
+CALLS, TEXTS = {}, {}
+tap(90, 220)
+eq({ GAME.restart_armed, restarts() }, { true, 0 }, "the first press only arms it")
+ok(has(TEXTS, "SURE? PRESS AGAIN"), "and asks for a second press")
+GAME:on_touch(90, 220, true)
+eq(restarts(), 0, "holding that press doesn't restart")
+tap(90, 220)
+eq(restarts(), 1, "a second press restarts")
+tap(90, 220)
+CLOCK = CLOCK + 2999
+GAME:on_idle()
+eq(GAME.restart_armed, true, "it stays armed for up to 3 seconds")
+CLOCK = CLOCK + 1
+GAME:on_idle()
+eq(GAME.restart_armed, false, "then disarms itself")
+tap(90, 220)
+tap(10, 70)
+eq(GAME.restart_armed, false, "a press anywhere else disarms it")
+tap(90, 220)
+RESTART_OK = false
+TEXTS = {}
+tap(90, 220)
+ok(has(TEXTS, "RESTART FAILED"), "a refused restart says so")
+RESTART_OK = true

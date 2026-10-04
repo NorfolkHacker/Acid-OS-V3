@@ -1,6 +1,7 @@
 -- Config -- system-wide settings.
 -- Three real knobs (master output volume via the audio global gain stage,
--- the desktop wallpaper on/off, and the font scale for newly opened apps):
+-- the desktop wallpaper on/off, and the font scale for newly opened apps),
+-- plus RESTART, which starts the OS again at its boot screen:
 -- every other candidate "setting" is either a compile-time constant no
 -- runtime code ever reads again, or has no shared state to adjust -- a
 -- toggle that changes nothing when tapped is worse than not having it.
@@ -8,7 +9,7 @@
 ConfigApp = AcidApp:extend("ConfigApp")
 
 ConfigApp.WINDOW_W = 180
-ConfigApp.WINDOW_H = 190
+ConfigApp.WINDOW_H = 242
 ConfigApp.TITLE_BAR_H = 16
 
 ConfigApp.TEXT_COLOR = 0xD4E6DB  -- THEME_TEXT
@@ -16,6 +17,7 @@ ConfigApp.MUTED_COLOR = 0x9DAAA3 -- THEME_MUTED
 ConfigApp.BG_COLOR = 0x050607    -- THEME_BG
 ConfigApp.PANEL_COLOR = 0x0B1712 -- THEME_PANEL
 ConfigApp.HARD_COLOR = 0x00FF66  -- THEME_HARD
+ConfigApp.ALERT_COLOR = 0xB026FF -- THEME_VIOLET -- the armed RESTART button
 
 ConfigApp.BTN_SIZE = 20
 ConfigApp.STEP = 10
@@ -36,6 +38,13 @@ ConfigApp.FONT_LABEL_Y = 140
 ConfigApp.FONT_BTN_Y = 156
 ConfigApp.FONT_BTN_H = 20
 
+-- RESTART, below the font note (button 212..232). It takes two presses:
+-- the first arms it, a second within RESTART_CONFIRM_MS restarts.
+ConfigApp.SYSTEM_LABEL_Y = 196
+ConfigApp.RESTART_BTN_Y = 212
+ConfigApp.RESTART_BTN_H = 20
+ConfigApp.RESTART_CONFIRM_MS = 3000
+
 function ConfigApp:on_create()
   -- Reads the kernel's actual current state rather than assuming a
   -- default -- if Config is closed and reopened (or another window, like
@@ -44,6 +53,9 @@ function ConfigApp:on_create()
   self.volume = acid_get_volume()
   self.wallpaper_on = acid_get_wallpaper_enabled()
   self.font_scale = acid_get_font_scale()
+  self.restart_armed = false
+  self.restart_failed = false
+  self.armed_at = 0
 end
 
 function ConfigApp:window_title()
@@ -76,6 +88,9 @@ function ConfigApp:redraw()
 
   acid_draw_text("applies to newly opened apps", 4, 180, C.MUTED_COLOR, C.BG_COLOR)
 
+  acid_draw_text("SYSTEM", 4, C.SYSTEM_LABEL_Y, C.MUTED_COLOR, C.BG_COLOR)
+  self:draw_restart()
+
   acid_draw_window_border()
 end
 
@@ -105,6 +120,18 @@ function ConfigApp:draw_font_buttons()
   acid_draw_text("LARGE", 92 + BTN_W // 2 - 15, C.FONT_BTN_Y + 6, large_fg, large_bg)
 end
 
+function ConfigApp:draw_restart()
+  local C = ConfigApp
+  local label, bg, fg = "RESTART", C.PANEL_COLOR, C.TEXT_COLOR
+  if self.restart_armed then
+    label, bg, fg = "SURE? PRESS AGAIN", C.ALERT_COLOR, C.BG_COLOR
+  elseif self.restart_failed then
+    label, fg = "RESTART FAILED", C.MUTED_COLOR
+  end
+  acid_fill_rect(C.BAR_X, C.RESTART_BTN_Y, C.BAR_W, C.RESTART_BTN_H, bg)
+  acid_draw_text(label, C.BAR_X + C.BAR_W // 2 - #label * 3, C.RESTART_BTN_Y + 6, fg, bg)
+end
+
 function ConfigApp:draw_button(x, y, label)
   local C = ConfigApp
   acid_fill_rect(x, y, C.BTN_SIZE, C.BTN_SIZE, C.PANEL_COLOR)
@@ -123,6 +150,17 @@ function ConfigApp:on_touch(x, y, pressed)
   end
   if self.touch_held then return end
   self.touch_held = true
+
+  if y >= C.RESTART_BTN_Y and y < C.RESTART_BTN_Y + C.RESTART_BTN_H
+      and x >= C.BAR_X and x < C.BAR_X + C.BAR_W then
+    self:press_restart()
+    return
+  end
+  -- A press anywhere else calls off an armed RESTART.
+  if self.restart_armed then
+    self.restart_armed = false
+    self:redraw()
+  end
 
   local btn_y = C.BAR_Y + C.BAR_H + 8
   if y >= btn_y and y < btn_y + C.BTN_SIZE then
@@ -146,6 +184,29 @@ function ConfigApp:on_touch(x, y, pressed)
     elseif x >= 92 and x < 92 + 84 then
       self:set_font(2)
     end
+  end
+end
+
+-- The first press arms RESTART; a second, while it's still armed,
+-- restarts. On success acid_restart doesn't return: the OS starts again at
+-- its boot screen.
+function ConfigApp:press_restart()
+  if not self.restart_armed then
+    self.restart_armed = true
+    self.restart_failed = false
+    self.armed_at = acid_now_ms()
+  else
+    self.restart_armed = false
+    self.restart_failed = not acid_restart()
+  end
+  self:redraw()
+end
+
+-- An armed RESTART left alone for RESTART_CONFIRM_MS disarms itself.
+function ConfigApp:on_idle()
+  if self.restart_armed and acid_now_ms() - self.armed_at >= ConfigApp.RESTART_CONFIRM_MS then
+    self.restart_armed = false
+    self:redraw()
   end
 end
 
