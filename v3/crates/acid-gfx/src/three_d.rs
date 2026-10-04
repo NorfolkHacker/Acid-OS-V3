@@ -5,6 +5,8 @@
 
 use alloc::vec::Vec;
 
+use crate::Canvas;
+
 pub use crate::sin_table::SIN;
 
 /// Largest coordinate magnitude a mesh point may have.
@@ -54,12 +56,10 @@ pub fn project(p: (i32, i32, i32), cx: i32, cy: i32, size: i32) -> Option<(i32, 
     Some((sx as i32, sy as i32))
 }
 
-#[allow(dead_code)] // used by the tests now; the renderer needs it next
 pub(crate) fn sub(a: (i32, i32, i32), b: (i32, i32, i32)) -> (i64, i64, i64) {
     (a.0 as i64 - b.0 as i64, a.1 as i64 - b.1 as i64, a.2 as i64 - b.2 as i64)
 }
 
-#[allow(dead_code)] // used by the tests now; the renderer needs it next
 pub(crate) fn cross(a: (i64, i64, i64), b: (i64, i64, i64)) -> (i64, i64, i64) {
     (a.1 * b.2 - a.2 * b.1, a.2 * b.0 - a.0 * b.2, a.0 * b.1 - a.1 * b.0)
 }
@@ -216,6 +216,152 @@ fn torus() -> Shape {
     (points, faces)
 }
 
+/// Light direction in Q12, toward the upper-left front (unit length).
+const LIGHT: (i64, i64, i64) = (-2365, 2365, -2365);
+
+/// Floor square root.
+fn isqrt_u128(n: u128) -> u128 {
+    if n < 2 {
+        return n;
+    }
+    // Newton's method from an over-estimate converges down to the floor.
+    let mut x = 1u128 << (128 - n.leading_zeros()).div_ceil(2);
+    loop {
+        let y = (x + n / x) / 2;
+        if y >= x {
+            return x;
+        }
+        x = y;
+    }
+}
+
+/// Rotate then project every point. Projected points are `None` behind the
+/// camera; the rotated points give normals and depth.
+fn prepare(m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32, ry: i32, rz: i32) -> (Vec<Option<(i32, i32)>>, Vec<(i32, i32, i32)>) {
+    let rot: Vec<(i32, i32, i32)> = m.points.iter().map(|&p| rotate(p, rx, ry, rz)).collect();
+    let proj = rot.iter().map(|&p| project(p, cx, cy, size)).collect();
+    (proj, rot)
+}
+
+struct Tri {
+    p: [(i32, i32); 3],
+    /// Brightness out of 256.
+    light: i64,
+}
+
+/// The triangles to fill, farthest first: every one with all three points
+/// in front of the camera, facing it, and with a non-zero normal.
+fn visible_tris(m: &Mesh, proj: &[Option<(i32, i32)>], rot: &[(i32, i32, i32)]) -> Vec<Tri> {
+    let mut tris: Vec<(i64, Tri)> = Vec::new();
+    for f in &m.faces {
+        let halves: &[[u16; 3]] = if f[3] == NO_INDEX { &[[f[0], f[1], f[2]]] } else { &[[f[0], f[1], f[2]], [f[0], f[2], f[3]]] };
+        for t in halves {
+            let [ia, ib, ic] = t.map(|i| i as usize);
+            let (Some(a), Some(b), Some(c)) = (proj[ia], proj[ib], proj[ic]) else { continue };
+            // Culling: faces wind counter-clockwise seen from outside, and
+            // screen y grows downward, so a face toward the camera has a
+            // positive signed area (b - a) x (c - a) on screen. Projected
+            // coordinates reach +-2^30, so the products need i128.
+            let area = (b.0 as i128 - a.0 as i128) * (c.1 as i128 - a.1 as i128)
+                - (b.1 as i128 - a.1 as i128) * (c.0 as i128 - a.0 as i128);
+            if area <= 0 {
+                continue;
+            }
+            let (ra, rb, rc) = (rot[ia], rot[ib], rot[ic]);
+            // Mesh::new bounds points to +-32767, so rotated ones stay within
+            // about +-56800 and the i64 cross product cannot overflow.
+            let n = cross(sub(rb, ra), sub(rc, ra));
+            let (nx, ny, nz) = (n.0 as i128, n.1 as i128, n.2 as i128);
+            let len = isqrt_u128((nx * nx + ny * ny + nz * nz) as u128) as i128;
+            if len == 0 {
+                continue;
+            }
+            let dot = (nx * LIGHT.0 as i128 + ny * LIGHT.1 as i128 + nz * LIGHT.2 as i128).max(0);
+            let light = (64 + 192 * dot / (len * 4096)).min(256) as i64;
+            let z = ra.2 as i64 + rb.2 as i64 + rc.2 as i64;
+            tris.push((z, Tri { p: [a, b, c], light }));
+        }
+    }
+    // Stable, so equal depths keep face order.
+    tris.sort_by(|x, y| y.0.cmp(&x.0));
+    tris.into_iter().map(|(_, t)| t).collect()
+}
+
+fn drawn_edges<'a>(m: &'a Mesh, proj: &'a [Option<(i32, i32)>]) -> impl Iterator<Item = ((i32, i32), (i32, i32))> + 'a {
+    m.edges.iter().filter_map(|&(a, b)| Some((proj[a as usize]?, proj[b as usize]?)))
+}
+
+fn scale(color: u32, light: i64) -> u32 {
+    let ch = |shift: u32| ((((color >> shift) & 0xFF) as i64 * light) >> 8) as u32;
+    ch(16) << 16 | ch(8) << 8 | ch(0)
+}
+
+fn brighten(color: u32) -> u32 {
+    let ch = |shift: u32| {
+        let c = (color >> shift) & 0xFF;
+        c + (255 - c) / 2
+    };
+    ch(16) << 16 | ch(8) << 8 | ch(0)
+}
+
+/// Draw a mesh: mode 0 wire, 1 solid (culled, lit, painter-sorted), 2 solid
+/// then the edges in `color` brightened half way to white. Any other mode
+/// draws nothing.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_mesh(c: &mut Canvas, m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, color: u32) {
+    if !(0..=2).contains(&mode) {
+        return;
+    }
+    let (proj, rot) = prepare(m, cx, cy, size, rx, ry, rz);
+    if mode >= 1 {
+        for t in visible_tris(m, &proj, &rot) {
+            let [a, b, d] = t.p;
+            c.fill_triangle(a.0, a.1, b.0, b.1, d.0, d.1, scale(color, t.light));
+        }
+    }
+    if mode != 1 {
+        let line = if mode == 2 { brighten(color) } else { color };
+        for (a, b) in drawn_edges(m, &proj) {
+            c.draw_line(a.0, a.1, b.0, b.1, line);
+        }
+    }
+}
+
+/// What `draw_mesh` with the same arguments costs, in pixels (callers scale
+/// by bytes per pixel): 64 per point, plus each drawn edge's
+/// `max(|dx|, |dy|) + 1`, plus each drawn triangle's bounding box clipped to
+/// the screen; every edge and triangle capped at the screen's area.
+#[allow(clippy::too_many_arguments)]
+pub fn mesh_cost(m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, screen_w: i32, screen_h: i32) -> u64 {
+    let mut cost = 64 * m.points.len() as u64;
+    if !(0..=2).contains(&mode) {
+        return cost;
+    }
+    let (w, h) = (screen_w.max(0) as i64, screen_h.max(0) as i64);
+    let area = (w * h) as u64;
+    let (proj, rot) = prepare(m, cx, cy, size, rx, ry, rz);
+    if mode >= 1 {
+        for t in visible_tris(m, &proj, &rot) {
+            let xs = t.p.map(|q| q.0 as i64);
+            let ys = t.p.map(|q| q.1 as i64);
+            let x0 = xs[0].min(xs[1]).min(xs[2]).max(0);
+            let x1 = xs[0].max(xs[1]).max(xs[2]).min(w - 1);
+            let y0 = ys[0].min(ys[1]).min(ys[2]).max(0);
+            let y1 = ys[0].max(ys[1]).max(ys[2]).min(h - 1);
+            if x0 <= x1 && y0 <= y1 {
+                cost = cost.saturating_add((((x1 - x0 + 1) * (y1 - y0 + 1)) as u64).min(area));
+            }
+        }
+    }
+    if mode != 1 {
+        for (a, b) in drawn_edges(m, &proj) {
+            let d = (a.0 as i64 - b.0 as i64).abs().max((a.1 as i64 - b.1 as i64).abs());
+            cost = cost.saturating_add(((d + 1) as u64).min(area));
+        }
+    }
+    cost
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,6 +503,193 @@ mod tests {
             let ring4 = (c4.0 * 280 / len, 0, c4.2 * 280 / len);
             let out = (c4.0 - ring4.0, c4.1 - ring4.1, c4.2 - ring4.2);
             assert!(n.0 * out.0 + n.1 * out.1 + n.2 * out.2 > 0, "torus face {f:?} winds inward");
+        }
+    }
+
+    // ---- Task 3: drawing meshes ----
+
+    use crate::rgb565;
+
+    fn colours(c: &Canvas) -> Vec<u16> {
+        let mut v: Vec<u16> = c.pixels().iter().copied().filter(|&p| p != 0).collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+
+    fn quad_mesh(q: [(i32, i32, i32); 4]) -> Mesh {
+        Mesh::new(q.to_vec(), vec![[0, 1, 2, 3]]).unwrap()
+    }
+
+    /// Wound so its outward normal (Task 2's convention) points at the camera (-z).
+    fn facing_quad(z: i32, r: i32) -> [(i32, i32, i32); 4] {
+        [(-r, -r, z), (-r, r, z), (r, r, z), (r, -r, z)]
+    }
+
+    #[test]
+    fn a_wire_cube_draws_12_edges() {
+        let m = builtin("cube").unwrap();
+        let (cx, cy, size, rx, ry, rz) = (60, 60, 24, 20, 30, 0);
+        let mut c = Canvas::new(120, 120);
+        draw_mesh(&mut c, &m, cx, cy, size, rx, ry, rz, 0, 0xFFFFFF);
+        assert_eq!(colours(&c), [rgb565(0xFFFFFF)], "every lit pixel is the colour");
+        let lit = |x: i32, y: i32| (-1..=1).any(|dy| (-1..=1).any(|dx| c.pixel(x + dx, y + dy) == Some(rgb565(0xFFFFFF))));
+        assert_eq!(m.edges.len(), 12);
+        for &(a, b) in &m.edges {
+            let pa = project(rotate(m.points[a as usize], rx, ry, rz), cx, cy, size).unwrap();
+            let pb = project(rotate(m.points[b as usize], rx, ry, rz), cx, cy, size).unwrap();
+            let (mx, my) = ((pa.0 + pb.0) / 2, (pa.1 + pb.1) / 2);
+            assert!((0..120).contains(&mx) && (0..120).contains(&my), "midpoint on canvas");
+            assert!(lit(mx, my), "edge {a}-{b} midpoint ({mx},{my}) not drawn");
+        }
+    }
+
+    #[test]
+    fn a_solid_cube_shows_at_most_three_faces_lit_differently() {
+        let m = builtin("cube").unwrap();
+        let mut c = Canvas::new(120, 120);
+        draw_mesh(&mut c, &m, 60, 60, 24, 20, 30, 0, 1, 0xFFFFFF);
+        let n = colours(&c).len();
+        assert!((2..=3).contains(&n), "three faces show, not all lit the same: {n} colours");
+    }
+
+    #[test]
+    fn front_face_drawn_back_face_culled() {
+        let m = quad_mesh(facing_quad(-50, 20));
+        let mut c = Canvas::new(120, 120);
+        draw_mesh(&mut c, &m, 60, 60, 64, 0, 0, 0, 1, 0xFFFFFF);
+        assert!(c.pixel(60, 60).unwrap() != 0, "a face toward the camera is drawn");
+        let mut c = Canvas::new(120, 120);
+        draw_mesh(&mut c, &m, 60, 60, 64, 0, 128, 0, 1, 0xFFFFFF);
+        assert!(colours(&c).is_empty(), "turned half round it faces away and is culled");
+    }
+
+    #[test]
+    fn nearer_faces_are_drawn_over_farther_ones() {
+        // One colour per mesh, so the two quads are told apart by their
+        // lighting: the far one is tilted (still facing the camera).
+        let near = facing_quad(-50, 20);
+        let far = [(-30, -30, 30), (-30, 30, 30), (30, 30, 70), (30, -30, 70)];
+        let alone = |q| {
+            let mut c = Canvas::new(120, 120);
+            draw_mesh(&mut c, &quad_mesh(q), 60, 60, 64, 0, 0, 0, 1, 0xFF0000);
+            c.pixel(60, 60).unwrap()
+        };
+        let (near_c, far_c) = (alone(near), alone(far));
+        assert!(near_c != 0 && far_c != 0 && near_c != far_c, "{near_c:x} vs {far_c:x}");
+        // The near face is listed first, so face order alone would paint it under.
+        let mut pts = near.to_vec();
+        pts.extend_from_slice(&far);
+        let m = Mesh::new(pts, vec![[0, 1, 2, 3], [4, 5, 6, 7]]).unwrap();
+        let mut c = Canvas::new(120, 120);
+        draw_mesh(&mut c, &m, 60, 60, 64, 0, 0, 0, 1, 0xFF0000);
+        assert_eq!(c.pixel(60, 60).unwrap(), near_c, "the overlap shows the nearer face");
+        assert_eq!(colours(&c), { let mut v = vec![near_c, far_c]; v.sort(); v }, "the far face shows round the near one");
+    }
+
+    #[test]
+    fn faces_behind_the_camera_are_skipped() {
+        let m = Mesh::new(vec![(-20, -20, -800), (-20, 20, -800), (20, 20, -800)], vec![[0, 1, 2, NO_INDEX]]).unwrap();
+        for mode in 0..3 {
+            let mut c = Canvas::new(120, 120);
+            draw_mesh(&mut c, &m, 60, 60, 64, 0, 0, 0, mode, 0xFFFFFF);
+            assert!(colours(&c).is_empty(), "mode {mode} drew a face behind the camera");
+        }
+    }
+
+    #[test]
+    fn modes_2_and_unknown() {
+        let m = builtin("cube").unwrap();
+        let draw = |mode| {
+            let mut c = Canvas::new(120, 120);
+            draw_mesh(&mut c, &m, 60, 60, 24, 20, 30, 0, mode, 0x804020);
+            c
+        };
+        let bright = rgb565(0xBF9F8F); // each channel half way to 255
+        let (solid, both) = (draw(1), draw(2));
+        assert!(both.pixels().contains(&bright), "edges in the brightened colour");
+        assert!(!solid.pixels().contains(&bright));
+        for (s, b) in solid.pixels().iter().zip(both.pixels()) {
+            assert!(b == s || *b == bright, "mode 2 is mode 1 plus brightened edges");
+        }
+        assert!(colours(&draw(7)).is_empty(), "an unknown mode draws nothing");
+        assert!(colours(&draw(-1)).is_empty());
+    }
+
+    #[test]
+    fn mesh_cost_counts_points_lines_and_fills() {
+        let m = builtin("cube").unwrap();
+        let (cx, cy, size, rx, ry, rz, w, h) = (60, 60, 24, 20, 30, 0, 120, 120);
+        let pts: Vec<(i32, i32)> = m.points.iter().map(|&p| project(rotate(p, rx, ry, rz), cx, cy, size).unwrap()).collect();
+        let base = 64 * 8u64;
+        let lines: u64 = m.edges.iter().map(|&(a, b)| {
+            let (p, q) = (pts[a as usize], pts[b as usize]);
+            ((p.0 - q.0).abs().max((p.1 - q.1).abs()) + 1) as u64
+        }).sum();
+        // Visible triangles found in 3D, independently of the renderer: the
+        // normal points back toward the eye at z = -512 * 64 / size.
+        let eye = (0, 0, -512 * 64 / size);
+        let mut fills = 0u64;
+        let mut visible = 0;
+        for f in &m.faces {
+            for t in [[f[0], f[1], f[2]], [f[0], f[2], f[3]]] {
+                let r: Vec<_> = t.iter().map(|&i| rotate(m.points[i as usize], rx, ry, rz)).collect();
+                let n = cross(sub(r[1], r[0]), sub(r[2], r[0]));
+                let v = sub(r[0], eye);
+                if n.0 * v.0 + n.1 * v.1 + n.2 * v.2 >= 0 { continue; }
+                visible += 1;
+                let p: Vec<_> = t.iter().map(|&i| pts[i as usize]).collect();
+                let x0 = p.iter().map(|q| q.0).min().unwrap().max(0);
+                let x1 = p.iter().map(|q| q.0).max().unwrap().min(w - 1);
+                let y0 = p.iter().map(|q| q.1).min().unwrap().max(0);
+                let y1 = p.iter().map(|q| q.1).max().unwrap().min(h - 1);
+                fills += ((x1 - x0 + 1) * (y1 - y0 + 1)) as u64;
+            }
+        }
+        assert_eq!(visible, 6, "three faces, two triangles each");
+        assert_eq!(mesh_cost(&m, cx, cy, size, rx, ry, rz, 0, w, h), base + lines);
+        assert_eq!(mesh_cost(&m, cx, cy, size, rx, ry, rz, 1, w, h), base + fills);
+        assert_eq!(mesh_cost(&m, cx, cy, size, rx, ry, rz, 2, w, h), base + fills + lines);
+        assert_eq!(mesh_cost(&m, cx, cy, size, rx, ry, rz, 7, w, h), base);
+        // A 4x4 screen caps each line at 16 pixels, and the cap does bind.
+        let line_len = |&(a, b): &(u16, u16)| {
+            let (p, q) = (pts[a as usize], pts[b as usize]);
+            ((p.0 - q.0).abs().max((p.1 - q.1).abs()) + 1) as u64
+        };
+        assert!(m.edges.iter().any(|e| line_len(e) > 16));
+        let small = mesh_cost(&m, cx, cy, size, rx, ry, rz, 0, 4, 4);
+        assert_eq!(small, base + m.edges.iter().map(|e| line_len(e).min(16)).sum::<u64>());
+        // Same answer whatever canvas the mesh is then drawn on.
+        for (cw, ch) in [(1, 1), (120, 120), (640, 480)] {
+            let mut c = Canvas::new(cw, ch);
+            draw_mesh(&mut c, &m, cx, cy, size, rx, ry, rz, 2, 0xFFFFFF);
+            assert_eq!(mesh_cost(&m, cx, cy, size, rx, ry, rz, 2, w, h), base + fills + lines);
+        }
+    }
+
+    #[test]
+    fn isqrt_is_the_floor_root() {
+        for n in 0..2000u128 {
+            let r = isqrt_u128(n);
+            assert!(r * r <= n && (r + 1) * (r + 1) > n, "isqrt({n}) = {r}");
+        }
+        assert_eq!(isqrt_u128(u128::MAX), u64::MAX as u128);
+        assert_eq!(isqrt_u128((1u128 << 70) * 3), 59_512_812_588); // Python math.isqrt(3 << 70)
+    }
+
+    #[test]
+    fn drawing_and_costing_never_panic() {
+        let far = Mesh::new(vec![(32767, -32767, 32767), (-32767, 32767, -32767), (32767, 32767, -32767), (-32767, -32767, 32767)], vec![[0, 1, 2, 3], [3, 2, 1, NO_INDEX]]).unwrap();
+        for &size in &[i32::MIN, 0, 1, 64, 1 << 20, i32::MAX] {
+            for &(cx, cy) in &[(i32::MIN, i32::MAX), (0, 0), (i32::MAX, i32::MIN)] {
+                for mode in 0..3 {
+                    let mut c = Canvas::new(16, 16);
+                    draw_mesh(&mut c, &far, cx, cy, size, 37, 200, 91, mode, 0xFFFFFF);
+                    let cost = mesh_cost(&far, cx, cy, size, 37, 200, 91, mode, i32::MAX, i32::MAX);
+                    assert!(cost >= 64 * 4);
+                    mesh_cost(&far, cx, cy, size, 37, 200, 91, mode, -5, -5);
+                }
+            }
         }
     }
 }
