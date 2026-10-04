@@ -7,6 +7,8 @@ use alloc::vec::Vec;
 
 pub use crate::sin_table::SIN;
 
+/// Largest coordinate magnitude a mesh point may have.
+pub const COORD_MAX: i32 = 32767;
 pub const NO_INDEX: u16 = u16::MAX;
 pub const MESH_POINTS_MAX: usize = 512;
 pub const MESH_FACES_MAX: usize = 1024;
@@ -17,11 +19,13 @@ pub fn sin(a: i32) -> i32 {
 }
 
 pub fn cos(a: i32) -> i32 {
-    SIN[((a + 64) & 255) as usize]
+    SIN[(a.wrapping_add(64) & 255) as usize]
 }
 
-/// Rotate about X, then Y, then Z.
+/// Rotate about X, then Y, then Z. Angles are any i32. Coordinates must be
+/// within +-COORD_MAX (Mesh::new enforces it), which keeps every product in i64.
 pub fn rotate(p: (i32, i32, i32), rx: i32, ry: i32, rz: i32) -> (i32, i32, i32) {
+    debug_assert!([p.0, p.1, p.2].iter().all(|c| c.unsigned_abs() <= COORD_MAX as u32));
     let (mut x, mut y, mut z) = (p.0 as i64, p.1 as i64, p.2 as i64);
     let (s, c) = (sin(rx) as i64, cos(rx) as i64);
     (y, z) = ((y * c - z * s) >> 12, (y * s + z * c) >> 12);
@@ -35,19 +39,23 @@ pub fn rotate(p: (i32, i32, i32), rx: i32, ry: i32, rz: i32) -> (i32, i32, i32) 
 /// Perspective-project an already rotated point; `None` when it is behind
 /// the camera. `size` 64 = one model unit per pixel at z 0; y goes up.
 pub fn project(p: (i32, i32, i32), cx: i32, cy: i32, size: i32) -> Option<(i32, i32)> {
-    let size = size as i64;
-    let zc = p.2 as i64 * size / 64 + 512;
+    if size <= 0 {
+        return None;
+    }
+    let size = size as i128;
+    let zc = p.2 as i128 * size / 64 + 512;
     if zc <= 16 {
         return None;
     }
-    let sx = p.0 as i64 * size * 512 / (64 * zc);
-    let sy = p.1 as i64 * size * 512 / (64 * zc);
-    Some((cx + sx as i32, cy - sy as i32))
+    let lim = 1i128 << 30;
+    let sx = (cx as i128 + p.0 as i128 * size * 512 / (64 * zc)).clamp(-lim, lim);
+    let sy = (cy as i128 - p.1 as i128 * size * 512 / (64 * zc)).clamp(-lim, lim);
+    Some((sx as i32, sy as i32))
 }
 
 #[allow(dead_code)] // used by the tests now; the renderer needs it next
 pub(crate) fn sub(a: (i32, i32, i32), b: (i32, i32, i32)) -> (i64, i64, i64) {
-    ((a.0 - b.0) as i64, (a.1 - b.1) as i64, (a.2 - b.2) as i64)
+    (a.0 as i64 - b.0 as i64, a.1 as i64 - b.1 as i64, a.2 as i64 - b.2 as i64)
 }
 
 #[allow(dead_code)] // used by the tests now; the renderer needs it next
@@ -77,6 +85,9 @@ impl Mesh {
         }
         if points.len() > MESH_POINTS_MAX || faces.len() > MESH_FACES_MAX {
             return Err(MeshError::TooBig);
+        }
+        if points.iter().any(|p| [p.0, p.1, p.2].iter().any(|c| c.unsigned_abs() > COORD_MAX as u32)) {
+            return Err(MeshError::Bad);
         }
         let mut edges: Vec<(u16, u16)> = Vec::new();
         for f in &faces {
@@ -253,6 +264,56 @@ mod tests {
         let counts: Vec<(usize, usize)> = BUILTIN_NAMES.iter().map(|n| { let m = builtin(n).unwrap(); (m.points.len(), m.faces.len()) }).collect();
         assert_eq!(counts, [(8, 6), (5, 5), (6, 8), (42, 48), (72, 72)]);
         assert!(builtin("teapot").is_none());
+    }
+
+    #[test]
+    fn mesh_new_rejects_far_points_and_bad_fourth_slots() {
+        let quad = vec![(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0)];
+        assert!(matches!(Mesh::new(vec![(40000, 0, 0), (0, 0, 0), (0, 1, 0)], vec![]), Err(MeshError::Bad)));
+        assert!(matches!(Mesh::new(vec![(i32::MIN, 0, 0), (0, 0, 0), (0, 1, 0)], vec![]), Err(MeshError::Bad)));
+        assert!(Mesh::new(vec![(32767, -32767, 0), (0, 0, 0), (0, 1, 0)], vec![]).is_ok());
+        assert!(matches!(Mesh::new(quad.clone(), vec![[0, 1, 2, 2]]), Err(MeshError::Bad)), "repeated 4th");
+        assert!(matches!(Mesh::new(quad.clone(), vec![[0, 1, 2, 4]]), Err(MeshError::Bad)), "out-of-range 4th");
+        assert!(Mesh::new(quad, vec![[0, 1, 2, NO_INDEX]]).is_ok());
+    }
+
+    #[test]
+    fn mesh_new_checks_caps_before_indices() {
+        let mut faces = vec![[0, 1, 9, NO_INDEX]; MESH_FACES_MAX + 1];
+        faces[0] = [0, 1, 9, NO_INDEX];
+        let tri = vec![(0, 0, 0), (10, 0, 0), (0, 10, 0)];
+        assert!(matches!(Mesh::new(tri, faces), Err(MeshError::TooBig)));
+    }
+
+    #[test]
+    fn edges_of_a_mixed_mesh_dedupe_opposite_directions() {
+        let pts = vec![(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0), (5, 20, 0)];
+        // quad 0-1-2-3 plus triangle 3-2-4 sharing edge 2-3 backwards.
+        let m = Mesh::new(pts, vec![[0, 1, 2, 3], [3, 2, 4, NO_INDEX]]).unwrap();
+        assert_eq!(m.edges, vec![(0, 1), (1, 2), (2, 3), (0, 3), (2, 4), (3, 4)]);
+    }
+
+    #[test]
+    fn project_is_safe_for_any_size_and_point() {
+        assert_eq!(project((0, 0, 0), 0, 0, 0), None);
+        assert_eq!(project((0, 0, 0), 0, 0, -5), None);
+        for &s in &[1, 64, i32::MAX] {
+            for &c in &[i32::MIN, -1, 0, 1, i32::MAX] {
+                if let Some((x, y)) = project((c, c, c), c, c, s) {
+                    assert!(x.abs() <= 1 << 30 && y.abs() <= 1 << 30);
+                }
+            }
+        }
+        assert_eq!(project((i32::MAX, 0, 0), 0, 0, i32::MAX), Some((1 << 30, 0)));
+    }
+
+    #[test]
+    fn sin_and_cos_accept_any_angle() {
+        assert_eq!(sin(i32::MAX), SIN[255]);
+        assert_eq!(cos(i32::MAX), SIN[(255 + 64) & 255]);
+        assert_eq!(cos(i32::MIN), SIN[64]);
+        assert_eq!(sin(i32::MIN), 0);
+        assert_eq!(sub((i32::MAX, i32::MIN, 0), (-1, i32::MAX, 0)).0, i32::MAX as i64 + 1);
     }
 
     fn isqrt(n: i64) -> i64 {
