@@ -38,11 +38,24 @@ impl AcidApi for Rec {
     fn fill_triangle(&self, x1: i32, y1: i32, x2: i32, y2: i32, x3: i32, y3: i32, c: u32) { self.log(format!("tri {x1} {y1} {x2} {y2} {x3} {y3} {c:#08x}")) }
     fn mesh_builtin(&self, n: &str) -> Result<i32, String> {
         self.log(format!("mesh_builtin {n}"));
-        if n == "cube" { Ok(3) } else { Err("unknown".into()) }
+        match n {
+            "cube" => Ok(3),
+            "huge" => Err("too big".into()),
+            _ => Err("unknown".into()),
+        }
     }
     fn mesh_new(&self, p: Vec<(i32, i32, i32)>, f: Vec<[u16; 4]>) -> Result<i32, String> {
-        self.log(format!("mesh_new {p:?} {f:?}"));
-        Ok(7)
+        if f.len() > 4 {
+            self.log(format!("mesh_new <{} faces>", f.len()));
+        } else {
+            self.log(format!("mesh_new {p:?} {f:?}"));
+        }
+        // 4 points always fails "too big" and 5 "bad mesh", to test the code mapping.
+        match p.len() {
+            4 => Err("too big".into()),
+            5 => Err("bad mesh".into()),
+            _ => Ok(7),
+        }
     }
     fn mesh_draw(&self, id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, c: u32) {
         self.log(format!("mesh_draw {id} {x} {y} {size} {rx} {ry} {rz} {mode} {c:#08x}"))
@@ -1152,7 +1165,7 @@ fn mesh_new_layouts_are_checked_before_the_api() {
 #[test]
 fn mesh_draws_are_charged_by_their_pixel_cost() {
     // Id 1 costs 100,000 px = 200,000 bytes = 25,000 fuel a draw, so 200M
-    // fuel allows about 8,000 draws; a free id (0 px) would never stop.
+    // fuel allows about 8,000 draws; an uncharged draw would run far longer.
     let src = r#"(module
   (import "acid" "mesh_draw" (func $md (param i32 i32 i32 i32 i32 i32 i32 i32 i32)))
   (memory (export "memory") 1)
@@ -1165,4 +1178,48 @@ fn mesh_draws_are_charged_by_their_pixel_cost() {
     let (end, log) = run(src, vec![], WasmLimits::default());
     assert_eq!(end, CartEnd::StoppedResponding);
     assert!((7_000..9_000).contains(&log.len()), "{} draws", log.len());
+}
+
+#[test]
+fn mesh_new_caps_are_checked_before_memory_is_touched() {
+    // An out-of-bounds pointer would trap if the arrays were read first.
+    let imports = r#"(import "acid" "mesh_new" (func $mn (param i32 i32 i32 i32) (result i32)))"#;
+    for (np, nf, want) in [(513, 1, -5), (3, 1025, -5), (2, 1, -2), (3, -1, -2)] {
+        let body = format!("i32.const -1 i32.const {np} i32.const -1 i32.const {nf} call $mn call $say");
+        assert_eq!(run_api(imports, "", &body), exp![said(want)], "np {np} nf {nf}");
+    }
+}
+
+#[test]
+fn api_errors_map_to_codes() {
+    let imports = r#"
+  (import "acid" "mesh_new" (func $mn (param i32 i32 i32 i32) (result i32)))
+  (import "acid" "mesh_builtin" (func $mb (param i32 i32) (result i32)))"#;
+    let data = r#"(data (i32.const 0) "huge")"#;
+    // 4 points: the fake says "too big"; 5: "bad mesh". Zeroed memory is a valid layout.
+    let body = "i32.const 64 i32.const 4 i32.const 256 i32.const 1 call $mn call $say \
+        i32.const 64 i32.const 5 i32.const 256 i32.const 1 call $mn call $say \
+        i32.const 0 i32.const 4 call $mb call $say";
+    let log = run_api(imports, data, body);
+    assert_eq!(log.iter().filter(|l| l.starts_with("fill_rect")).cloned().collect::<Vec<_>>(), exp![said(-5), said(-2), said(-5)]);
+}
+
+#[test]
+fn mesh_new_pays_per_face() {
+    // 1024 faces: 16,384 bytes read + 1024 x 64 = 81,920+ bytes = ~10,300
+    // fuel a call, so 200M fuel allows about 19,000 calls; without the
+    // per-face charge (2,050 fuel) it would allow about 97,000.
+    let src = r#"(module
+  (import "acid" "mesh_new" (func $mn (param i32 i32 i32 i32) (result i32)))
+  (memory (export "memory") 2)
+  (func (export "acid_abi_version") (result i32) i32.const 1)
+  (func (export "acid_on_create") (local i32)
+    (loop i32.const 0 i32.const 3 i32.const 256 i32.const 1024 call $mn drop
+      local.get 0 i32.const 1 i32.add local.tee 0 br_if 0 br 0))
+  (func (export "acid_on_event") (param i32 i32 i32 i32))
+  (func (export "acid_on_idle"))
+  (func (export "acid_redraw")))"#;
+    let (end, log) = run(src, vec![], WasmLimits::default());
+    assert_eq!(end, CartEnd::StoppedResponding);
+    assert!((15_000..25_000).contains(&log.len()), "{} calls", log.len());
 }

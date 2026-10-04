@@ -30,6 +30,12 @@ pub const MESH_MAX: usize = 16;
 /// Points across all of one app's live meshes.
 pub const MESH_TOTAL_POINTS_MAX: usize = 4096;
 
+#[cfg(test)]
+std::thread_local! {
+    /// How many times a mesh was actually built (test seam).
+    static MESH_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// One app's meshes. Ids start at 1 and are never reused.
 struct MeshStore {
     map: BTreeMap<i32, Mesh>,
@@ -40,6 +46,15 @@ struct MeshStore {
 impl MeshStore {
     fn new() -> Self {
         Self { map: BTreeMap::new(), next_id: 1, total_points: 0 }
+    }
+
+    /// "too big" if a new mesh of `points` points would not fit. Checked
+    /// before anything is built, so a full store costs the host nothing.
+    fn room_for(&self, points: usize) -> Result<(), String> {
+        if self.map.len() >= MESH_MAX || self.total_points + points > MESH_TOTAL_POINTS_MAX {
+            return Err(String::from("too big"));
+        }
+        Ok(())
     }
 
     /// Stores a mesh, or "too big" at the mesh-count or total-points limit.
@@ -324,11 +339,18 @@ impl AcidApi for KernelApi {
     }
 
     fn mesh_builtin(&self, name: &str) -> Result<i32, String> {
+        // A built-in has at least 3 points; the exact total is checked on add.
+        self.meshes.lock().room_for(3)?;
+        #[cfg(test)]
+        MESH_BUILDS.with(|c| c.set(c.get() + 1));
         let m = three_d::builtin(name).ok_or_else(|| String::from("unknown"))?;
         self.meshes.lock().add(m)
     }
 
     fn mesh_new(&self, points: Vec<(i32, i32, i32)>, faces: Vec<[u16; 4]>) -> Result<i32, String> {
+        self.meshes.lock().room_for(points.len())?;
+        #[cfg(test)]
+        MESH_BUILDS.with(|c| c.set(c.get() + 1));
         let m = Mesh::new(points, faces).map_err(|e| {
             String::from(match e {
                 MeshError::Bad => "bad mesh",
@@ -1428,6 +1450,30 @@ mod tests {
         assert_eq!(api.mesh_builtin("cube"), Ok(17), "a freed slot is usable but its id is not reused");
     }
 
+    #[test]
+    fn a_full_store_builds_nothing() {
+        let builds = || MESH_BUILDS.with(|c| c.get());
+        let (_k, api) = spawn(10, 10);
+        for _ in 0..MESH_MAX {
+            api.mesh_builtin("cube").unwrap();
+        }
+        let before = builds();
+        let (p, f) = big(512);
+        assert_eq!(api.mesh_new(p, f), Err("too big".into()));
+        assert_eq!(api.mesh_builtin("cube"), Err("too big".into()));
+        assert_eq!(builds(), before, "no mesh is built once the count limit is hit");
+        // The same for the points limit: 8 x 512 fills it.
+        let (_k2, api) = spawn(10, 10);
+        for _ in 0..8 {
+            let (p, f) = big(512);
+            api.mesh_new(p, f).unwrap();
+        }
+        let before = builds();
+        let (p, f) = big(3);
+        assert_eq!(api.mesh_new(p, f), Err("too big".into()));
+        assert_eq!(builds(), before, "no mesh is built over the points limit");
+    }
+
     fn big(n: usize) -> (Vec<(i32, i32, i32)>, Vec<[u16; 4]>) {
         ((0..n).map(|i| (i as i32, 0, 0)).collect(), vec![[0, 1, 2, three_d::NO_INDEX]])
     }
@@ -1446,7 +1492,7 @@ mod tests {
         let (p, f) = big(512);
         assert_eq!(api.mesh_new(p, f), Ok(9), "the freed 512 points fit again");
         let (p, f) = big(1);
-        assert_eq!(api.mesh_new(p, f), Err("bad mesh".into()), "fewer than 3 points");
+        assert_eq!(api.mesh_new(p, f), Err("too big".into()), "the store is full, so the limits are checked first");
         api.mesh_free(ids[1]);
         api.mesh_free(ids[1]);
         let (p, f) = big(512);

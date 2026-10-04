@@ -248,8 +248,8 @@ its budget allows. The host charges for:
   - `draw_text`: one 6 × 8 glyph cell per byte, on top of the string's bytes;
   - `draw_line`: its longer axis plus one pixel, at most the screen;
   - `fill_triangle`: its bounding box, like `fill_rect`;
-  - `mesh_draw`: the pixels the draw can touch, at most 64 screens' worth;
-  - `mesh_new`: the `3 × n_points` and `4 × n_faces` i32s it reads, as bytes moved;
+  - `mesh_draw`: 64 pixels per point and 64 per face, plus the pixels the draw can touch, at most 64 screens' worth;
+  - `mesh_new`: the `3 × n_points` and `4 × n_faces` i32s it reads, as bytes moved, plus 64 bytes per face;
   - `draw_window_frame`: a screen-wide, 16 px title bar;
   - `draw_window_border`: the screen's perimeter;
   - `clear_user_area` and `overlay_clear`: the whole screen, **76,800 fuel** at the default 640×480 (57,600 at 640×360, 120,000 at 800×600);
@@ -740,7 +740,8 @@ same ABI can serve other trust levels later.
   Put `−1` in the fourth slot for a triangle. The first three slots must be
   in `0 .. n_points`, and the fourth is `−1` or in that range.
 
-A negative count, `n_points < 3`, or any bad index gives −2. `n_points > 512`
+A negative count, `n_points < 3`, any bad index, a coordinate beyond ±32767,
+or a face that repeats a point gives −2. `n_points > 512`
 or `n_faces > 1024` gives −5, before any memory is read. A range outside the
 cart's memory traps, like any other pointer. Reading the arrays is charged as
 bytes moved (see Fuel).

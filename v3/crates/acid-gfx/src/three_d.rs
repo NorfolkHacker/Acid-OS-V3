@@ -119,7 +119,9 @@ impl Mesh {
         if points.iter().any(|p| [p.0, p.1, p.2].iter().any(|c| c.unsigned_abs() > COORD_MAX as u32)) {
             return Err(MeshError::Bad);
         }
-        let mut edges: Vec<(u16, u16)> = Vec::new();
+        // Every edge as (low, high, first-seen order); sorting groups the
+        // duplicates, so deduplicating is O(E log E), not O(E^2).
+        let mut all: Vec<(u16, u16, u32)> = Vec::new();
         for f in &faces {
             let n = if f[3] == NO_INDEX { 3 } else { 4 };
             for i in 0..n {
@@ -130,11 +132,13 @@ impl Mesh {
             for i in 0..n {
                 let (a, b) = (f[i], f[(i + 1) % n]);
                 let e = (a.min(b), a.max(b));
-                if !edges.contains(&e) {
-                    edges.push(e);
-                }
+                all.push((e.0, e.1, all.len() as u32));
             }
         }
+        all.sort_unstable();
+        all.dedup_by_key(|e| (e.0, e.1));
+        all.sort_unstable_by_key(|e| e.2);
+        let edges = all.into_iter().map(|e| (e.0, e.1)).collect();
         Ok(Mesh { points, faces, edges })
     }
 }
@@ -357,12 +361,13 @@ pub fn draw_mesh(c: &mut Canvas, m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32,
 }
 
 /// What `draw_mesh` with the same arguments costs, in pixels (callers scale
-/// by bytes per pixel): 64 per point, plus each drawn edge's
+/// by bytes per pixel): 64 per point and 64 per face (in every mode, since
+/// the host projects and culls them regardless), plus each drawn edge's
 /// `max(|dx|, |dy|) + 1`, plus each drawn triangle's bounding box clipped to
 /// the screen; every edge and triangle capped at the screen's area.
 #[allow(clippy::too_many_arguments)]
 pub fn mesh_cost(m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, screen_w: i32, screen_h: i32) -> u64 {
-    let mut cost = 64 * m.points().len() as u64;
+    let mut cost = 64 * (m.points().len() + m.faces().len()) as u64;
     if !(0..=2).contains(&mode) {
         return cost;
     }
@@ -427,6 +432,21 @@ mod tests {
         assert!(matches!(Mesh::new(tri.clone(), vec![[0, 1, 1, NO_INDEX]]), Err(MeshError::Bad)), "repeated index");
         assert!(matches!(Mesh::new(vec![(0, 0, 0); MESH_POINTS_MAX + 1], vec![]), Err(MeshError::TooBig)));
         assert!(matches!(Mesh::new(tri, vec![[0, 1, 2, NO_INDEX]; MESH_FACES_MAX + 1]), Err(MeshError::TooBig)));
+    }
+
+    #[test]
+    fn a_heavily_shared_big_mesh_builds_fast() {
+        // 1024 triangles over 3 points share 3 edges: the quadratic dedupe
+        // is cheap there, so also use 512 points with many distinct edges.
+        let pts: Vec<(i32, i32, i32)> = (0..MESH_POINTS_MAX as i32).map(|i| (i, 0, 0)).collect();
+        let faces: Vec<[u16; 4]> = (0..MESH_FACES_MAX).map(|i| [(i % 509) as u16, (i % 509 + 1) as u16, (i % 509 + 2) as u16, NO_INDEX]).collect();
+        let start = std::time::Instant::now();
+        for _ in 0..800 {
+            let m = Mesh::new(pts.clone(), faces.clone()).unwrap();
+            assert_eq!(m.edges().len(), 1019, "edges shared between neighbours");
+        }
+        // Quadratic: ~3000 edges x ~500 unique = millions of compares each time.
+        assert!(start.elapsed() < std::time::Duration::from_millis(2500), "{:?}", start.elapsed());
     }
 
     #[test]
@@ -650,7 +670,7 @@ mod tests {
         let m = builtin("cube").unwrap();
         let (cx, cy, size, rx, ry, rz, w, h) = (60, 60, 24, 20, 30, 0, 120, 120);
         let pts: Vec<(i32, i32)> = m.points().iter().map(|&p| project(rotate(p, rx, ry, rz), cx, cy, size).unwrap()).collect();
-        let base = 64 * 8u64;
+        let base = 64 * (8 + 6) as u64;
         let lines: u64 = m.edges().iter().map(|&(a, b)| {
             let (p, q) = (pts[a as usize], pts[b as usize]);
             ((p.0 - q.0).abs().max((p.1 - q.1).abs()) + 1) as u64

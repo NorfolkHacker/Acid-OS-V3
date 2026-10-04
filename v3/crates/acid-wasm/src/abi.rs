@@ -91,6 +91,9 @@ fn rect_bytes(s: ScreenWh, w: i32, h: i32) -> u64 {
     w * h * BYTES_PER_PX
 }
 
+/// Fuel-bytes charged per face of a `mesh_new`, for building its edge list.
+const MESH_FACE_BYTES: u64 = 64;
+
 /// Bytes charged for a line: its longer axis in pixels, at most the screen.
 fn line_bytes(s: ScreenWh, x1: i32, y1: i32, x2: i32, y2: i32) -> u64 {
     let dx = (i64::from(x2) - i64::from(x1)).unsigned_abs();
@@ -375,6 +378,8 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
             return Ok(-5);
         }
         let api = c.data().api.clone();
+        // Building the edge list costs host time per face, on top of the bytes read.
+        charge(&mut c, MESH_FACE_BYTES * nf as u64)?;
         let pts: Vec<(i32, i32, i32)> = read_i32s(&mut c, pp, np as usize * 3)?.chunks_exact(3).map(|t| (t[0], t[1], t[2])).collect();
         let raw = read_i32s(&mut c, fp, nf as usize * 4)?;
         let mut faces = Vec::with_capacity(nf as usize);
