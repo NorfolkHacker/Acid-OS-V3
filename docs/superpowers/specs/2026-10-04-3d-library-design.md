@@ -202,8 +202,11 @@ A built-in shape counts toward the limits like any other mesh.
   The centre is the middle of the area below the title bar. The size
   fits the smaller of width and height.
 - `on_resize` re-centres; there is no other state.
-- **Test hook:** if `GAME_FREEZE` is set (tests only), the angles and the
-  colour step stay put, so a golden frame is deterministic.
+- **Test hook:** a `freeze()` method fixes the pose: cube, solid, angles
+  20/30/0, colour step 0, and nothing advances. It runs when the test env
+  sets `GAME_FREEZE`, or when the app is launched with the argument
+  `"freeze"` (used by the golden test in the real VM), so a golden frame
+  is deterministic.
 
 ## 4. Testing
 
