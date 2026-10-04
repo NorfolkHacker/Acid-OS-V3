@@ -59,6 +59,12 @@ pub mod sys {
         pub fn window_h() -> i32;
         pub fn get_font_scale() -> i32;
         pub fn set_font_scale(n: i32);
+        pub fn draw_line(x1: i32, y1: i32, x2: i32, y2: i32, color: i32);
+        pub fn fill_triangle(x1: i32, y1: i32, x2: i32, y2: i32, x3: i32, y3: i32, color: i32);
+        pub fn mesh_builtin(name_ptr: *const u8, name_len: i32) -> i32;
+        pub fn mesh_new(points_ptr: *const i32, n_points: i32, faces_ptr: *const i32, n_faces: i32) -> i32;
+        pub fn mesh_draw(id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, color: i32);
+        pub fn mesh_free(id: i32);
         pub fn window_info(index: i32, buf: *mut u8, cap: i32) -> i32;
         pub fn activate_window(index: i32);
         pub fn close_window(index: i32) -> i32;
@@ -215,6 +221,42 @@ pub fn fill_rect(x: i32, y: i32, w: i32, h: i32, color: u32) {
 
 pub fn fill_circle(x: i32, y: i32, r: i32, color: u32) {
     unsafe { sys::fill_circle(x, y, r, color as i32) }
+}
+
+pub fn draw_line(x1: i32, y1: i32, x2: i32, y2: i32, color: u32) {
+    unsafe { sys::draw_line(x1, y1, x2, y2, color as i32) }
+}
+
+pub fn fill_triangle(x1: i32, y1: i32, x2: i32, y2: i32, x3: i32, y3: i32, color: u32) {
+    unsafe { sys::fill_triangle(x1, y1, x2, y2, x3, y3, color as i32) }
+}
+
+/// A built-in shape's mesh id, or `None` for an unknown name (or over the limits).
+pub fn mesh_builtin(name: &str) -> Option<i32> {
+    let id = unsafe { sys::mesh_builtin(name.as_ptr(), len32(name.len())) };
+    (id >= 0).then_some(id)
+}
+
+/// A new mesh from `points` (x, y, z triples, flattened) and `faces` (4 point
+/// indices each, 0-based; -1 in the 4th slot for a triangle). Returns the id,
+/// or the host's code: -2 bad mesh, -5 too big. A slice whose length is not a
+/// multiple of 3 (points) or 4 (faces) is a bad mesh.
+pub fn mesh_new(points: &[i32], faces: &[i32]) -> Result<i32, i32> {
+    if points.len() % 3 != 0 || faces.len() % 4 != 0 {
+        return Err(-2);
+    }
+    let id = unsafe { sys::mesh_new(points.as_ptr(), len32(points.len() / 3), faces.as_ptr(), len32(faces.len() / 4)) };
+    if id < 0 { Err(id) } else { Ok(id) }
+}
+
+/// Draws a mesh (mode 0 wire, 1 solid, 2 both); an unknown id draws nothing.
+#[allow(clippy::too_many_arguments)]
+pub fn mesh_draw(id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, color: u32) {
+    unsafe { sys::mesh_draw(id, x, y, size, rx, ry, rz, mode, color as i32) }
+}
+
+pub fn mesh_free(id: i32) {
+    unsafe { sys::mesh_free(id) }
 }
 
 pub fn draw_text(text: &str, x: i32, y: i32, fg: u32, bg: u32) {

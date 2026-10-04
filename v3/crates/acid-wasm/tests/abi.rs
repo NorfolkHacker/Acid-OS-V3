@@ -36,12 +36,19 @@ impl AcidApi for Rec {
     fn fill_rect(&self, x: i32, y: i32, w: i32, h: i32, c: u32) { self.log(format!("fill_rect {x} {y} {w} {h} {c:#08x}")) }
     fn draw_line(&self, x1: i32, y1: i32, x2: i32, y2: i32, c: u32) { self.log(format!("line {x1} {y1} {x2} {y2} {c:#08x}")) }
     fn fill_triangle(&self, x1: i32, y1: i32, x2: i32, y2: i32, x3: i32, y3: i32, c: u32) { self.log(format!("tri {x1} {y1} {x2} {y2} {x3} {y3} {c:#08x}")) }
-    fn mesh_builtin(&self, _: &str) -> Result<i32, String> { Err("unknown".into()) }
-    fn mesh_new(&self, _: Vec<(i32, i32, i32)>, _: Vec<[u16; 4]>) -> Result<i32, String> { Err("bad mesh".into()) }
+    fn mesh_builtin(&self, n: &str) -> Result<i32, String> {
+        self.log(format!("mesh_builtin {n}"));
+        if n == "cube" { Ok(3) } else { Err("unknown".into()) }
+    }
+    fn mesh_new(&self, p: Vec<(i32, i32, i32)>, f: Vec<[u16; 4]>) -> Result<i32, String> {
+        self.log(format!("mesh_new {p:?} {f:?}"));
+        Ok(7)
+    }
     fn mesh_draw(&self, id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, c: u32) {
         self.log(format!("mesh_draw {id} {x} {y} {size} {rx} {ry} {rz} {mode} {c:#08x}"))
     }
-    fn mesh_draw_cost(&self, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> u64 { 0 }
+    /// A known cost: id 1 touches 100,000 pixels, any other id none.
+    fn mesh_draw_cost(&self, id: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> u64 { if id == 1 { 100_000 } else { 0 } }
     fn mesh_free(&self, id: i32) { self.log(format!("mesh_free {id}")) }
     fn fill_circle(&self, x: i32, y: i32, r: i32, c: u32) { self.log(format!("fill_circle {x} {y} {r} {c:#08x}")) }
     fn draw_text(&self, t: &str, x: i32, y: i32, fg: u32, bg: u32) {
@@ -1044,8 +1051,8 @@ fn font_and_window_size_imports() {
 fn import_names_match_the_linker() {
     use std::collections::BTreeSet;
     use acid_wasm::IMPORT_NAMES;
-    assert_eq!(IMPORT_NAMES.len(), 64);
-    assert_eq!(IMPORT_NAMES.iter().collect::<BTreeSet<_>>().len(), 64, "duplicate import name");
+    assert_eq!(IMPORT_NAMES.len(), 70);
+    assert_eq!(IMPORT_NAMES.iter().collect::<BTreeSet<_>>().len(), 70, "duplicate import name");
     // wasmi's Linker cannot list or `get` host functions, so probe each name:
     // import it with a signature no real import has. A defined name fails on
     // the signature; an undefined one fails on the missing definition.
@@ -1069,4 +1076,93 @@ fn import_names_match_the_linker() {
     let src = include_str!("../src/abi.rs");
     let link = src.split("pub(crate) fn link").nth(1).unwrap().split("#[cfg(test)]").next().unwrap();
     assert_eq!(link.matches("func_wrap(").count(), IMPORT_NAMES.len(), "link defines a different number of imports");
+}
+
+// ---- Lines, triangles and meshes (3D library, Task 5) ----
+
+#[test]
+fn line_triangle_and_mesh_calls_log_exact_arguments() {
+    let imports = r#"
+  (import "acid" "draw_line" (func $dl (param i32 i32 i32 i32 i32)))
+  (import "acid" "fill_triangle" (func $ft (param i32 i32 i32 i32 i32 i32 i32)))
+  (import "acid" "mesh_builtin" (func $mb (param i32 i32) (result i32)))
+  (import "acid" "mesh_new" (func $mn (param i32 i32 i32 i32) (result i32)))
+  (import "acid" "mesh_draw" (func $md (param i32 i32 i32 i32 i32 i32 i32 i32 i32)))
+  (import "acid" "mesh_free" (func $mf (param i32)))"#;
+    let data = r#"(data (i32.const 0) "cube") (data (i32.const 8) "nope")
+  (data (i32.const 64) "\01\00\00\00\02\00\00\00\03\00\00\00\04\00\00\00\05\00\00\00\06\00\00\00\07\00\00\00\08\00\00\00\09\00\00\00")
+  (data (i32.const 128) "\00\00\00\00\01\00\00\00\02\00\00\00\ff\ff\ff\ff")"#;
+    let body = "i32.const 1 i32.const 2 i32.const 3 i32.const 4 i32.const 0xff0000 call $dl \
+        i32.const 1 i32.const 2 i32.const 3 i32.const 4 i32.const 5 i32.const 6 i32.const 0x00ff00 call $ft \
+        i32.const 0 i32.const 4 call $mb call $say \
+        i32.const 8 i32.const 4 call $mb call $say \
+        i32.const 64 i32.const 3 i32.const 128 i32.const 1 call $mn call $say \
+        i32.const 7 i32.const 10 i32.const 20 i32.const 64 i32.const 1 i32.const 2 i32.const 3 i32.const 2 i32.const 0x0000ff call $md \
+        i32.const 7 call $mf";
+    let log = run_api(imports, data, body);
+    assert_eq!(
+        log,
+        exp![
+            "line 1 2 3 4 0xff0000",
+            "tri 1 2 3 4 5 6 0x00ff00",
+            "mesh_builtin cube",
+            said(3),
+            "mesh_builtin nope",
+            said(-1),
+            "mesh_new [(1, 2, 3), (4, 5, 6), (7, 8, 9)] [[0, 1, 2, 65535]]",
+            said(7),
+            "mesh_draw 7 10 20 64 1 2 3 2 0x0000ff",
+            "mesh_free 7",
+        ]
+    );
+}
+
+/// Runs a `mesh_new` call with the given counts and face words (4 i32s at 128).
+fn mesh_new_result(np: i32, nf: i32, face: [i32; 4]) -> Vec<String> {
+    let imports = r#"(import "acid" "mesh_new" (func $mn (param i32 i32 i32 i32) (result i32)))"#;
+    let stores: String = face.iter().enumerate().map(|(i, v)| format!("i32.const {} i32.const {v} i32.store ", 128 + i * 4)).collect();
+    let body = format!("{stores} i32.const 0 i32.const {np} i32.const 128 i32.const {nf} call $mn call $say");
+    run_api(imports, "", &body)
+}
+
+#[test]
+fn mesh_new_layouts_are_checked_before_the_api() {
+    let ok = [0, 1, 2, -1];
+    assert_eq!(mesh_new_result(3, 1, ok).last().unwrap(), &said(7));
+    for (np, nf, face, want) in [
+        (3, 1, [-1, 1, 2, -1], -2),
+        (3, 1, [0, -1, 2, -1], -2),
+        (3, 1, [0, 1, -1, -1], -2),
+        (3, 1, [0, 1, 3, -1], -2),
+        (3, 1, [0, 1, 2, 3], -2),
+        (3, 1, [0, 1, 2, -2], -2),
+        (2, 1, ok, -2),
+        (-1, 1, ok, -2),
+        (3, -1, ok, -2),
+        (513, 1, ok, -5),
+        (3, 1025, ok, -5),
+        (i32::MAX, 1, ok, -5),
+        (3, i32::MAX, ok, -5),
+    ] {
+        let log = mesh_new_result(np, nf, face);
+        assert_eq!(log, exp![said(want)], "np {np} nf {nf} face {face:?}: no api call, just the code");
+    }
+}
+
+#[test]
+fn mesh_draws_are_charged_by_their_pixel_cost() {
+    // Id 1 costs 100,000 px = 200,000 bytes = 25,000 fuel a draw, so 200M
+    // fuel allows about 8,000 draws; a free id (0 px) would never stop.
+    let src = r#"(module
+  (import "acid" "mesh_draw" (func $md (param i32 i32 i32 i32 i32 i32 i32 i32 i32)))
+  (memory (export "memory") 1)
+  (func (export "acid_abi_version") (result i32) i32.const 1)
+  (func (export "acid_on_create")
+    (loop i32.const 1 i32.const 0 i32.const 0 i32.const 64 i32.const 0 i32.const 0 i32.const 0 i32.const 1 i32.const 0 call $md br 0))
+  (func (export "acid_on_event") (param i32 i32 i32 i32))
+  (func (export "acid_on_idle"))
+  (func (export "acid_redraw")))"#;
+    let (end, log) = run(src, vec![], WasmLimits::default());
+    assert_eq!(end, CartEnd::StoppedResponding);
+    assert!((7_000..9_000).contains(&log.len()), "{} draws", log.len());
 }

@@ -246,6 +246,10 @@ its budget allows. The host charges for:
   - `fill_rect`, `overlay_fill_rect` and `repaint_region`: `w × h`;
   - `fill_circle`: the bounding square, `(2r + 1)²`;
   - `draw_text`: one 6 × 8 glyph cell per byte, on top of the string's bytes;
+  - `draw_line`: its longer axis plus one pixel, at most the screen;
+  - `fill_triangle`: its bounding box, like `fill_rect`;
+  - `mesh_draw`: the pixels the draw can touch, at most 64 screens' worth;
+  - `mesh_new`: the `3 × n_points` and `4 × n_faces` i32s it reads, as bytes moved;
   - `draw_window_frame`: a screen-wide, 16 px title bar;
   - `draw_window_border`: the screen's perimeter;
   - `clear_user_area` and `overlay_clear`: the whole screen, **76,800 fuel** at the default 640×480 (57,600 at 640×360, 120,000 at 800×600);
@@ -686,6 +690,12 @@ Here is every import in the module `"acid"`, for ABI version 1, in order.
 | `window_h` | → i32 | this window's height in pixels | [`acid_window_size`](09-api-reference.md#acid_window_size) |
 | `get_font_scale` | → i32 (1 or 2) | Config's font setting | [`acid_get_font_scale`](09-api-reference.md#acid_get_font_scale) |
 | `set_font_scale` | n (1 or 2) | anything else is ignored | [`acid_set_font_scale`](09-api-reference.md#acid_set_font_scale) |
+| `draw_line` | x1, y1, x2, y2, color | | [`acid_draw_line`](09-api-reference.md#acid_draw_line) |
+| `fill_triangle` | x1, y1, x2, y2, x3, y3, color | | [`acid_fill_triangle`](09-api-reference.md#acid_fill_triangle) |
+| `mesh_builtin` | name_ptr, name_len → i32 | the mesh id, or −1 for an unknown name, −5 over the limits | [`acid_mesh_builtin`](09-api-reference.md#acid_mesh_builtin) |
+| `mesh_new` | points_ptr, n_points, faces_ptr, n_faces → i32 | the mesh id, −2 bad mesh, −5 too big; layouts below | [`acid_mesh_new`](09-api-reference.md#acid_mesh_new) |
+| `mesh_draw` | id, x, y, size, rx, ry, rz, mode, color | mode 0 wire, 1 solid, 2 both; an unknown id draws nothing | [`acid_mesh_draw`](09-api-reference.md#acid_mesh_draw) |
+| `mesh_free` | id | | [`acid_mesh_free`](09-api-reference.md#acid_mesh_free) |
 | `window_info` | index, buf, cap → len \| −1 | record `name\tx\ty\tw\th\tfocused` | [`acid_window_info`](09-api-reference.md#acid_window_info) |
 | `activate_window` | index | a cart may raise only its own window | [`acid_activate_window`](09-api-reference.md#acid_activate_window) |
 | `close_window` | index → i32 (0/1) | **−4 for a cart**, so always −4 for a WASM cart | [`acid_close_window`](09-api-reference.md#acid_close_window) |
@@ -719,6 +729,21 @@ A WASM cart is always cart-level, so `launcher_register`, `overlay_open` and
 `close_window` never succeed for it, and the `cart_*` calls always return −4.
 They are still in the table so that it matches the Lua calls, and so that the
 same ABI can serve other trust levels later.
+
+### Mesh arrays
+
+`mesh_new` reads two arrays of little-endian i32s from the cart's memory:
+
+- **points**: `n_points × 3` values, `x, y, z` for each point. Needs
+  `3 ≤ n_points ≤ 512`;
+- **faces**: `n_faces × 4` values, four 0-based point indices for each face.
+  Put `−1` in the fourth slot for a triangle. The first three slots must be
+  in `0 .. n_points`, and the fourth is `−1` or in that range.
+
+A negative count, `n_points < 3`, or any bad index gives −2. `n_points > 512`
+or `n_faces > 1024` gives −5, before any memory is read. A range outside the
+cart's memory traps, like any other pointer. Reading the arrays is charged as
+bytes moved (see Fuel).
 
 ---
 

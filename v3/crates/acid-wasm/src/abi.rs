@@ -13,6 +13,8 @@ use acid_kernel::layout::TITLE_BAR_H;
 use wasmi::errors::LinkerError;
 use wasmi::{Caller, Error, Extern, Linker, Memory, TrapCode};
 
+use acid_api::{MESH_FACES_MAX, MESH_POINTS_MAX, NO_INDEX};
+
 use crate::runner::Host;
 
 /// The module every import lives in (§15.3).
@@ -87,6 +89,36 @@ fn rect_bytes(s: ScreenWh, w: i32, h: i32) -> u64 {
     let w = w.clamp(0, s.0) as u64;
     let h = h.clamp(0, s.1) as u64;
     w * h * BYTES_PER_PX
+}
+
+/// Bytes charged for a line: its longer axis in pixels, at most the screen.
+fn line_bytes(s: ScreenWh, x1: i32, y1: i32, x2: i32, y2: i32) -> u64 {
+    let dx = (i64::from(x2) - i64::from(x1)).unsigned_abs();
+    let dy = (i64::from(y2) - i64::from(y1)).unsigned_abs();
+    (dx.max(dy) + 1).min(screen_px(s)) * BYTES_PER_PX
+}
+
+/// Bytes charged for a triangle: its bounding box clamped to the screen,
+/// like `rect_bytes`.
+fn triangle_bytes(s: ScreenWh, p: [(i32, i32); 3]) -> u64 {
+    let (minx, maxx) = p.iter().fold((i64::MAX, i64::MIN), |a, q| (a.0.min(i64::from(q.0)), a.1.max(i64::from(q.0))));
+    let (miny, maxy) = p.iter().fold((i64::MAX, i64::MIN), |a, q| (a.0.min(i64::from(q.1)), a.1.max(i64::from(q.1))));
+    let w = (maxx - minx + 1).min(i64::from(i32::MAX)) as i32;
+    let h = (maxy - miny + 1).min(i64::from(i32::MAX)) as i32;
+    rect_bytes(s, w, h)
+}
+
+/// Bytes charged for a mesh draw that touches `px` pixels: at most 64
+/// screens' worth, since overdraw of a solid mesh can exceed the screen.
+fn mesh_bytes(s: ScreenWh, px: u64) -> u64 {
+    px.min(screen_px(s) * 64).saturating_mul(BYTES_PER_PX)
+}
+
+/// Reads `n` little-endian i32s at `ptr`; traps out of bounds, charges the bytes.
+fn read_i32s(caller: &mut Caller<'_, Host>, ptr: i32, n: usize) -> Result<Vec<i32>, Error> {
+    let len = i32::try_from(n.checked_mul(4).ok_or(Error::from(TrapCode::MemoryOutOfBounds))?).map_err(|_| Error::from(TrapCode::MemoryOutOfBounds))?;
+    let b = read_bytes(caller, ptr, len)?;
+    Ok(b.chunks_exact(4).map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
 }
 
 /// Bytes charged for a circle of radius `r`: its bounding square, at most the
@@ -307,6 +339,78 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
     linker.func_wrap(MODULE, "window_h", |c: Caller<'_, Host>| c.data().api.window_size().1)?;
     linker.func_wrap(MODULE, "get_font_scale", |c: Caller<'_, Host>| c.data().api.font_scale())?;
     linker.func_wrap(MODULE, "set_font_scale", |c: Caller<'_, Host>, n: i32| c.data().api.set_font_scale(n))?;
+    linker.func_wrap(MODULE, "draw_line", |mut c: Caller<'_, Host>, x1: i32, y1: i32, x2: i32, y2: i32, color: i32| -> Result<(), Error> {
+        let s = screen(&c);
+        charge(&mut c, line_bytes(s, x1, y1, x2, y2))?;
+        c.data().api.draw_line(x1, y1, x2, y2, color as u32);
+        Ok(())
+    })?;
+    linker.func_wrap(
+        MODULE,
+        "fill_triangle",
+        |mut c: Caller<'_, Host>, x1: i32, y1: i32, x2: i32, y2: i32, x3: i32, y3: i32, color: i32| -> Result<(), Error> {
+            let s = screen(&c);
+            charge(&mut c, triangle_bytes(s, [(x1, y1), (x2, y2), (x3, y3)]))?;
+            c.data().api.fill_triangle(x1, y1, x2, y2, x3, y3, color as u32);
+            Ok(())
+        },
+    )?;
+    // Meshes: -1 unknown built-in, -2 bad mesh, -5 too big (§15.3).
+    linker.func_wrap(MODULE, "mesh_builtin", |mut c: Caller<'_, Host>, p: i32, l: i32| -> Result<i32, Error> {
+        let api = c.data().api.clone();
+        let name = read_str(&mut c, p, l)?;
+        Ok(match api.mesh_builtin(name) {
+            Ok(id) => id,
+            Err(e) if e == "too big" => -5,
+            Err(_) => -1,
+        })
+    })?;
+    linker.func_wrap(MODULE, "mesh_new", |mut c: Caller<'_, Host>, pp: i32, np: i32, fp: i32, nf: i32| -> Result<i32, Error> {
+        // The layout and bounds are checked before any memory is read, so a
+        // hostile count can neither allocate nor charge past the caps.
+        if np < 3 || nf < 0 {
+            return Ok(-2);
+        }
+        if np as usize > MESH_POINTS_MAX || nf as usize > MESH_FACES_MAX {
+            return Ok(-5);
+        }
+        let api = c.data().api.clone();
+        let pts: Vec<(i32, i32, i32)> = read_i32s(&mut c, pp, np as usize * 3)?.chunks_exact(3).map(|t| (t[0], t[1], t[2])).collect();
+        let raw = read_i32s(&mut c, fp, nf as usize * 4)?;
+        let mut faces = Vec::with_capacity(nf as usize);
+        for f in raw.chunks_exact(4) {
+            let idx = |v: i32, tri_ok: bool| -> Option<u16> {
+                if v == -1 && tri_ok {
+                    Some(NO_INDEX)
+                } else if (0..np).contains(&v) {
+                    Some(v as u16)
+                } else {
+                    None
+                }
+            };
+            match (idx(f[0], false), idx(f[1], false), idx(f[2], false), idx(f[3], true)) {
+                (Some(a), Some(b), Some(d), Some(e)) => faces.push([a, b, d, e]),
+                _ => return Ok(-2),
+            }
+        }
+        Ok(match api.mesh_new(pts, faces) {
+            Ok(id) => id,
+            Err(e) if e == "too big" => -5,
+            Err(_) => -2,
+        })
+    })?;
+    linker.func_wrap(
+        MODULE,
+        "mesh_draw",
+        |mut c: Caller<'_, Host>, id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, color: i32| -> Result<(), Error> {
+            let s = screen(&c);
+            let px = c.data().api.mesh_draw_cost(id, x, y, size, rx, ry, rz, mode);
+            charge(&mut c, mesh_bytes(s, px))?;
+            c.data().api.mesh_draw(id, x, y, size, rx, ry, rz, mode, color as u32);
+            Ok(())
+        },
+    )?;
+    linker.func_wrap(MODULE, "mesh_free", |c: Caller<'_, Host>, id: i32| c.data().api.mesh_free(id))?;
     linker.func_wrap(MODULE, "window_info", |mut c: Caller<'_, Host>, index: i32, buf: i32, cap: i32| -> Result<i32, Error> {
         let rec = c.data().api.window_info(i64::from(index)).map(|w| {
             let mut s = String::new();
@@ -465,7 +569,7 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{circle_bytes, fuel_cost, range, rect_bytes, text_bytes};
+    use super::{circle_bytes, fuel_cost, line_bytes, mesh_bytes, range, rect_bytes, text_bytes, triangle_bytes};
 
     const W: (i32, i32) = (640, 360);
 
@@ -494,6 +598,18 @@ mod tests {
         assert_eq!(text_bytes(svga, i32::MAX, 1), 800 * 600 * 2);
         assert_eq!(text_bytes(W, 2, 2), 4 * text_bytes(W, 2, 1), "a Large glyph costs four times the pixels");
         assert_eq!(text_bytes(W, i32::MAX, 2), 640 * 360 * 2, "the screen cap still holds at scale 2");
+    }
+
+    #[test]
+    fn line_triangle_and_mesh_charges() {
+        assert_eq!(line_bytes(W, 0, 0, 9, 3), 10 * 2);
+        assert_eq!(line_bytes(W, 5, 5, 5, 5), 2);
+        assert_eq!(line_bytes(W, 0, 0, -3, 20), 21 * 2);
+        assert_eq!(line_bytes(W, i32::MIN, i32::MIN, i32::MAX, i32::MAX), 640 * 360 * 2);
+        assert_eq!(triangle_bytes(W, [(0, 0), (9, 0), (0, 4)]), 10 * 5 * 2);
+        assert_eq!(triangle_bytes(W, [(i32::MIN, i32::MIN), (i32::MAX, 0), (0, i32::MAX)]), 640 * 360 * 2);
+        assert_eq!(mesh_bytes(W, 1000), 2000);
+        assert_eq!(mesh_bytes(W, u64::MAX), 640 * 360 * 64 * 2);
     }
 
     #[test]
