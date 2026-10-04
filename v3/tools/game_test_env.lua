@@ -9,6 +9,7 @@
 NOTES = {}
 RECTS = {}
 TEXTS = {}
+TEXT_AT = {}
 DRAW_CALLS = 0
 CLOCK = 0
 FAILS = {}
@@ -36,7 +37,7 @@ function acid_set_ring_partner(...) end
 function acid_clear_user_area() DRAW_CALLS = DRAW_CALLS + 1 end
 function acid_draw_window_frame(title) DRAW_CALLS = DRAW_CALLS + 1 end
 function acid_draw_window_border() DRAW_CALLS = DRAW_CALLS + 1 end
-function acid_draw_text(str, x, y, fg, bg) DRAW_CALLS = DRAW_CALLS + 1; push(TEXTS, str) end
+function acid_draw_text(str, x, y, fg, bg) DRAW_CALLS = DRAW_CALLS + 1; push(TEXTS, str); push(TEXT_AT, { str, x, y }) end
 function acid_fill_circle(x, y, r, color) DRAW_CALLS = DRAW_CALLS + 1 end
 function acid_fill_rect(x, y, w, h, color)
   DRAW_CALLS = DRAW_CALLS + 1
@@ -67,6 +68,57 @@ TASKS = {}
 REFRESHES = 0
 FRAMES = { composited = 0, skipped = 0 }
 VOICES = 0
+
+-- What the app under test gets from acid_font_size / acid_window_size /
+-- the font setting. A suite sets WIN_W/WIN_H (and FONT_W/FONT_H for Large)
+-- in its prelude, before this file loads; the defaults are Normal.
+FONT_W = FONT_W or 6
+FONT_H = FONT_H or 8
+FONT_SCALE = FONT_SCALE or 1
+function acid_font_size() return FONT_W, FONT_H end
+function acid_window_size()
+  assert(WIN_W and WIN_H, "this suite must set WIN_W and WIN_H in its prelude")
+  return WIN_W, WIN_H
+end
+function acid_get_font_scale() return FONT_SCALE end
+function acid_set_font_scale(n)
+  push(CALLS, { "set_font_scale", n })
+  if n == 1 or n == 2 then FONT_SCALE = n end
+end
+
+-- Whether everything drawn since TEXT_AT/RECTS were last emptied lies
+-- inside the window, with no character cut off at an edge. Returns false
+-- and what didn't fit.
+function drawn_inside_window()
+  for _, t in ipairs(TEXT_AT) do
+    local s, x, y = t[1], t[2], t[3]
+    if x < 0 or y < 0 or x + #s * FONT_W > WIN_W or y + FONT_H > WIN_H then
+      return false, "text '" .. s .. "' at " .. x .. "," .. y
+    end
+  end
+  for _, r in ipairs(RECTS) do
+    if r[1] < 0 or r[2] < 0 or r[1] + r[3] > WIN_W or r[2] + r[4] > WIN_H then
+      return false, "rect at " .. r[1] .. "," .. r[2] .. " size " .. r[3] .. "x" .. r[4]
+    end
+  end
+  return true
+end
+
+-- Whether any two strings drawn since TEXT_AT was last emptied overlap
+-- (text laid out at the wrong pitch collides with its neighbours). Returns
+-- false and the pair.
+function drawn_text_clear()
+  for i, a in ipairs(TEXT_AT) do
+    for k = i + 1, #TEXT_AT do
+      local b = TEXT_AT[k]
+      if a[2] < b[2] + #b[1] * FONT_W and b[2] < a[2] + #a[1] * FONT_W
+        and a[3] < b[3] + FONT_H and b[3] < a[3] + FONT_H then
+        return false, "'" .. a[1] .. "' overlaps '" .. b[1] .. "'"
+      end
+    end
+  end
+  return true
+end
 
 function acid_fs_list(dir)
   local d = FS[dir]

@@ -1,11 +1,14 @@
 AboutApp = AcidApp:extend("AboutApp")
 
--- Shows Help/about.txt in a fixed window. Constants are AboutApp.X fields.
+-- Shows Help/about.txt in a fixed window. Constants are AboutApp.X fields;
+-- sizes derive from the font and window size so it works at Large too.
 
-AboutApp.WINDOW_W = 180
-AboutApp.WINDOW_H = 150
+local CW, CH = acid_font_size()
+local WW, WH = acid_window_size()
+
 AboutApp.TITLE_BAR_H = 16
-AboutApp.LINE_H = 10
+AboutApp.LINE_H = CH + 2
+AboutApp.COLS = (WW - 24) // CW
 AboutApp.ABOUT_FILE = "v3/fsroot/Help/about.txt"
 
 AboutApp.TEXT_COLOR = 0xD4E6DB -- THEME_TEXT
@@ -39,8 +42,8 @@ function AboutApp:redraw()
   acid_draw_window_frame(self:window_title())
   local y = AboutApp.TITLE_BAR_H + 4
   for _, line in ipairs(self.lines) do
-    if y + AboutApp.LINE_H > AboutApp.WINDOW_H then break end
-    acid_draw_text(line:sub(1, 26), 4, y, AboutApp.TEXT_COLOR, AboutApp.BG_COLOR)
+    if y + AboutApp.LINE_H > WH then break end
+    acid_draw_text(line:sub(1, AboutApp.COLS), 4, y, AboutApp.TEXT_COLOR, AboutApp.BG_COLOR)
     y = y + AboutApp.LINE_H
   end
   acid_draw_window_border()

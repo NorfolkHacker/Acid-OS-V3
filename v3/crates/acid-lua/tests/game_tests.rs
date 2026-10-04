@@ -20,6 +20,10 @@ const GAME_LIBS: [&str; 3] = [
 ];
 
 fn run_suite(files: &[&str], assertions: usize) {
+    run_suite_with("", files, assertions);
+}
+
+fn run_suite_with(prelude: &str, files: &[&str], assertions: usize) {
     let lua = Lua::new_with(StdLib::STRING | StdLib::TABLE | StdLib::MATH, LuaOptions::default()).unwrap();
     // Lua's print goes to a buffer so passing runs are silent; a failure
     // includes it.
@@ -36,6 +40,9 @@ fn run_suite(files: &[&str], assertions: usize) {
         .unwrap();
     lua.globals().set("print", print).unwrap();
     let printed = || out.lock().unwrap().clone();
+    if !prelude.is_empty() {
+        lua.load(prelude).set_name("@prelude").exec().unwrap_or_else(|e| panic!("prelude: {e}"));
+    }
     for f in files {
         let src = std::fs::read(repo_root().join(f)).unwrap_or_else(|e| panic!("{f}: {e}"));
         lua.load(&src[..]).set_name(format!("@{f}")).exec().unwrap_or_else(|e| panic!("{f}: {e}\nLua output:\n{}", printed()));
@@ -83,7 +90,7 @@ fn piano() {
 
 #[test]
 fn about() {
-    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/about.lua", "v3/tools/test_about.lua"], 4);
+    run_suite_with("WIN_W, WIN_H = 180, 150", &["v3/tools/game_test_env.lua", "v3/apps/about.lua", "v3/tools/test_about.lua"], 4);
 }
 
 #[test]
@@ -93,12 +100,12 @@ fn config() {
 
 #[test]
 fn network() {
-    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/network.lua", "v3/tools/test_network.lua"], 5);
+    run_suite_with("WIN_W, WIN_H = 200, 110", &["v3/tools/game_test_env.lua", "v3/apps/network.lua", "v3/tools/test_network.lua"], 5);
 }
 
 #[test]
 fn sysmon() {
-    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/sysmon.lua", "v3/tools/test_sysmon.lua"], 23);
+    run_suite_with("WIN_W, WIN_H = 200, 160", &["v3/tools/game_test_env.lua", "v3/apps/sysmon.lua", "v3/tools/test_sysmon.lua"], 23);
 }
 
 #[test]
@@ -113,12 +120,12 @@ fn acid_eggs() {
 
 #[test]
 fn terminal() {
-    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/lib/acid_eggs.lua", "v3/apps/terminal.lua", "v3/tools/test_terminal.lua"]), 26);
+    run_suite_with("WIN_W, WIN_H = 260, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/lib/acid_eggs.lua", "v3/apps/terminal.lua", "v3/tools/test_terminal.lua"]), 26);
 }
 
 #[test]
 fn file_manager() {
-    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/file_manager.lua", "v3/tools/test_file_manager.lua"]), 33);
+    run_suite_with("WIN_W, WIN_H = 220, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/file_manager.lua", "v3/tools/test_file_manager.lua"]), 33);
 }
 
 #[test]
@@ -128,7 +135,7 @@ fn editor_modules() {
 
 #[test]
 fn editor_app() {
-    run_suite(&with_libs(&[
+    run_suite_with("WIN_W, WIN_H = 420, 280", &with_libs(&[
         "v3/tools/game_test_env.lua", "v3/apps/editor/buffer.lua", "v3/apps/editor/hl.lua",
         "v3/apps/editor/layout.lua", "v3/apps/editor/cmdbar.lua", "v3/apps/editor/touch.lua",
         "v3/apps/editor.lua", "v3/tools/test_editor_app.lua",
@@ -156,4 +163,28 @@ fn apps_follow_the_screen_size() {
         "v3/apps/lib/acid_eggs.lua",
         "v3/tools/test_screen_svga.lua",
     ], 5);
+}
+
+#[test]
+fn about_large() {
+    run_suite_with("FONT_W, FONT_H, WIN_W, WIN_H = 12, 16, 360, 284",
+        &["v3/tools/game_test_env.lua", "v3/apps/about.lua", "v3/tools/test_fits_window.lua"], 1);
+}
+
+#[test]
+fn network_large() {
+    run_suite_with("FONT_W, FONT_H, WIN_W, WIN_H = 12, 16, 400, 204",
+        &["v3/tools/game_test_env.lua", "v3/apps/network.lua", "v3/tools/test_fits_window.lua"], 1);
+}
+
+#[test]
+fn sysmon_large() {
+    run_suite_with("FONT_W, FONT_H, WIN_W, WIN_H = 12, 16, 400, 304",
+        &["v3/tools/game_test_env.lua", "v3/apps/sysmon.lua", "v3/tools/test_sysmon_large.lua"], 4);
+}
+
+#[test]
+fn about_network_fit_at_normal() {
+    run_suite_with("WIN_W, WIN_H = 180, 150", &["v3/tools/game_test_env.lua", "v3/apps/about.lua", "v3/tools/test_fits_window.lua"], 1);
+    run_suite_with("WIN_W, WIN_H = 200, 110", &["v3/tools/game_test_env.lua", "v3/apps/network.lua", "v3/tools/test_fits_window.lua"], 1);
 }

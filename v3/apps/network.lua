@@ -5,10 +5,12 @@
 -- renewal, cable unplugged) without this app itself doing anything.
 NetworkApp = AcidApp:extend("NetworkApp")
 
-NetworkApp.WINDOW_W = 200
-NetworkApp.WINDOW_H = 110
+local CW, CH = acid_font_size()
+local WW = acid_window_size()
+
 NetworkApp.TITLE_BAR_H = 16
-NetworkApp.LINE_H = 12
+NetworkApp.LINE_H = CH + 4
+NetworkApp.COLS = (WW - 20) // CW
 NetworkApp.REFRESH_MS = 3000
 
 NetworkApp.BG_COLOR = 0x050607    -- THEME_BG
@@ -50,19 +52,19 @@ function NetworkApp:redraw()
 
   local y = NetworkApp.TITLE_BAR_H + 6
   local dot_color = self.connected and NetworkApp.HARD_COLOR or NetworkApp.MUTED_COLOR
-  acid_fill_rect(4, y + 2, 6, 6, dot_color)
+  acid_fill_rect(4, y + (CH - 4) // 2, 6, 6, dot_color)
   acid_draw_text(self.connected and "connected" or "no address found", 14, y,
     self.connected and NetworkApp.TEXT_COLOR or NetworkApp.MUTED_COLOR, NetworkApp.BG_COLOR)
   y = y + NetworkApp.LINE_H + 4
 
   acid_draw_text("HOST", 4, y, NetworkApp.MUTED_COLOR, NetworkApp.BG_COLOR)
   y = y + NetworkApp.LINE_H
-  acid_draw_text(self.host:sub(1, 30), 4, y, NetworkApp.TEXT_COLOR, NetworkApp.BG_COLOR)
+  acid_draw_text(self.host:sub(1, NetworkApp.COLS), 4, y, NetworkApp.TEXT_COLOR, NetworkApp.BG_COLOR)
   y = y + NetworkApp.LINE_H + 4
 
   acid_draw_text("IP", 4, y, NetworkApp.MUTED_COLOR, NetworkApp.BG_COLOR)
   y = y + NetworkApp.LINE_H
-  acid_draw_text(self.ip:sub(1, 30), 4, y, NetworkApp.TEXT_COLOR, NetworkApp.BG_COLOR)
+  acid_draw_text(self.ip:sub(1, NetworkApp.COLS), 4, y, NetworkApp.TEXT_COLOR, NetworkApp.BG_COLOR)
 
   acid_draw_window_border()
 end

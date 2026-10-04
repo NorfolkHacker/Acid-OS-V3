@@ -15,11 +15,12 @@
 -- Tap the "<" / ">" arrows in the bottom nav bar to switch pages.
 SysMon = AcidApp:extend("SysMon")
 
-SysMon.WINDOW_W = 200
-SysMon.WINDOW_H = 160
+local CW, CH = acid_font_size()
+local WW, WH = acid_window_size()
+
 SysMon.TITLE_BAR_H = 16
-SysMon.LINE_H = 11
-SysMon.NAV_H = 12
+SysMon.LINE_H = CH + 3
+SysMon.NAV_H = CH + 4
 SysMon.PAGES = { "windows", "tasks", "compositor", "synth" }
 SysMon.HIST_LEN = 20
 -- Refreshing the task table suspends the scheduler for its duration, so it
@@ -34,8 +35,11 @@ SysMon.MUTED_COLOR = 0x9DAAA3 -- THEME_MUTED
 SysMon.HARD_COLOR = 0x00FF66  -- THEME_HARD
 SysMon.PANEL_COLOR = 0x0B1712 -- THEME_PANEL
 
-SysMon.BTN_W = 30
-SysMon.ROW_H = 12
+SysMon.BTN_W = 5 * CW
+SysMon.ROW_H = CH + 4
+-- Columns of a window's name before the close button (68 = the fixed
+-- right margin that leaves 22 columns at Normal).
+SysMon.LABEL_COLS = (WW - 68) // CW
 
 function SysMon:on_create()
   self.page = 0
@@ -52,7 +56,7 @@ function SysMon:on_create()
 end
 
 function SysMon:content_bottom()
-  return SysMon.WINDOW_H - SysMon.NAV_H
+  return WH - SysMon.NAV_H
 end
 
 function SysMon:on_idle()
@@ -132,7 +136,7 @@ function SysMon:draw_windows_page()
     local focused = info[6]
     local label = (focused and "> " or "  ") .. self:short_name(info[1])
     local color = focused and SysMon.HARD_COLOR or SysMon.TEXT_COLOR
-    acid_draw_text(label:sub(1, 22), 2, y + 2, color, SysMon.BG_COLOR)
+    acid_draw_text(label:sub(1, SysMon.LABEL_COLS), 2, y + 2, color, SysMon.BG_COLOR)
     if focused then
       self.row_indices[#self.row_indices + 1] = false
     else
@@ -148,7 +152,7 @@ function SysMon:draw_close_button(index, y)
   local label = armed and "sure?" or "close"
   local bg = armed and SysMon.HARD_COLOR or SysMon.PANEL_COLOR
   local fg = armed and 0x050607 or SysMon.MUTED_COLOR
-  local x = SysMon.WINDOW_W - SysMon.BTN_W - 4
+  local x = WW - SysMon.BTN_W - 4
   acid_fill_rect(x, y, SysMon.BTN_W, SysMon.ROW_H - 1, bg)
   acid_draw_text(label, x + 2, y + 2, fg, bg)
 end
@@ -164,7 +168,7 @@ function SysMon:draw_tasks_page()
   local mem = acid_mem_used_kb()
   local mem_text = mem >= 0 and ("MEM " .. mem .. "K") or "MEM n/a"
   acid_draw_text("TASKS", 2, y, SysMon.MUTED_COLOR, SysMon.BG_COLOR)
-  acid_draw_text(mem_text, SysMon.WINDOW_W - #mem_text * 6 - 2, y, SysMon.MUTED_COLOR, SysMon.BG_COLOR)
+  acid_draw_text(mem_text, WW - #mem_text * CW - 2, y, SysMon.MUTED_COLOR, SysMon.BG_COLOR)
   y = y + SysMon.LINE_H
   local count = acid_task_count()
   for i = 0, count - 1 do
@@ -235,11 +239,11 @@ end
 
 function SysMon:draw_nav()
   local y = self:content_bottom()
-  acid_fill_rect(0, y, SysMon.WINDOW_W, SysMon.NAV_H, SysMon.PANEL_COLOR)
+  acid_fill_rect(0, y, WW, SysMon.NAV_H, SysMon.PANEL_COLOR)
   acid_draw_text("<", 4, y + 2, SysMon.TEXT_COLOR, SysMon.PANEL_COLOR)
-  acid_draw_text(">", SysMon.WINDOW_W - 10, y + 2, SysMon.TEXT_COLOR, SysMon.PANEL_COLOR)
+  acid_draw_text(">", WW - CW - 4, y + 2, SysMon.TEXT_COLOR, SysMon.PANEL_COLOR)
   local label = (self.page + 1) .. "/" .. #SysMon.PAGES
-  acid_draw_text(label, (SysMon.WINDOW_W - #label * 6) // 2, y + 2, SysMon.MUTED_COLOR, SysMon.PANEL_COLOR)
+  acid_draw_text(label, (WW - #label * CW) // 2, y + 2, SysMon.MUTED_COLOR, SysMon.PANEL_COLOR)
 end
 
 function SysMon:on_touch(x, y, pressed)
@@ -254,7 +258,7 @@ function SysMon:on_touch(x, y, pressed)
   if y >= self:content_bottom() then
     if x < 20 then
       self:turn_page((self.page - 1 + n) % n)
-    elseif x > SysMon.WINDOW_W - 20 then
+    elseif x > WW - CW - 14 then
       self:turn_page((self.page + 1) % n)
     end
     return
@@ -263,7 +267,7 @@ function SysMon:on_touch(x, y, pressed)
   if self.page ~= 0 then return end
   local row = (y - SysMon.TITLE_BAR_H - SysMon.LINE_H) // SysMon.ROW_H
   if row < 0 or row >= #self.row_indices then return end
-  if x < SysMon.WINDOW_W - SysMon.BTN_W - 4 then return end
+  if x < WW - SysMon.BTN_W - 4 then return end
   local index = self.row_indices[row + 1]
   if not index then return end -- index 0 is truthy in Lua; only false skips
   if self.kill_armed == index then
