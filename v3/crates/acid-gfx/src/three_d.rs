@@ -70,16 +70,40 @@ pub enum MeshError {
     TooBig,
 }
 
+/// A validated mesh. `Mesh::new` and `builtin` are the only constructors,
+/// so every point is within +-COORD_MAX and every index is in range; the
+/// fields are private so a hand-built mesh cannot skip that:
+///
+/// ```compile_fail,E0451
+/// let m = acid_gfx::three_d::Mesh { points: vec![], faces: vec![], edges: vec![] };
+/// ```
+///
+/// ```compile_fail,E0616
+/// let m = acid_gfx::three_d::builtin("cube").unwrap();
+/// let _ = m.points;
+/// ```
 #[derive(Debug, Clone)]
 pub struct Mesh {
-    pub points: Vec<(i32, i32, i32)>,
-    /// Three or four point indices; the fourth is `NO_INDEX` for a triangle.
-    pub faces: Vec<[u16; 4]>,
-    /// Unique unordered point pairs, in first-seen order.
-    pub edges: Vec<(u16, u16)>,
+    points: Vec<(i32, i32, i32)>,
+    faces: Vec<[u16; 4]>,
+    edges: Vec<(u16, u16)>,
 }
 
 impl Mesh {
+    pub fn points(&self) -> &[(i32, i32, i32)] {
+        &self.points
+    }
+
+    /// Three or four point indices; the fourth is `NO_INDEX` for a triangle.
+    pub fn faces(&self) -> &[[u16; 4]] {
+        &self.faces
+    }
+
+    /// Unique unordered point pairs, in first-seen order.
+    pub fn edges(&self) -> &[(u16, u16)] {
+        &self.edges
+    }
+
     pub fn new(points: Vec<(i32, i32, i32)>, faces: Vec<[u16; 4]>) -> Result<Mesh, MeshError> {
         if points.len() < 3 {
             return Err(MeshError::Bad);
@@ -238,7 +262,7 @@ fn isqrt_u128(n: u128) -> u128 {
 /// Rotate then project every point. Projected points are `None` behind the
 /// camera; the rotated points give normals and depth.
 fn prepare(m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32, ry: i32, rz: i32) -> (Vec<Option<(i32, i32)>>, Vec<(i32, i32, i32)>) {
-    let rot: Vec<(i32, i32, i32)> = m.points.iter().map(|&p| rotate(p, rx, ry, rz)).collect();
+    let rot: Vec<(i32, i32, i32)> = m.points().iter().map(|&p| rotate(p, rx, ry, rz)).collect();
     let proj = rot.iter().map(|&p| project(p, cx, cy, size)).collect();
     (proj, rot)
 }
@@ -253,7 +277,7 @@ struct Tri {
 /// in front of the camera, facing it, and with a non-zero normal.
 fn visible_tris(m: &Mesh, proj: &[Option<(i32, i32)>], rot: &[(i32, i32, i32)]) -> Vec<Tri> {
     let mut tris: Vec<(i64, Tri)> = Vec::new();
-    for f in &m.faces {
+    for f in m.faces() {
         let halves: &[[u16; 3]] = if f[3] == NO_INDEX { &[[f[0], f[1], f[2]]] } else { &[[f[0], f[1], f[2]], [f[0], f[2], f[3]]] };
         for t in halves {
             let [ia, ib, ic] = t.map(|i| i as usize);
@@ -288,7 +312,7 @@ fn visible_tris(m: &Mesh, proj: &[Option<(i32, i32)>], rot: &[(i32, i32, i32)]) 
 }
 
 fn drawn_edges<'a>(m: &'a Mesh, proj: &'a [Option<(i32, i32)>]) -> impl Iterator<Item = ((i32, i32), (i32, i32))> + 'a {
-    m.edges.iter().filter_map(|&(a, b)| Some((proj[a as usize]?, proj[b as usize]?)))
+    m.edges().iter().filter_map(|&(a, b)| Some((proj[a as usize]?, proj[b as usize]?)))
 }
 
 fn scale(color: u32, light: i64) -> u32 {
@@ -333,7 +357,7 @@ pub fn draw_mesh(c: &mut Canvas, m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32,
 /// the screen; every edge and triangle capped at the screen's area.
 #[allow(clippy::too_many_arguments)]
 pub fn mesh_cost(m: &Mesh, cx: i32, cy: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, screen_w: i32, screen_h: i32) -> u64 {
-    let mut cost = 64 * m.points.len() as u64;
+    let mut cost = 64 * m.points().len() as u64;
     if !(0..=2).contains(&mode) {
         return cost;
     }
@@ -403,12 +427,12 @@ mod tests {
     #[test]
     fn edges_are_unique() {
         let cube = builtin("cube").unwrap();
-        assert_eq!(cube.edges.len(), 12);
+        assert_eq!(cube.edges().len(), 12);
     }
 
     #[test]
     fn builtins_have_their_counts() {
-        let counts: Vec<(usize, usize)> = BUILTIN_NAMES.iter().map(|n| { let m = builtin(n).unwrap(); (m.points.len(), m.faces.len()) }).collect();
+        let counts: Vec<(usize, usize)> = BUILTIN_NAMES.iter().map(|n| { let m = builtin(n).unwrap(); (m.points().len(), m.faces().len()) }).collect();
         assert_eq!(counts, [(8, 6), (5, 5), (6, 8), (42, 48), (72, 72)]);
         assert!(builtin("teapot").is_none());
     }
@@ -437,7 +461,7 @@ mod tests {
         let pts = vec![(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0), (5, 20, 0)];
         // quad 0-1-2-3 plus triangle 3-2-4 sharing edge 2-3 backwards.
         let m = Mesh::new(pts, vec![[0, 1, 2, 3], [3, 2, 4, NO_INDEX]]).unwrap();
-        assert_eq!(m.edges, vec![(0, 1), (1, 2), (2, 3), (0, 3), (2, 4), (3, 4)]);
+        assert_eq!(m.edges(), vec![(0, 1), (1, 2), (2, 3), (0, 3), (2, 4), (3, 4)]);
     }
 
     #[test]
@@ -481,8 +505,8 @@ mod tests {
         // Convex shapes: every face's normal points away from the origin.
         for name in ["cube", "pyramid", "octahedron", "sphere"] {
             let m = builtin(name).unwrap();
-            for f in &m.faces {
-                let (a, b, c) = (m.points[f[0] as usize], m.points[f[1] as usize], m.points[f[2] as usize]);
+            for f in m.faces() {
+                let (a, b, c) = (m.points()[f[0] as usize], m.points()[f[1] as usize], m.points()[f[2] as usize]);
                 let n = cross(sub(b, a), sub(c, a));
                 let centre = (a.0 as i64 + b.0 as i64 + c.0 as i64, a.1 as i64 + b.1 as i64 + c.1 as i64, a.2 as i64 + b.2 as i64 + c.2 as i64);
                 assert!(n.0 * centre.0 + n.1 * centre.1 + n.2 * centre.2 > 0, "{name} face {f:?} winds inward");
@@ -491,8 +515,8 @@ mod tests {
         // Torus: each face's normal points away from the tube's centre circle
         // (radius 70, y = 0). Work in units of 1/4 so the quad centre is exact.
         let m = builtin("torus").unwrap();
-        for f in &m.faces {
-            let p: Vec<(i32, i32, i32)> = f.iter().map(|&i| m.points[i as usize]).collect();
+        for f in m.faces() {
+            let p: Vec<(i32, i32, i32)> = f.iter().map(|&i| m.points()[i as usize]).collect();
             let n = cross(sub(p[1], p[0]), sub(p[2], p[0]));
             let c4 = (
                 p.iter().map(|q| q.0 as i64).sum::<i64>(),
@@ -534,10 +558,10 @@ mod tests {
         draw_mesh(&mut c, &m, cx, cy, size, rx, ry, rz, 0, 0xFFFFFF);
         assert_eq!(colours(&c), [rgb565(0xFFFFFF)], "every lit pixel is the colour");
         let lit = |x: i32, y: i32| (-1..=1).any(|dy| (-1..=1).any(|dx| c.pixel(x + dx, y + dy) == Some(rgb565(0xFFFFFF))));
-        assert_eq!(m.edges.len(), 12);
-        for &(a, b) in &m.edges {
-            let pa = project(rotate(m.points[a as usize], rx, ry, rz), cx, cy, size).unwrap();
-            let pb = project(rotate(m.points[b as usize], rx, ry, rz), cx, cy, size).unwrap();
+        assert_eq!(m.edges().len(), 12);
+        for &(a, b) in m.edges() {
+            let pa = project(rotate(m.points()[a as usize], rx, ry, rz), cx, cy, size).unwrap();
+            let pb = project(rotate(m.points()[b as usize], rx, ry, rz), cx, cy, size).unwrap();
             let (mx, my) = ((pa.0 + pb.0) / 2, (pa.1 + pb.1) / 2);
             assert!((0..120).contains(&mx) && (0..120).contains(&my), "midpoint on canvas");
             assert!(lit(mx, my), "edge {a}-{b} midpoint ({mx},{my}) not drawn");
@@ -620,9 +644,9 @@ mod tests {
     fn mesh_cost_counts_points_lines_and_fills() {
         let m = builtin("cube").unwrap();
         let (cx, cy, size, rx, ry, rz, w, h) = (60, 60, 24, 20, 30, 0, 120, 120);
-        let pts: Vec<(i32, i32)> = m.points.iter().map(|&p| project(rotate(p, rx, ry, rz), cx, cy, size).unwrap()).collect();
+        let pts: Vec<(i32, i32)> = m.points().iter().map(|&p| project(rotate(p, rx, ry, rz), cx, cy, size).unwrap()).collect();
         let base = 64 * 8u64;
-        let lines: u64 = m.edges.iter().map(|&(a, b)| {
+        let lines: u64 = m.edges().iter().map(|&(a, b)| {
             let (p, q) = (pts[a as usize], pts[b as usize]);
             ((p.0 - q.0).abs().max((p.1 - q.1).abs()) + 1) as u64
         }).sum();
@@ -631,9 +655,9 @@ mod tests {
         let eye = (0, 0, -512 * 64 / size);
         let mut fills = 0u64;
         let mut visible = 0;
-        for f in &m.faces {
+        for f in m.faces() {
             for t in [[f[0], f[1], f[2]], [f[0], f[2], f[3]]] {
-                let r: Vec<_> = t.iter().map(|&i| rotate(m.points[i as usize], rx, ry, rz)).collect();
+                let r: Vec<_> = t.iter().map(|&i| rotate(m.points()[i as usize], rx, ry, rz)).collect();
                 let n = cross(sub(r[1], r[0]), sub(r[2], r[0]));
                 let v = sub(r[0], eye);
                 if n.0 * v.0 + n.1 * v.1 + n.2 * v.2 >= 0 { continue; }
@@ -656,14 +680,30 @@ mod tests {
             let (p, q) = (pts[a as usize], pts[b as usize]);
             ((p.0 - q.0).abs().max((p.1 - q.1).abs()) + 1) as u64
         };
-        assert!(m.edges.iter().any(|e| line_len(e) > 16));
+        assert!(m.edges().iter().any(|e| line_len(e) > 16));
         let small = mesh_cost(&m, cx, cy, size, rx, ry, rz, 0, 4, 4);
-        assert_eq!(small, base + m.edges.iter().map(|e| line_len(e).min(16)).sum::<u64>());
+        assert_eq!(small, base + m.edges().iter().map(|e| line_len(e).min(16)).sum::<u64>());
         // Same answer whatever canvas the mesh is then drawn on.
         for (cw, ch) in [(1, 1), (120, 120), (640, 480)] {
             let mut c = Canvas::new(cw, ch);
             draw_mesh(&mut c, &m, cx, cy, size, rx, ry, rz, 2, 0xFFFFFF);
             assert_eq!(mesh_cost(&m, cx, cy, size, rx, ry, rz, 2, w, h), base + fills + lines);
+        }
+    }
+
+    #[test]
+    fn the_largest_valid_mesh_draws_and_costs_at_any_size() {
+        // Every corner at +-32767, the most Mesh::new allows, with the faces
+        // and edges of the cube; debug builds trap any i64 overflow.
+        let cube = builtin("cube").unwrap();
+        let pts: Vec<(i32, i32, i32)> = cube.points().iter().map(|p| (p.0.signum() * COORD_MAX, p.1.signum() * COORD_MAX, p.2.signum() * COORD_MAX)).collect();
+        let m = Mesh::new(pts, cube.faces().to_vec()).unwrap();
+        for (rx, ry, rz) in [(0, 0, 0), (32, 32, 32), (20, 30, 0), (128, 64, 200)] {
+            for mode in 0..3 {
+                let mut c = Canvas::new(64, 64);
+                draw_mesh(&mut c, &m, 32, 32, i32::MAX, rx, ry, rz, mode, 0xFFFFFF);
+                assert!(mesh_cost(&m, 32, 32, i32::MAX, rx, ry, rz, mode, 64, 64) >= 64 * 8);
+            }
         }
     }
 
