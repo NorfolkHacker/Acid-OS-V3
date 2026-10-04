@@ -10,6 +10,8 @@ use alloc::{vec, vec::Vec};
 mod font;
 mod font_data;
 mod raster;
+mod sin_table;
+pub mod three_d;
 pub mod wallpaper;
 mod wallpaper_data;
 
