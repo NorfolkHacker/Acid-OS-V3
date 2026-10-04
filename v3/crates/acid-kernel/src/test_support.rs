@@ -22,6 +22,27 @@ pub(crate) fn parked_runner(tx: mpsc::Sender<AppContext>) -> AppRunner {
     })
 }
 
+/// As `parked_runner`, but every event other than Close is forwarded to
+/// `ev_tx`. A test that wants to see the app's events can't read the queue
+/// itself: the runner thread is also reading it and may take an event first.
+pub(crate) fn forwarding_runner(ctx_tx: mpsc::Sender<AppContext>, ev_tx: mpsc::Sender<Event>) -> AppRunner {
+    let ctx_tx = std::sync::Mutex::new(ctx_tx);
+    let ev_tx = std::sync::Mutex::new(ev_tx);
+    Arc::new(move |ctx: AppContext| {
+        let (queue, kernel) = (ctx.queue.clone(), ctx.kernel.clone());
+        let _ = ctx_tx.lock().unwrap().send(ctx);
+        loop {
+            match queue.recv_timeout(kernel.platform(), 20) {
+                Some(Event::Close) => return,
+                Some(ev) => {
+                    let _ = ev_tx.lock().unwrap().send(ev);
+                }
+                None => {}
+            }
+        }
+    })
+}
+
 pub(crate) fn req(x: i32, y: i32, w: i32, h: i32) -> SpawnRequest {
     SpawnRequest { script_path: "test".into(), x, y, w, h, closable: true, arg: Some("a".into()), libs: None, force_cart: false }
 }

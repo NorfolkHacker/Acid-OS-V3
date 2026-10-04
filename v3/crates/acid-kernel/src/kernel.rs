@@ -843,20 +843,21 @@ mod tests {
         assert!(c.cart && c.resizable, "a cart may opt in");
     }
 
-    fn resizable_kernel(tag: &str) -> (TempTree, Arc<Kernel>, mpsc::Receiver<AppContext>) {
+    fn resizable_kernel(tag: &str) -> (TempTree, Arc<Kernel>, mpsc::Receiver<AppContext>, mpsc::Receiver<crate::event::Event>) {
         let t = temp_tree(tag);
         std::fs::create_dir_all(t.0.join("v3/apps")).unwrap();
         std::fs::write(t.0.join("v3/apps/r.app.toml"), "resizable = true\nmin_w = 100\nmin_h = 60\n").unwrap();
         let p = FakePlatform::new(t.0.clone());
         let k = Kernel::with_screen(p.clone(), crate::layout::Screen::DEFAULT);
         let (tx, rx) = mpsc::channel();
-        k.set_runner(parked_runner(tx));
-        (t, k, rx)
+        let (ev_tx, ev_rx) = mpsc::channel();
+        k.set_runner(forwarding_runner(tx, ev_tx));
+        (t, k, rx, ev_rx)
     }
 
     #[test]
     fn a_resizable_window_resizes_keeping_its_pixels_and_tells_the_app() {
-        let (_t, k, rx) = resizable_kernel("resize_apply");
+        let (_t, k, rx, ev_rx) = resizable_kernel("resize_apply");
         let task = k.spawn_app(SpawnRequest { script_path: "v3/apps/r.lua".into(), ..req(40, 40, 200, 150) }).unwrap();
         let ctx = recv(&rx);
         ctx.canvas.lock().fill_rect(0, 0, 10, 10, 0xFF0000);
@@ -868,7 +869,7 @@ mod tests {
             assert_eq!(c.pixel(250, 180), Some(acid_gfx::rgb565(crate::theme::THEME_BG)), "the new area is background");
         }
         assert_eq!(k.with_state(|st| st.windows.by_task(task).map(|w| (w.w, w.h))), Some((300, 200)));
-        assert_eq!(ctx.queue.try_recv(), Some(crate::event::Event::Resized { w: 300, h: 200 }));
+        assert_eq!(ev_rx.recv_timeout(std::time::Duration::from_secs(5)), Ok(crate::event::Event::Resized { w: 300, h: 200 }));
         assert_eq!(k.resize_window(task, 300, 200), None, "the same size changes nothing");
         assert_eq!(k.resize_window(task, 10, 10), Some((100, 60)), "clamped up to the minimum");
         assert_eq!(k.resize_window(task, 5000, 5000), Some((600, 440)), "clamped to the screen right and below the window");
@@ -888,7 +889,7 @@ mod tests {
 
     #[test]
     fn composite_draws_the_resize_outline_above_everything() {
-        let (_t, k, rx) = resizable_kernel("resize_outline");
+        let (_t, k, rx, _ev_rx) = resizable_kernel("resize_outline");
         k.spawn_app(SpawnRequest { script_path: "v3/apps/r.lua".into(), ..req(100, 100, 200, 150) }).unwrap();
         recv(&rx);
         let d = AtomicBool::new(false);
@@ -907,7 +908,7 @@ mod tests {
 
     #[test]
     fn a_resizable_window_shows_its_grip() {
-        let (_t, k, rx) = resizable_kernel("resize_grip");
+        let (_t, k, rx, _ev_rx) = resizable_kernel("resize_grip");
         k.spawn_app(SpawnRequest { script_path: "v3/apps/r.lua".into(), ..req(40, 40, 200, 150) }).unwrap();
         recv(&rx);
         k.composite_frame();
