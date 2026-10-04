@@ -406,7 +406,7 @@ function CartApp:draw_list(label, count, buttons)
   end
   local y = TITLE_BAR_H + HEADER_H
   if count == 0 then
-    acid_fill_rect(0, y, WINDOW_W, ROW_H, BG_COLOR)
+    acid_fill_rect(0, y, BAR_X, ROW_H, BG_COLOR)
     acid_draw_text(self:empty_text(), 2, y + 2, MUTED_COLOR, BG_COLOR)
   end
   local i = self.scroll

@@ -37,6 +37,8 @@ for _, t in ipairs(TEXT_AT) do
   if t[3] < 146 and t[2] + #t[1] * FONT_W > 253 then clear = false end
 end
 ok(clear, "no scroll-back text reaches the bar's column")
+local tclear, twhy = drawn_text_clear()
+ok(tclear, "and no text overlaps other text" .. (twhy and (": " .. twhy) or ""))
 G.lines[40] = string.rep("w", 80)
 frame()
 local fits, why = drawn_inside_window()

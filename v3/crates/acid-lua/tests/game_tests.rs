@@ -246,7 +246,7 @@ fn editor_scroll() {
         "v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/editor/buffer.lua", "v3/apps/editor/hl.lua",
         "v3/apps/editor/layout.lua", "v3/apps/editor/cmdbar.lua", "v3/apps/editor/touch.lua",
         "v3/apps/editor.lua", "v3/tools/test_scroll_editor.lua",
-    ]), 16);
+    ]), 24);
 }
 
 #[test]
@@ -261,7 +261,7 @@ fn cart_install() {
 
 #[test]
 fn cart_scroll() {
-    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/cart/cartfile.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/cart.lua", "v3/tools/test_scroll_cart.lua"]), 10);
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/cart/cartfile.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/cart.lua", "v3/tools/test_scroll_cart.lua"]), 11);
 }
 
 #[test]
@@ -302,7 +302,7 @@ fn terminal_resize() {
 
 #[test]
 fn terminal_scroll() {
-    run_suite_with("WIN_W, WIN_H = 260, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/lib/acid_eggs.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/terminal.lua", "v3/tools/test_scroll_terminal.lua"]), 17);
+    run_suite_with("WIN_W, WIN_H = 260, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/lib/acid_eggs.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/terminal.lua", "v3/tools/test_scroll_terminal.lua"]), 18);
 }
 
 #[test]

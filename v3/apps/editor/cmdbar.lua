@@ -211,6 +211,7 @@ function EditorCmd.cmd_key(self, code)
 end
 
 function EditorCmd.cmd_run(self, ch)
+  local start_x, start_y = self.buf.cx, self.buf.cy
   local was_armed = self.quit_armed
   self.quit_armed = false
   if ch == "q" then self.quit_armed = was_armed end
@@ -259,7 +260,9 @@ function EditorCmd.cmd_run(self, ch)
   else
     self.message = "no command '" .. ch .. "'"
   end
-  self:ensure_scroll()
+  -- Only a command that moved the cursor brings the view to it; h, ?, s
+  -- and the like leave a view paged away with the scroll bar where it is.
+  if self.buf.cx ~= start_x or self.buf.cy ~= start_y then self:ensure_scroll() end
 end
 
 -- Save, then launch the file being edited as a live app window. The

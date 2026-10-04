@@ -35,11 +35,11 @@ function EditorLayout.compute(w, h)
 end
 EditorLayout.compute(acid_window_size())
 
--- The editor's own source, plus acid_app.lua (every app loads it, so a
--- bad save there bricks every app, the editor included) -- the "the
--- editor must not be able to break itself" set. Both save_file
--- (EditorApp) and cmd_run_file (EditorCmd, a mixin) need this, so it
--- lives here, in the one module both sides share.
+-- The editor's own source, plus the libs its manifest loads (acid_app.lua
+-- and acid_scrollbar.lua: every app loads the first, and a bad save in
+-- either bricks the editor, so it must not be able to break itself). Both
+-- save_file (EditorApp) and cmd_run_file (EditorCmd, a mixin) need this, so
+-- it lives here, in the one module both sides share.
 --
 -- Anchored to the two roots this file can actually be reached through
 -- -- v3/apps (canonical) and v3/fsroot/App (the live symlink to it) --
@@ -63,6 +63,7 @@ EditorLayout.OWN_SOURCE_RELATIVE_PATHS = {
   "editor/layout.lua",
   "editor/touch.lua",
   "lib/acid_app.lua",
+  "lib/acid_scrollbar.lua",
 }
 
 function EditorLayout.own_source(self, path)

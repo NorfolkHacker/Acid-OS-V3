@@ -57,9 +57,17 @@ function EditorApp:on_create()
 end
 
 function EditorApp:on_resize(w, h)
+  -- Whether the cursor was on screen before the new size: a view paged
+  -- away with the scroll bar stays where it was left, and only a resize
+  -- that pushes a visible cursor off the edge follows it.
+  local was_visible = self.buf.cy >= self.scroll_y
+    and self.buf.cy < self.scroll_y + self:visible_lines()
   EditorLayout.compute(w, h)
   EditorCmd.fit_cells()
-  self:ensure_scroll()
+  self.scroll_y = math.min(self.scroll_y,
+    AcidScrollbar.max_offset(self.buf:line_count(), self:visible_lines()))
+  if was_visible then self:ensure_scroll_y() end
+  self:ensure_scroll_x()
 end
 
 function EditorApp:read_lines()
@@ -377,11 +385,19 @@ function EditorApp:on_key(code, pressed)
 end
 
 function EditorApp:ensure_scroll()
+  self:ensure_scroll_y()
+  self:ensure_scroll_x()
+end
+
+function EditorApp:ensure_scroll_y()
   if self.buf.cy < self.scroll_y then
     self.scroll_y = self.buf.cy
   elseif self.buf.cy >= self.scroll_y + self:visible_lines() then
     self.scroll_y = self.buf.cy - self:visible_lines() + 1
   end
+end
+
+function EditorApp:ensure_scroll_x()
   if self.buf.cx < self.scroll_x then
     self.scroll_x = self.buf.cx
   elseif self.buf.cx >= self.scroll_x + self:visible_cols() then

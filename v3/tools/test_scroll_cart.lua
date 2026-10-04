@@ -37,6 +37,8 @@ for _, t in ipairs(TEXT_AT) do
   if t[3] >= 28 and t[3] < 184 and t[2] + #t[1] * FONT_W > 293 then clear = false end
 end
 ok(clear, "list rows and their text stop short of the bar")
+local tclear, twhy = drawn_text_clear()
+ok(tclear, "and no text overlaps other text" .. (twhy and (": " .. twhy) or ""))
 
 group("paging and dragging")
 touch(295, 28 + 155)

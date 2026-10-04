@@ -41,6 +41,22 @@ for _, r in ipairs(RECTS) do
   if r[2] < L.STATUS_Y and r[1] < 413 and r[1] + r[3] > 413 then clear = false end
 end
 ok(clear, "no text or row background reaches the bar's column")
+local tclear, twhy = drawn_text_clear()
+ok(tclear, "and no text spills past the window" .. (twhy and (": " .. twhy) or ""))
+G.hl_on = true
+load(100, "local x = \"" .. string.rep("y", 200) .. "\" -- comment")
+frame()
+clear = true
+for _, t in ipairs(TEXT_AT) do
+  if t[3] < L.STATUS_Y and t[2] + #t[1] * FONT_W > 413 then clear = false end
+end
+for _, r in ipairs(RECTS) do
+  if r[2] < L.STATUS_Y and r[1] < 413 and r[1] + r[3] > 413 then clear = false end
+end
+ok(clear, "with highlighting on nothing reaches the bar's column either")
+G.hl_on = false
+ok(EditorLayout.own_source(G, "v3/apps/lib/acid_scrollbar.lua") and EditorLayout.own_source(G, "v3/fsroot/App/lib/acid_scrollbar.lua"),
+  "the scroll bar lib Editor loads counts as its own source")
 load(100)
 
 group("paging and dragging move only the view")
@@ -84,11 +100,12 @@ eq({ G.buf.cx, G.buf.cy }, { 3, 29 }, "a text tap still places the cursor under 
 
 group("no bar when everything fits")
 load(3)
+G.buf:set_cursor(0, 2)
 frame()
 ok(not track_drawn(), "3 lines need no bar")
 touch(415, 16 + 1)
 release()
-eq({ G.scroll_y, G.buf.cy }, { 0, 0 }, "a press where the bar would be is an ordinary text tap")
+eq({ G.scroll_y, G.buf.cx, G.buf.cy }, { 0, 6, 0 }, "a press where the bar would be is an ordinary text tap, clamped to the line's end")
 
 group("resizing")
 load(100)
@@ -96,3 +113,30 @@ resize_app(600, 400)
 eq({ G:bar_geometry() }, { 593, 16, 370 }, "the bar follows a resize")
 local fits, why = drawn_inside_window()
 ok(fits, "and everything still fits" .. (why and (": " .. why) or ""))
+
+group("resizing keeps a scrolled view")
+resize_app(420, 280)
+load(100)
+G.buf:set_cursor(1, 3)
+touch(415, 16 + 249)
+release()
+eq(G.scroll_y, 25, "paged away from the cursor")
+resize_app(600, 400)
+eq({ G.scroll_y, G.buf.cx, G.buf.cy }, { 25, 1, 3 }, "growing the window keeps the paged view and the cursor")
+load(100)
+G.scroll_y = 75
+resize_app(600, 400)
+eq(G.scroll_y, S.max_offset(100, G:visible_lines()), "growing clamps a view that now shows past the end")
+
+group("commands that stay put keep the view")
+resize_app(420, 280)
+load(100)
+G.buf:set_cursor(0, 3)
+touch(415, 16 + 249)
+release()
+key(AcidKeys.ESCAPE)
+key(string.byte("h"))
+eq({ G.scroll_y, G.buf.cy }, { 25, 3 }, "ESC h toggles highlighting without moving the view")
+key(AcidKeys.ESCAPE)
+key(string.byte("t"))
+eq({ G.scroll_y, G.buf.cy }, { 0, 0 }, "ESC t moves the cursor and scrolls to it")
