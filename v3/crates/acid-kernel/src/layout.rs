@@ -50,6 +50,18 @@ pub const CART_WINDOW_MAX: usize = 4;
 // Carts can never take every window: built-in callers always have room.
 const _: () = assert!(CART_WINDOW_MAX < WINDOW_MAX);
 
+/// A window's size when its app draws at `scale`: the text area below the
+/// title bar grows by `scale` in both directions (the title bar doesn't),
+/// clamped to the screen less the desktop strip. Scale 1 is the size itself.
+pub fn grown_size(screen: Screen, w: i32, h: i32, scale: i32) -> (i32, i32) {
+    if scale <= 1 {
+        return (w, h);
+    }
+    let w2 = (w * scale).min(screen.w);
+    let h2 = (TITLE_BAR_H + (h - TITLE_BAR_H) * scale).max(h).min(screen.h - DESKTOP_STRIP_H);
+    (w2, h2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +89,15 @@ mod tests {
         assert!(window_size_ok(Screen::DEFAULT, 640, 480));
         assert!(!window_size_ok(Screen::WIDE, 640, 480), "too tall at 640x360");
         assert!(!window_size_ok(Screen::SVGA, 0, 10));
+    }
+
+    #[test]
+    fn grown_size_doubles_the_text_area_and_clamps_to_the_screen() {
+        assert_eq!(grown_size(Screen::DEFAULT, 220, 160, 1), (220, 160), "scale 1 changes nothing");
+        assert_eq!(grown_size(Screen::DEFAULT, 220, 160, 2), (440, 304), "the title bar isn't doubled");
+        assert_eq!(grown_size(Screen::DEFAULT, 420, 280, 2), (640, 456), "clamped to the screen less the strip");
+        assert_eq!(grown_size(Screen::WIDE, 420, 280, 2), (640, 336));
+        assert_eq!(grown_size(Screen::SVGA, 420, 280, 2), (800, 544));
+        assert_eq!(grown_size(Screen::DEFAULT, 50, 10, 2), (100, 10), "a window no taller than its title bar keeps its height");
     }
 }

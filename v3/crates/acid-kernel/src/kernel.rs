@@ -9,7 +9,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 
 use acid_gfx::{Canvas, wallpaper::wallpaper_canvas_for};
 use acid_platform::Platform;
@@ -17,7 +17,7 @@ use acid_platform::sync::Mutex;
 
 use crate::TaskId;
 use crate::event::EventQueue;
-use crate::layout::{CART_WINDOW_MAX, Screen, window_size_ok};
+use crate::layout::{CART_WINDOW_MAX, DESKTOP_STRIP_H, Screen, window_size_ok};
 use crate::router::{self, KernelState};
 use crate::theme::{ACID_OVERLAY_KEY, THEME_BG};
 use crate::window::Window;
@@ -40,6 +40,8 @@ pub struct AppContext {
     /// Cart-level trust (spec §14.2): set by `spawn_app` from `app_is_cart`,
     /// or forced when a cart asked for the spawn (spec §16.2).
     pub cart: bool,
+    /// The scale this app's text draws at (1 or 2), fixed at spawn.
+    pub font_scale: i32,
 }
 
 /// Spec §14.2: an app is built-in only if it is a `.lua` file under
@@ -50,33 +52,51 @@ pub struct AppContext {
 /// The source value is normalised (trimmed, surrounding quotes stripped,
 /// lowercased) and the key matched case-insensitively, so `Source = "Cart"`
 /// counts.
-pub fn app_is_cart(platform: &dyn Platform, script_path: &str) -> bool {
+/// What an app's own manifest says about it, from one read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ManifestFlags {
+    /// Cart-level trust (spec §14.2).
+    pub cart: bool,
+    /// `font = scalable`: draws at Config's font size.
+    pub scalable: bool,
+}
+
+pub fn manifest_flags(platform: &dyn Platform, script_path: &str) -> ManifestFlags {
+    let outside = ManifestFlags { cart: true, scalable: false };
     if !(crate::fs_path::fs_path_is_allowed(script_path)
         && script_path.starts_with("v3/apps/")
         && script_path.ends_with(".lua"))
     {
-        return true;
+        return outside;
     }
     let stem = &script_path[..script_path.len() - ".lua".len()];
     let toml = alloc::format!("{stem}.app.toml");
     match platform.fs().read(&toml) {
-        // Any spelling of the key counts too (`Source`, `SOURCE`): fail closed.
-        Ok(bytes) => crate::manifest::parse_manifest(&String::from_utf8_lossy(&bytes))
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("source") && source_is_cart(v)),
-        Err(acid_platform::FsError::NotFound) => false,
-        Err(_) => true,
+        Ok(bytes) => {
+            let fields = crate::manifest::parse_manifest(&String::from_utf8_lossy(&bytes));
+            // Any spelling of the key counts (`Source`, `SOURCE`): fail closed.
+            let cart = fields.iter().any(|(k, v)| k.eq_ignore_ascii_case("source") && unquote(v).eq_ignore_ascii_case("cart"));
+            let scalable = fields.iter().any(|(k, v)| k.eq_ignore_ascii_case("font") && unquote(v) == "scalable");
+            ManifestFlags { cart, scalable }
+        }
+        Err(acid_platform::FsError::NotFound) => ManifestFlags { cart: false, scalable: false },
+        Err(_) => outside,
     }
 }
 
-fn source_is_cart(value: &str) -> bool {
+pub fn app_is_cart(platform: &dyn Platform, script_path: &str) -> bool {
+    manifest_flags(platform, script_path).cart
+}
+
+/// A manifest value trimmed, with surrounding quotes stripped.
+fn unquote(value: &str) -> &str {
     let mut v = value.trim();
     for q in ['"', '\''] {
         if v.len() >= 2 && v.starts_with(q) && v.ends_with(q) {
             v = &v[1..v.len() - 1];
         }
     }
-    v.trim().eq_ignore_ascii_case("cart")
+    v.trim()
 }
 
 /// Runs one app to completion on its own task. The kernel cleans up the
@@ -131,6 +151,7 @@ pub struct Kernel {
     wallpaper_enabled: AtomicBool,
     composited: AtomicU32,
     skipped: AtomicU32,
+    font_scale: AtomicI32,
 }
 
 impl Kernel {
@@ -158,6 +179,7 @@ impl Kernel {
             wallpaper_enabled: AtomicBool::new(true),
             composited: AtomicU32::new(0),
             skipped: AtomicU32::new(0),
+            font_scale: AtomicI32::new(1),
         })
     }
 
@@ -193,20 +215,32 @@ impl Kernel {
     /// for, when CART_WINDOW_MAX cart-level windows are open), then starts
     /// the app's task, rolling the registration back if it can't start.
     pub fn spawn_app(self: &Arc<Self>, req: SpawnRequest) -> Option<TaskId> {
-        if !window_size_ok(self.screen, req.w, req.h) {
+        let flags = manifest_flags(&*self.platform, &req.script_path);
+        // Spec §16.2: what a cart starts runs as a cart.
+        let cart = req.force_cart || flags.cart;
+        let scale = if flags.scalable && !cart { self.font_scale() } else { 1 };
+        let (w, h) = crate::layout::grown_size(self.screen, req.w, req.h, scale);
+        if !window_size_ok(self.screen, w, h) {
             return None;
         }
+        let (x, y) = if scale > 1 {
+            (
+                req.x.clamp(0, (self.screen.w - w).max(0)),
+                req.y.clamp(DESKTOP_STRIP_H, (self.screen.h - h).max(DESKTOP_STRIP_H)),
+            )
+        } else {
+            (req.x, req.y)
+        };
         let runner = self.runner.lock().clone()?;
         let task = TaskId(self.next_task.fetch_add(1, Ordering::SeqCst) + 1);
         let queue = Arc::new(EventQueue::new(self.platform.new_signal()));
-        let canvas = Arc::new(Mutex::new(Canvas::new(req.w, req.h)));
-        // Spec §16.2: what a cart starts runs as a cart.
-        let cart = req.force_cart || app_is_cart(&*self.platform, &req.script_path);
+        let canvas = Arc::new(Mutex::new(Canvas::new(w, h)));
         let mut win = Window::new(
             task, queue.clone(), canvas.clone(), req.script_path.clone(),
-            req.x, req.y, req.w, req.h, req.closable,
+            x, y, w, h, req.closable,
         );
         win.cart = cart;
+        win.font_scale = scale;
         {
             // The cap check and the registration share one lock, so two
             // carts spawning at once can't both slip under the cap.
@@ -227,11 +261,12 @@ impl Kernel {
             script_path: req.script_path.clone(),
             arg: req.arg,
             libs: req.libs,
-            x: req.x,
-            y: req.y,
-            w: req.w,
-            h: req.h,
+            x,
+            y,
+            w,
+            h,
             cart,
+            font_scale: scale,
         };
         let kernel = self.clone();
         let body = Box::new(move || {
@@ -272,6 +307,18 @@ impl Kernel {
     pub fn set_wallpaper_enabled(&self, on: bool) {
         self.wallpaper_enabled.store(on, Ordering::SeqCst);
         self.mark_dirty();
+    }
+
+    /// Config's font setting: 1 (Normal) or 2 (Large), Normal at boot. It
+    /// applies to apps opened afterwards; open windows keep their scale.
+    pub fn font_scale(&self) -> i32 {
+        self.font_scale.load(Ordering::SeqCst)
+    }
+
+    pub fn set_font_scale(&self, s: i32) {
+        if s == 1 || s == 2 {
+            self.font_scale.store(s, Ordering::SeqCst);
+        }
     }
 
     pub fn wallpaper_enabled(&self) -> bool {
@@ -648,5 +695,75 @@ mod tests {
         assert!(k.spawn_app(req(0, 0, 800, 600)).is_some());
         let (_p, k, _rx) = setup_at(crate::layout::Screen::DEFAULT);
         assert!(k.spawn_app(req(0, 0, 800, 600)).is_none());
+    }
+
+    #[test]
+    fn font_scale_accepts_only_1_and_2() {
+        let (_p, k, _rx) = setup();
+        assert_eq!(k.font_scale(), 1, "Normal at boot");
+        k.set_font_scale(2);
+        assert_eq!(k.font_scale(), 2);
+        for bad in [0, 3, -1, 99] {
+            k.set_font_scale(bad);
+            assert_eq!(k.font_scale(), 2, "{bad} is ignored");
+        }
+        k.set_font_scale(1);
+        assert_eq!(k.font_scale(), 1);
+    }
+
+    #[test]
+    fn manifest_flags_reads_the_font_opt_in() {
+        let t = temp_tree("font_flags");
+        std::fs::create_dir_all(t.0.join("v3/apps")).unwrap();
+        std::fs::write(t.0.join("v3/apps/big.app.toml"), "name = Big\nw = 100\nh = 60\nFont = 'scalable'\n").unwrap();
+        std::fs::write(t.0.join("v3/apps/plain.app.toml"), "name = Plain\nw = 100\nh = 60\n").unwrap();
+        std::fs::write(t.0.join("v3/apps/odd.app.toml"), "font = scalable-ish\n").unwrap();
+        let p = FakePlatform::new(t.0.clone());
+        assert_eq!(manifest_flags(&*p, "v3/apps/big.lua"), ManifestFlags { cart: false, scalable: true });
+        assert_eq!(manifest_flags(&*p, "v3/apps/plain.lua"), ManifestFlags { cart: false, scalable: false });
+        assert_eq!(manifest_flags(&*p, "v3/apps/odd.lua").scalable, false, "only the exact value counts");
+        assert_eq!(manifest_flags(&*p, "v3/fsroot/Home/x.lua"), ManifestFlags { cart: true, scalable: false });
+    }
+
+    #[test]
+    fn an_opted_in_app_opens_large_and_grown_and_others_dont() {
+        let t = temp_tree("font_spawn");
+        std::fs::create_dir_all(t.0.join("v3/apps")).unwrap();
+        std::fs::write(t.0.join("v3/apps/big.app.toml"), "font = scalable\n").unwrap();
+        std::fs::write(t.0.join("v3/apps/cartish.app.toml"), "font = scalable\nsource = cart\n").unwrap();
+        let p = FakePlatform::new(t.0.clone());
+        let k = Kernel::with_screen(p.clone(), crate::layout::Screen::DEFAULT);
+        let (tx, rx) = mpsc::channel();
+        k.set_runner(parked_runner(tx));
+        let at = |path: &str| SpawnRequest { script_path: path.into(), ..req(38, 52, 220, 160) };
+        let normal = k.spawn_app(at("v3/apps/big.lua")).unwrap();
+        assert_eq!(recv(&rx).font_scale, 1, "the setting is Normal");
+        k.set_font_scale(2);
+        let big = k.spawn_app(at("v3/apps/big.lua")).unwrap();
+        let ctx = recv(&rx);
+        assert_eq!((ctx.font_scale, ctx.w, ctx.h), (2, 440, 304));
+        k.spawn_app(at("v3/apps/other.lua")).unwrap();
+        assert_eq!(recv(&rx).font_scale, 1, "no opt-in, no scale");
+        k.spawn_app(at("v3/apps/cartish.lua")).unwrap();
+        assert_eq!(recv(&rx).font_scale, 1, "a cart's opt-in is ignored");
+        k.with_state(|st| {
+            assert_eq!(st.windows.by_task(normal).map(|w| (w.font_scale, w.w)), Some((1, 220)), "an open window keeps its scale");
+            assert_eq!(st.windows.by_task(big).map(|w| (w.font_scale, w.w, w.h)), Some((2, 440, 304)));
+        });
+    }
+
+    #[test]
+    fn a_grown_window_is_kept_on_screen() {
+        let t = temp_tree("font_clamp");
+        std::fs::create_dir_all(t.0.join("v3/apps")).unwrap();
+        std::fs::write(t.0.join("v3/apps/big.app.toml"), "font = scalable\n").unwrap();
+        let p = FakePlatform::new(t.0.clone());
+        let k = Kernel::with_screen(p.clone(), crate::layout::Screen::DEFAULT);
+        let (tx, rx) = mpsc::channel();
+        k.set_runner(parked_runner(tx));
+        k.set_font_scale(2);
+        let t1 = k.spawn_app(SpawnRequest { script_path: "v3/apps/big.lua".into(), ..req(400, 300, 220, 160) }).unwrap();
+        recv(&rx);
+        assert_eq!(k.with_state(|st| st.windows.by_task(t1).map(|w| (w.x, w.y))), Some((200, 176)), "pulled back to fit 440x304");
     }
 }
