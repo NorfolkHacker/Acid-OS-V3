@@ -552,3 +552,14 @@ fn canonical_app_path_maps_the_fsroot_app_symlink_back() {
       assert(AcidApp:canonical_app_path("v3/fsroot/Home/n.txt") == "v3/fsroot/Home/n.txt", "other fsroot unchanged")
     "#);
 }
+
+#[test]
+fn screen_size_returns_width_and_height() {
+    let api = FakeApi::with_events(vec![]);
+    let lua = state(api.clone());
+    run(&lua, r#"
+        local w, h = acid_screen_size()
+        acid_draw_text(w .. "x" .. h, 0, 0, 0, 0)
+    "#);
+    assert_eq!(api.texts(), ["640x360"]);
+}

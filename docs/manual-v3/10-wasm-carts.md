@@ -671,6 +671,8 @@ Here is every import in the module `"acid"`, for ABI version 1, in order.
 | `set_wallpaper_enabled` | on (0/1) | open to carts | [`acid_set_wallpaper_enabled`](09-api-reference.md#acid_set_wallpaper_enabled) |
 | `get_wallpaper_enabled` | → i32 (0/1) | | [`acid_get_wallpaper_enabled`](09-api-reference.md#acid_get_wallpaper_enabled) |
 | `window_max` | → i32 | | [`acid_window_max`](09-api-reference.md#acid_window_max) |
+| `screen_w` | → i32 | screen width in pixels | [`acid_screen_size`](09-api-reference.md#acid_screen_size) |
+| `screen_h` | → i32 | screen height in pixels | [`acid_screen_size`](09-api-reference.md#acid_screen_size) |
 | `window_info` | index, buf, cap → len \| −1 | record `name\tx\ty\tw\th\tfocused` | [`acid_window_info`](09-api-reference.md#acid_window_info) |
 | `activate_window` | index | a cart may raise only its own window | [`acid_activate_window`](09-api-reference.md#acid_activate_window) |
 | `close_window` | index → i32 (0/1) | **−4 for a cart**, so always −4 for a WASM cart | [`acid_close_window`](09-api-reference.md#acid_close_window) |

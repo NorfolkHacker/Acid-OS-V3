@@ -296,6 +296,8 @@ pub(crate) fn link(linker: &mut Linker<Host>) -> Result<(), LinkerError> {
 
     // Windows: a record is `name\tx\ty\tw\th\tfocused` (§15.3).
     linker.func_wrap(MODULE, "window_max", |c: Caller<'_, Host>| c.data().api.window_max())?;
+    linker.func_wrap(MODULE, "screen_w", |c: Caller<'_, Host>| c.data().api.screen_size().0)?;
+    linker.func_wrap(MODULE, "screen_h", |c: Caller<'_, Host>| c.data().api.screen_size().1)?;
     linker.func_wrap(MODULE, "window_info", |mut c: Caller<'_, Host>, index: i32, buf: i32, cap: i32| -> Result<i32, Error> {
         let rec = c.data().api.window_info(i64::from(index)).map(|w| {
             let mut s = String::new();

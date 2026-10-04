@@ -64,6 +64,8 @@ pub const IMPORT_NAMES: &[&str] = &[
     "set_wallpaper_enabled",
     "get_wallpaper_enabled",
     "window_max",
+    "screen_w",
+    "screen_h",
     "window_info",
     "activate_window",
     "close_window",

@@ -52,7 +52,7 @@ limits or errors, then what a cart gets (if that differs).
 
 **Audio** — [`acid_play_note`](#acid_play_note) · [`acid_stop_note`](#acid_stop_note) · [`acid_configure_voice`](#acid_configure_voice) · [`acid_configure_osc`](#acid_configure_osc) · [`acid_configure_filter`](#acid_configure_filter) · [`acid_set_ring_partner`](#acid_set_ring_partner) · [`acid_trigger_arp`](#acid_trigger_arp) · [`acid_set_volume`](#acid_set_volume) · [`acid_get_volume`](#acid_get_volume) · [`acid_active_voice_count`](#acid_active_voice_count)
 
-**Windows** — [`acid_window_max`](#acid_window_max) · [`acid_window_info`](#acid_window_info) · [`acid_activate_window`](#acid_activate_window) · [`acid_close_window`](#acid_close_window) · [`acid_send_self_to_back`](#acid_send_self_to_back) · [`acid_am_i_focused`](#acid_am_i_focused)
+**Windows** — [`acid_window_max`](#acid_window_max) · [`acid_screen_size`](#acid_screen_size) · [`acid_window_info`](#acid_window_info) · [`acid_activate_window`](#acid_activate_window) · [`acid_close_window`](#acid_close_window) · [`acid_send_self_to_back`](#acid_send_self_to_back) · [`acid_am_i_focused`](#acid_am_i_focused)
 
 **Launching** — [`acid_launcher_register`](#acid_launcher_register) · [`acid_launcher_count`](#acid_launcher_count) · [`acid_launcher_name`](#acid_launcher_name) · [`acid_launcher_path`](#acid_launcher_path) · [`acid_launcher_spawn`](#acid_launcher_spawn) · [`acid_spawn_app`](#acid_spawn_app) · [`acid_launch_arg`](#acid_launch_arg)
 
@@ -674,6 +674,20 @@ Despite the name, it doesn't ask any other window to repaint.
 
 It copies the wallpaper pixels at the *same coordinates*, so it only looks
 right for a window sitting at the screen's `(0, 0)`.
+
+---
+
+### `acid_screen_size`
+
+```lua snippet
+local w, h = acid_screen_size()   -- 640, 480 by default
+```
+
+The screen's size in pixels. Acid OS picks it at startup (640×480, 640×360
+or 800×600), and it doesn't change while it runs, so it's safe to read once
+and keep.
+
+---
 
 ### `acid_send_self_to_back`
 

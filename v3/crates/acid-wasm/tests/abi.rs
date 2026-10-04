@@ -997,11 +997,20 @@ fn cart_gets_minus_4_closing_and_0_opening_overlay() {
 }
 
 #[test]
+fn screen_size_imports() {
+    let imports = r#"
+  (import "acid" "screen_w" (func $sw (result i32)))
+  (import "acid" "screen_h" (func $sh (result i32)))"#;
+    let log = run_api(imports, "", "call $sw call $say call $sh call $say");
+    assert_eq!(log, exp![said(640), said(360)]);
+}
+
+#[test]
 fn import_names_match_the_linker() {
     use std::collections::BTreeSet;
     use acid_wasm::IMPORT_NAMES;
-    assert_eq!(IMPORT_NAMES.len(), 56);
-    assert_eq!(IMPORT_NAMES.iter().collect::<BTreeSet<_>>().len(), 56, "duplicate import name");
+    assert_eq!(IMPORT_NAMES.len(), 58);
+    assert_eq!(IMPORT_NAMES.iter().collect::<BTreeSet<_>>().len(), 58, "duplicate import name");
     // wasmi's Linker cannot list or `get` host functions, so probe each name:
     // import it with a signature no real import has. A defined name fails on
     // the signature; an undefined one fails on the missing definition.

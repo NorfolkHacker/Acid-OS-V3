@@ -51,6 +51,8 @@ pub mod sys {
         pub fn get_wallpaper_enabled() -> i32;
 
         pub fn window_max() -> i32;
+        pub fn screen_w() -> i32;
+        pub fn screen_h() -> i32;
         pub fn window_info(index: i32, buf: *mut u8, cap: i32) -> i32;
         pub fn activate_window(index: i32);
         pub fn close_window(index: i32) -> i32;
@@ -307,6 +309,11 @@ pub fn get_wallpaper_enabled() -> bool {
 
 pub fn window_max() -> i32 {
     unsafe { sys::window_max() }
+}
+
+/// The screen's size in pixels, `(w, h)`; fixed for the whole run.
+pub fn screen_size() -> (i32, i32) {
+    unsafe { (sys::screen_w(), sys::screen_h()) }
 }
 
 /// Writes the record `name\tx\ty\tw\th\tfocused`; `None` if no window has
