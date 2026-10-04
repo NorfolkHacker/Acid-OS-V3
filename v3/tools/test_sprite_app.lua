@@ -54,6 +54,23 @@ for _, r in ipairs(RECTS) do
   end
 end
 ok(found_clear, "selecting another swatch clears a rect at col_x - 1 covering the highlight")
+RECTS = {}
+G:draw_side()
+local sx, sy
+for _, s in ipairs(G.L.swatches) do
+  if s.key == "0" then
+    sx, sy = s.x, s.y
+    break
+  end
+end
+local found_swatch_edge = false
+for _, r in ipairs(RECTS) do
+  if r[1] == sx - 1 and r[2] == sy - 1 and r[3] == 22 and r[4] == 22 and r[5] == G.SWATCH_EDGE then
+    found_swatch_edge = true
+    break
+  end
+end
+ok(found_swatch_edge, "dark swatches have a visible edge outline")
 sp_tap(sp_swatch("2"))
 sp_tap(sp_button("fill"))
 sp_tap_cell(15, 15)

@@ -125,7 +125,7 @@ fn sprite_app_suite(test: &'static str, assertions: usize) {
 
 #[test]
 fn sprite_app() {
-    sprite_app_suite("v3/tools/test_sprite_app.lua", 30);
+    sprite_app_suite("v3/tools/test_sprite_app.lua", 31);
 }
 
 #[test]

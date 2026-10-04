@@ -17,6 +17,7 @@ SpritePaintApp.HARD = 0x00FF66       -- THEME_HARD
 SpritePaintApp.GRID = 0x1E2622
 SpritePaintApp.CHECK_A = 0x141816    -- transparent cells: a two-tone checker
 SpritePaintApp.CHECK_B = 0x22282A
+SpritePaintApp.SWATCH_EDGE = 0x3A4440  -- a dim outline so dark swatches show on the background
 
 local TOOL_KEYS = { p = "pen", f = "fill", e = "eraser", i = "picker", l = "line", m = "mirror" }
 
@@ -172,7 +173,7 @@ end
 
 function SpritePaintApp:draw_palette()
   for _, s in ipairs(self.L.swatches) do
-    if s.key == self.key then acid_fill_rect(s.x - 1, s.y - 1, s.w + 2, s.h + 2, self.HARD) end
+    acid_fill_rect(s.x - 1, s.y - 1, s.w + 2, s.h + 2, s.key == self.key and self.HARD or self.SWATCH_EDGE)
     acid_fill_rect(s.x, s.y, s.w, s.h, self.doc.s.palette[s.key])
   end
 end
