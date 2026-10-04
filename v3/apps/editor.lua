@@ -177,8 +177,12 @@ function EditorApp:draw_status()
   -- this codebase's own source, the largest realistic file it edits,
   -- tops even 3 digits). Only a 5-digit line count (99999+) would ever
   -- collide, which is not a real file size here.
-  acid_draw_text(left:sub(1, 48), 2, L.STATUS_Y + 1, EditorApp.STATUS_COLOR, EditorApp.BG_COLOR)
-  acid_draw_text(right, L.WINDOW_W - #right * L.CHAR_W - 2, L.STATUS_Y + 1,
+  -- At Large the same 48 columns would run under the right-hand field, so
+  -- the left part also stops one column short of where the right begins.
+  local right_x = L.WINDOW_W - #right * L.CHAR_W - 2
+  local left_cols = math.min(48, (right_x - 2) // L.CHAR_W - 1)
+  acid_draw_text(left:sub(1, left_cols), 2, L.STATUS_Y + 1, EditorApp.STATUS_COLOR, EditorApp.BG_COLOR)
+  acid_draw_text(right, right_x, L.STATUS_Y + 1,
                  EditorApp.STATUS_COLOR, EditorApp.BG_COLOR)
 end
 

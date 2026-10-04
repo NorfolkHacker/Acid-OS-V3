@@ -4,14 +4,16 @@
 -- here (EditorLayout.LINE_H) rather than reaching into its includer.
 EditorLayout = {}
 
--- Must match editor.app.toml and the kernel's title bar height.
--- 420x280 gives 25 lines of 65 columns; the old 240x170 gave 14 of 35,
--- which is a viewer more than an editor. The smallest screen is 640x360, so it fits at every screen size.
-EditorLayout.WINDOW_W = 420
-EditorLayout.WINDOW_H = 280
+-- Must match the kernel's title bar height.
+-- 420x280 at Normal gives 25 lines of 65 columns; the window is what
+-- acid_window_size reports.
+local CW, CH = acid_font_size()
+local WW, WH = acid_window_size()
+EditorLayout.WINDOW_W = WW
+EditorLayout.WINDOW_H = WH
 EditorLayout.TITLE_BAR_H = 16
-EditorLayout.LINE_H = 10
-EditorLayout.CHAR_W = 6
+EditorLayout.LINE_H = CH + 2
+EditorLayout.CHAR_W = CW
 
 -- The status line sits at the bottom of the window: command mode raises
 -- its strip above it, and a command surface that grows upward from the

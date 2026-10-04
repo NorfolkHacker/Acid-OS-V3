@@ -40,7 +40,10 @@ EditorCmd.CMD_ROWS = {
     { "p", "prev" }, { "?", "keys" } },
 }
 
-EditorCmd.CMD_CELL_CHARS = 10
+-- 10 characters a cell at Normal (60 px, six cells in 420); at Large the
+-- same six cells would be wider than the window, so they narrow to fit.
+-- The longest cell is "h hilite", 8 characters.
+EditorCmd.CMD_CELL_CHARS = math.min(10, (EditorLayout.WINDOW_W - 2) // (6 * EditorLayout.CHAR_W))
 EditorCmd.CMD_BG = 0x123322         -- THEME_PANEL's documented button-hover shade
 EditorCmd.CMD_KEY_COLOR = 0x00FF66  -- THEME_HARD
 EditorCmd.CMD_TEXT_COLOR = 0xD4E6DB -- THEME_TEXT
