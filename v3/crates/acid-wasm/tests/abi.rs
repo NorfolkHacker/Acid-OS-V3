@@ -34,6 +34,15 @@ impl AcidApi for Rec {
     }
     fn notify_redraw_done(&self) { self.log("notify".into()) }
     fn fill_rect(&self, x: i32, y: i32, w: i32, h: i32, c: u32) { self.log(format!("fill_rect {x} {y} {w} {h} {c:#08x}")) }
+    fn draw_line(&self, x1: i32, y1: i32, x2: i32, y2: i32, c: u32) { self.log(format!("line {x1} {y1} {x2} {y2} {c:#08x}")) }
+    fn fill_triangle(&self, x1: i32, y1: i32, x2: i32, y2: i32, x3: i32, y3: i32, c: u32) { self.log(format!("tri {x1} {y1} {x2} {y2} {x3} {y3} {c:#08x}")) }
+    fn mesh_builtin(&self, _: &str) -> Result<i32, String> { Err("unknown".into()) }
+    fn mesh_new(&self, _: Vec<(i32, i32, i32)>, _: Vec<[u16; 4]>) -> Result<i32, String> { Err("bad mesh".into()) }
+    fn mesh_draw(&self, id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, c: u32) {
+        self.log(format!("mesh_draw {id} {x} {y} {size} {rx} {ry} {rz} {mode} {c:#08x}"))
+    }
+    fn mesh_draw_cost(&self, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> u64 { 0 }
+    fn mesh_free(&self, id: i32) { self.log(format!("mesh_free {id}")) }
     fn fill_circle(&self, x: i32, y: i32, r: i32, c: u32) { self.log(format!("fill_circle {x} {y} {r} {c:#08x}")) }
     fn draw_text(&self, t: &str, x: i32, y: i32, fg: u32, bg: u32) {
         // Long strings are summarised so the fuel-per-byte test doesn't log megabytes.

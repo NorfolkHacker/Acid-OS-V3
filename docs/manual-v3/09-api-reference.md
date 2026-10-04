@@ -2,7 +2,7 @@
 
 [← Cookbook](08-cookbook.md) · [Contents](README.md) · [Next: WASM carts →](10-wasm-carts.md)
 
-This chapter lists every function Acid OS gives your app. There are **57** of
+This chapter lists every function Acid OS gives your app. There are **63** of
 them. Each one is a plain global Lua function, so you can call it from anywhere
 by name, with no object in front.
 
@@ -42,7 +42,7 @@ limits or errors, then what a cart gets (if that differs).
 
 ## Index by area
 
-**Graphics** — [`acid_fill_rect`](#acid_fill_rect) · [`acid_fill_circle`](#acid_fill_circle) · [`acid_draw_text`](#acid_draw_text)
+**Graphics** — [`acid_fill_rect`](#acid_fill_rect) · [`acid_fill_circle`](#acid_fill_circle) · [`acid_draw_text`](#acid_draw_text) · [`acid_draw_line`](#acid_draw_line) · [`acid_fill_triangle`](#acid_fill_triangle) · [`acid_mesh_builtin`](#acid_mesh_builtin) · [`acid_mesh_new`](#acid_mesh_new) · [`acid_mesh_draw`](#acid_mesh_draw) · [`acid_mesh_free`](#acid_mesh_free)
 
 **Chrome** — [`acid_clear_user_area`](#acid_clear_user_area) · [`acid_draw_window_frame`](#acid_draw_window_frame) · [`acid_draw_window_border`](#acid_draw_window_border) · [`acid_repaint_region`](#acid_repaint_region)
 
@@ -241,6 +241,19 @@ Times are capped at 100,000 ms. A fresh voice starts as a pulse wave with 50%
 duty, instant attack, decay and release, and no filter. See
 [§5.4](05-sound.md#54-shaping-the-voice-acid_configure_voice).
 
+### `acid_draw_line`
+
+```lua snippet
+acid_draw_line(x1, y1, x2, y2, color)
+```
+
+Draws a 1-pixel line from `(x1, y1)` to `(x2, y2)`, both ends included.
+Coordinates are relative to your window, and `color` is a 24-bit `0xRRGGBB`
+value.
+
+**You can never paint outside your own window.** The parts of the line that
+fall outside are trimmed, and any coordinates at all are safe.
+
 ### `acid_draw_text`
 
 ```lua snippet
@@ -303,6 +316,20 @@ Draws a filled rectangle. Coordinates are relative to your window, and
 
 **You can never paint outside your own window.** A rectangle that runs off an
 edge is trimmed, and one that is entirely outside draws nothing.
+
+### `acid_fill_triangle`
+
+```lua snippet
+acid_fill_triangle(x1, y1, x2, y2, x3, y3, color)
+```
+
+Draws a filled triangle with corners `(x1, y1)`, `(x2, y2)` and `(x3, y3)`, in
+any order. Coordinates are relative to your window, and `color` is a 24-bit
+`0xRRGGBB` value. Three corners in a straight line draw nothing wider than that
+line.
+
+**You can never paint outside your own window.** The triangle is trimmed to it,
+and any coordinates at all are safe.
 
 ### `acid_font_size`
 
@@ -531,6 +558,69 @@ How much memory is in use, in kilobytes, or `-1` if that isn't known.
 
 When Acid OS runs in a window on your computer, this is the memory used by the
 whole OS process, shared by every app, not just yours.
+
+### `acid_mesh_builtin`
+
+```lua snippet
+local id = acid_mesh_builtin("cube")   -- or nil
+```
+
+Gives you the id of a ready-made shape: `"cube"`, `"pyramid"`, `"octahedron"`,
+`"sphere"` or `"torus"`. An unknown name returns `nil`, and so does a request
+over the mesh limits (see [`acid_mesh_new`](#acid_mesh_new)).
+
+Ids start at 1 and count up, and an id is never reused, even after
+[`acid_mesh_free`](#acid_mesh_free).
+
+### `acid_mesh_draw`
+
+```lua snippet
+acid_mesh_draw(id, x, y, size, rx, ry, rz, mode, color)
+```
+
+Draws a mesh with its centre at `(x, y)` in your window.
+
+| Argument | Range | |
+|---|---|---|
+| `id` | | From `acid_mesh_builtin` or `acid_mesh_new`. An unknown or freed id draws nothing. |
+| `size` | 1 and up | 64 is one model unit per pixel. Zero or less draws nothing. |
+| `rx`, `ry`, `rz` | 0–255 | Rotation around each axis, 256 to a full turn. Any integer is accepted and wraps. |
+| `mode` | 0, 1 or 2 | 0 wire, 1 solid, 2 both (solid, with the edges in a brighter colour). Any other value draws nothing. |
+| `color` | `0xRRGGBB` | The mesh's colour. |
+
+Solid faces are shaded, and parts behind the camera are not drawn. Like every
+drawing call, it is trimmed to your window.
+
+### `acid_mesh_free`
+
+```lua snippet
+acid_mesh_free(id)
+```
+
+Frees a mesh, which gives its slot and its points back to your limits. An
+unknown id does nothing.
+
+### `acid_mesh_new`
+
+```lua snippet
+local id, err = acid_mesh_new(points, faces)
+```
+
+Makes a mesh of your own. `points` is a flat list of `x, y, z` numbers, three
+per point. `faces` is a list of faces, each a list of 3 or 4 point numbers
+counting **from 1**. A face with 4 points is split into two triangles, so it
+should be flat.
+
+```lua snippet
+local id = acid_mesh_new({0,0,0, 100,0,0, 0,100,0}, {{1, 2, 3}})
+```
+
+It returns the new id, or `nil, message`:
+
+| Message | When |
+|---|---|
+| `"bad mesh"` | Fewer than 3 points, a `points` list that isn't a multiple of 3, a face with other than 3 or 4 indices, an index below 1 or past the last point, a face that repeats a point, or a coordinate beyond ±32767. |
+| `"too big"` | Over 512 points or 1024 faces in the mesh, 16 meshes alive, or 4096 points across your live meshes. |
 
 ### `acid_network_info`
 

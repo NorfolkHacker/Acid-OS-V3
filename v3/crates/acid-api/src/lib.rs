@@ -7,6 +7,7 @@ extern crate alloc;
 
 mod chrome;
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI32, Ordering};
@@ -15,10 +16,44 @@ use acid_kernel::AppContext;
 use acid_kernel::event::Event;
 use acid_kernel::launcher::LaunchableApp;
 use acid_kernel::layout::WINDOW_MAX;
+pub use acid_gfx::three_d::NO_INDEX;
 pub use acid_kernel::WindowInfo;
 pub use acid_kernel::tasks::TaskInfo;
 pub use acid_platform::{LocalTime, NetworkInfo};
 use acid_platform::FsError;
+use acid_platform::sync::Mutex;
+use acid_gfx::three_d::{self, Mesh, MeshError};
+
+/// Meshes alive per app. The per-mesh limits (`MESH_POINTS_MAX`,
+/// `MESH_FACES_MAX`) live in `acid_gfx::three_d`; the per-app ones live here.
+pub const MESH_MAX: usize = 16;
+/// Points across all of one app's live meshes.
+pub const MESH_TOTAL_POINTS_MAX: usize = 4096;
+
+/// One app's meshes. Ids start at 1 and are never reused.
+struct MeshStore {
+    map: BTreeMap<i32, Mesh>,
+    next_id: i32,
+    total_points: usize,
+}
+
+impl MeshStore {
+    fn new() -> Self {
+        Self { map: BTreeMap::new(), next_id: 1, total_points: 0 }
+    }
+
+    /// Stores a mesh, or "too big" at the mesh-count or total-points limit.
+    fn add(&mut self, m: Mesh) -> Result<i32, String> {
+        if self.map.len() >= MESH_MAX || self.total_points + m.points().len() > MESH_TOTAL_POINTS_MAX {
+            return Err(String::from("too big"));
+        }
+        let id = self.next_id;
+        self.next_id += 1;
+        self.total_points += m.points().len();
+        self.map.insert(id, m);
+        Ok(id)
+    }
+}
 
 /// Lua passes ids as integers; a negative one is simply no such slot.
 fn index(i: i64) -> Option<usize> {
@@ -95,6 +130,21 @@ pub trait AcidApi: Send + Sync {
     fn window_max(&self) -> i32;
     /// The screen's size in pixels, `(w, h)`; fixed for the whole run.
     fn screen_size(&self) -> (i32, i32);
+    /// A 1-pixel line in window coordinates.
+    fn draw_line(&self, x1: i32, y1: i32, x2: i32, y2: i32, color: u32);
+    /// A filled triangle in window coordinates.
+    fn fill_triangle(&self, x1: i32, y1: i32, x2: i32, y2: i32, x3: i32, y3: i32, color: u32);
+    /// A built-in shape's mesh id; Err("unknown") for an unknown name, Err("too big") over the limits.
+    fn mesh_builtin(&self, name: &str) -> Result<i32, String>;
+    /// A new mesh from points and 0-based faces (NO_INDEX = triangle); "bad mesh" / "too big".
+    fn mesh_new(&self, points: Vec<(i32, i32, i32)>, faces: Vec<[u16; 4]>) -> Result<i32, String>;
+    /// Draws a mesh; an unknown id draws nothing.
+    #[allow(clippy::too_many_arguments)]
+    fn mesh_draw(&self, id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, color: u32);
+    /// The pixels mesh_draw would touch (for fuel); 0 for an unknown id.
+    fn mesh_draw_cost(&self, id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32) -> u64;
+    /// Frees a mesh; an unknown id does nothing.
+    fn mesh_free(&self, id: i32);
     /// This window's character cell in pixels, (w, h): (6, 8) at Normal, (12, 16) at Large.
     fn font_size(&self) -> (i32, i32);
     /// This window's size in pixels, (w, h).
@@ -180,6 +230,9 @@ pub struct KernelApi {
     ctx: AppContext,
     window_x: AtomicI32,
     window_y: AtomicI32,
+    /// Lock order: this store, then the canvas, never the reverse
+    /// (`mesh_draw` holds this while `draw` takes the canvas).
+    meshes: Mutex<MeshStore>,
 }
 
 impl KernelApi {
@@ -192,7 +245,7 @@ impl KernelApi {
 
     pub fn new(ctx: AppContext) -> Self {
         let (x, y) = (ctx.x, ctx.y);
-        Self { ctx, window_x: AtomicI32::new(x), window_y: AtomicI32::new(y) }
+        Self { ctx, window_x: AtomicI32::new(x), window_y: AtomicI32::new(y), meshes: Mutex::new(MeshStore::new()) }
     }
 
     /// Spec §14.2: cart-level apps change files only under Home.
@@ -260,6 +313,51 @@ impl AcidApi for KernelApi {
 
     fn fill_circle(&self, x: i32, y: i32, r: i32, color: u32) {
         self.draw(|c| c.fill_circle(x, y, r, color));
+    }
+
+    fn draw_line(&self, x1: i32, y1: i32, x2: i32, y2: i32, color: u32) {
+        self.draw(|c| c.draw_line(x1, y1, x2, y2, color));
+    }
+
+    fn fill_triangle(&self, x1: i32, y1: i32, x2: i32, y2: i32, x3: i32, y3: i32, color: u32) {
+        self.draw(|c| c.fill_triangle(x1, y1, x2, y2, x3, y3, color));
+    }
+
+    fn mesh_builtin(&self, name: &str) -> Result<i32, String> {
+        let m = three_d::builtin(name).ok_or_else(|| String::from("unknown"))?;
+        self.meshes.lock().add(m)
+    }
+
+    fn mesh_new(&self, points: Vec<(i32, i32, i32)>, faces: Vec<[u16; 4]>) -> Result<i32, String> {
+        let m = Mesh::new(points, faces).map_err(|e| {
+            String::from(match e {
+                MeshError::Bad => "bad mesh",
+                MeshError::TooBig => "too big",
+            })
+        })?;
+        self.meshes.lock().add(m)
+    }
+
+    fn mesh_draw(&self, id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, color: u32) {
+        let store = self.meshes.lock();
+        if let Some(m) = store.map.get(&id) {
+            self.draw(|c| three_d::draw_mesh(c, m, x, y, size, rx, ry, rz, mode, color));
+        }
+    }
+
+    fn mesh_draw_cost(&self, id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32) -> u64 {
+        let (sw, sh) = self.screen_size();
+        match self.meshes.lock().map.get(&id) {
+            Some(m) => three_d::mesh_cost(m, x, y, size, rx, ry, rz, mode, sw, sh),
+            None => 0,
+        }
+    }
+
+    fn mesh_free(&self, id: i32) {
+        let mut store = self.meshes.lock();
+        if let Some(m) = store.map.remove(&id) {
+            store.total_points -= m.points().len();
+        }
     }
 
     fn draw_text(&self, text: &str, x: i32, y: i32, fg: u32, bg: u32) {
@@ -1296,5 +1394,86 @@ mod tests {
     fn screen_size_is_the_kernels() {
         let (k, a) = spawn(100, 100);
         assert_eq!(a.screen_size(), (k.screen().w, k.screen().h));
+    }
+
+    fn dot(api: &KernelApi, x: i32, y: i32) -> bool {
+        px(api, x, y) != rgb565(0)
+    }
+
+    #[test]
+    fn line_and_triangle_paint_the_window() {
+        let (_k, api) = spawn(20, 20);
+        api.draw_line(0, 5, 9, 5, 0xFF0000);
+        assert_eq!(px(&api, 4, 5), rgb565(0xFF0000));
+        api.fill_triangle(2, 10, 12, 10, 2, 19, 0x00FF00);
+        assert_eq!(px(&api, 3, 12), rgb565(0x00FF00));
+    }
+
+    #[test]
+    fn every_builtin_gets_a_distinct_increasing_id() {
+        let (_k, api) = spawn(10, 10);
+        let ids: Vec<i32> = three_d::BUILTIN_NAMES.iter().map(|n| api.mesh_builtin(n).unwrap()).collect();
+        assert_eq!(ids, [1, 2, 3, 4, 5]);
+        assert_eq!(api.mesh_builtin("nope"), Err("unknown".into()));
+    }
+
+    #[test]
+    fn the_seventeenth_mesh_is_too_big() {
+        let (_k, api) = spawn(10, 10);
+        for _ in 0..MESH_MAX {
+            api.mesh_builtin("cube").unwrap();
+        }
+        assert_eq!(api.mesh_builtin("cube"), Err("too big".into()));
+        api.mesh_free(3);
+        assert_eq!(api.mesh_builtin("cube"), Ok(17), "a freed slot is usable but its id is not reused");
+    }
+
+    fn big(n: usize) -> (Vec<(i32, i32, i32)>, Vec<[u16; 4]>) {
+        ((0..n).map(|i| (i as i32, 0, 0)).collect(), vec![[0, 1, 2, three_d::NO_INDEX]])
+    }
+
+    #[test]
+    fn total_points_are_capped_at_4096_and_free_gives_them_back() {
+        let (_k, api) = spawn(10, 10);
+        let mut ids = Vec::new();
+        for _ in 0..8 {
+            let (p, f) = big(512);
+            ids.push(api.mesh_new(p, f).unwrap());
+        }
+        let (p, f) = big(3);
+        assert_eq!(api.mesh_new(p, f), Err("too big".into()), "4096 + 3 > 4096");
+        api.mesh_free(ids[0]);
+        let (p, f) = big(512);
+        assert_eq!(api.mesh_new(p, f), Ok(9), "the freed 512 points fit again");
+        let (p, f) = big(1);
+        assert_eq!(api.mesh_new(p, f), Err("bad mesh".into()), "fewer than 3 points");
+        api.mesh_free(ids[1]);
+        api.mesh_free(ids[1]);
+        let (p, f) = big(512);
+        assert!(api.mesh_new(p, f).is_ok(), "a double free does not double-credit");
+        let (p, f) = big(3);
+        assert_eq!(api.mesh_new(p, f), Err("too big".into()));
+    }
+
+    #[test]
+    fn mesh_draw_paints_and_an_unknown_id_draws_nothing() {
+        let (_k, api) = spawn(40, 40);
+        api.mesh_draw(99, 20, 20, 64, 0, 0, 0, 1, 0xFFFFFF);
+        assert!((0..40).all(|y| (0..40).all(|x| !dot(&api, x, y))), "unknown id");
+        let id = api.mesh_builtin("cube").unwrap();
+        api.mesh_draw(id, 20, 20, 8, 10, 20, 0, 1, 0xFFFFFF);
+        assert!((0..40).any(|y| (0..40).any(|x| dot(&api, x, y))), "a cube");
+        api.mesh_free(id);
+        api.mesh_free(id);
+        api.mesh_draw(id, 20, 20, 8, 10, 20, 0, 1, 0x0000FF);
+        assert!((0..40).all(|y| (0..40).all(|x| px(&api, x, y) != rgb565(0x0000FF))), "freed id");
+    }
+
+    #[test]
+    fn mesh_draw_cost_is_zero_for_an_unknown_id_and_positive_for_a_mesh() {
+        let (_k, api) = spawn(10, 10);
+        assert_eq!(api.mesh_draw_cost(7, 5, 5, 64, 0, 0, 0, 2), 0);
+        let id = api.mesh_builtin("cube").unwrap();
+        assert!(api.mesh_draw_cost(id, 5, 5, 64, 0, 0, 0, 2) >= 64 * 8);
     }
 }

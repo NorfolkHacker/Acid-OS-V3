@@ -12,10 +12,36 @@ use std::sync::Arc;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use acid_api::{AcidApi, KernelApi, PolledEvent};
+use acid_api::{AcidApi, KernelApi, NO_INDEX, PolledEvent};
 use acid_kernel::{AppContext, AppRunner};
 use acid_platform::Fs;
 use mlua::{ChunkMode, IntoLuaMulti, Lua, LuaOptions, MultiValue, StdLib, Value, ffi};
+
+/// Lua's flat 1-based mesh tables as the API's points and 0-based faces. The
+/// structural problems the API cannot see ("bad mesh") are caught here.
+fn parse_mesh(points: &mlua::Table, faces: &mlua::Table) -> Result<(Vec<(i32, i32, i32)>, Vec<[u16; 4]>), String> {
+    let bad = || String::from("bad mesh");
+    let flat: Vec<i32> = points.clone().sequence_values::<i32>().collect::<Result<_, _>>().map_err(|_| bad())?;
+    if flat.len() % 3 != 0 {
+        return Err(bad());
+    }
+    let points = flat.chunks(3).map(|c| (c[0], c[1], c[2])).collect();
+    let mut out = Vec::new();
+    for face in faces.clone().sequence_values::<mlua::Table>() {
+        let idx: Vec<i64> = face.map_err(|_| bad())?.sequence_values::<i64>().collect::<Result<_, _>>().map_err(|_| bad())?;
+        if !(3..=4).contains(&idx.len()) {
+            return Err(bad());
+        }
+        let mut f = [NO_INDEX; 4];
+        for (slot, i) in f.iter_mut().zip(idx) {
+            // Lua is 1-based; an index that cannot be a u16 (or would be
+            // NO_INDEX) is out of range for any mesh.
+            *slot = u16::try_from(i - 1).ok().filter(|v| *v != NO_INDEX).ok_or_else(bad)?;
+        }
+        out.push(f);
+    }
+    Ok((points, out))
+}
 
 use crate::lib_paths::lib_path_is_safe;
 
@@ -408,6 +434,48 @@ fn register_api(lua: &Lua, api: Arc<dyn AcidApi>, last_poll: Arc<AtomicU64>) -> 
     let a = api.clone();
     g.set("acid_fill_rect", lua.create_function(move |_, (x, y, w, h, c): (i32, i32, i32, i32, i64)| {
         a.fill_rect(x, y, w, h, c as u32);
+        Ok(())
+    })?)?;
+
+    let a = api.clone();
+    g.set("acid_draw_line", lua.create_function(move |_, (x1, y1, x2, y2, c): (i32, i32, i32, i32, i64)| {
+        a.draw_line(x1, y1, x2, y2, c as u32);
+        Ok(())
+    })?)?;
+
+    let a = api.clone();
+    g.set("acid_fill_triangle", lua.create_function(move |_, (x1, y1, x2, y2, x3, y3, c): (i32, i32, i32, i32, i32, i32, i64)| {
+        a.fill_triangle(x1, y1, x2, y2, x3, y3, c as u32);
+        Ok(())
+    })?)?;
+
+    let a = api.clone();
+    g.set("acid_mesh_builtin", lua.create_function(move |lua, name: mlua::String| {
+        match a.mesh_builtin(&name.to_string_lossy()) {
+            Ok(id) => id.into_lua_multi(lua),
+            Err(_) => Value::Nil.into_lua_multi(lua),
+        }
+    })?)?;
+
+    let a = api.clone();
+    g.set("acid_mesh_new", lua.create_function(move |lua, (points, faces): (mlua::Table, mlua::Table)| {
+        match parse_mesh(&points, &faces).and_then(|(p, f)| a.mesh_new(p, f)) {
+            Ok(id) => id.into_lua_multi(lua),
+            Err(e) => (Value::Nil, e).into_lua_multi(lua),
+        }
+    })?)?;
+
+    let a = api.clone();
+    g.set("acid_mesh_draw", lua.create_function(
+        move |_, (id, x, y, size, rx, ry, rz, mode, c): (i32, i32, i32, i32, i32, i32, i32, i32, i64)| {
+            a.mesh_draw(id, x, y, size, rx, ry, rz, mode, c as u32);
+            Ok(())
+        },
+    )?)?;
+
+    let a = api.clone();
+    g.set("acid_mesh_free", lua.create_function(move |_, id: i32| {
+        a.mesh_free(id);
         Ok(())
     })?)?;
 

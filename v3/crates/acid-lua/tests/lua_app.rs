@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use acid_api::{AcidApi, LocalTime, NetworkInfo, PolledEvent, TaskInfo, WindowInfo};
@@ -15,11 +15,12 @@ struct FakeApi {
     /// one entry per poll; polls past the end jump 0.
     jumps: Mutex<VecDeque<i64>>,
     clock: Mutex<i64>,
+    next_mesh: AtomicI32,
 }
 
 impl FakeApi {
     fn with_events(evs: Vec<Option<PolledEvent>>) -> Arc<Self> {
-        Arc::new(Self { wallpaper: AtomicBool::new(true), events: Mutex::new(evs.into()), calls: Mutex::default(), jumps: Mutex::default(), clock: Mutex::new(1000) })
+        Arc::new(Self { wallpaper: AtomicBool::new(true), events: Mutex::new(evs.into()), calls: Mutex::default(), jumps: Mutex::default(), clock: Mutex::new(1000), next_mesh: AtomicI32::new(1) })
     }
     fn with_jumps(evs: Vec<Option<PolledEvent>>, jumps: Vec<i64>) -> Arc<Self> {
         let api = Self::with_events(evs);
@@ -95,6 +96,20 @@ impl AcidApi for FakeApi {
     fn now_ms(&self) -> i64 { *self.clock.lock().unwrap() }
     fn notify_redraw_done(&self) { self.log("notify".into()) }
     fn fill_rect(&self, x: i32, y: i32, w: i32, h: i32, c: u32) { self.log(format!("fill_rect {x} {y} {w} {h} {c:#08x}")) }
+    fn draw_line(&self, x1: i32, y1: i32, x2: i32, y2: i32, c: u32) { self.log(format!("line {x1} {y1} {x2} {y2} {c:#08x}")) }
+    fn fill_triangle(&self, x1: i32, y1: i32, x2: i32, y2: i32, x3: i32, y3: i32, c: u32) { self.log(format!("tri {x1} {y1} {x2} {y2} {x3} {y3} {c:#08x}")) }
+    fn mesh_builtin(&self, name: &str) -> Result<i32, String> {
+        if acid_gfx::three_d::BUILTIN_NAMES.contains(&name) { Ok(self.next_mesh.fetch_add(1, Ordering::SeqCst)) } else { Err("unknown".into()) }
+    }
+    fn mesh_new(&self, points: Vec<(i32, i32, i32)>, faces: Vec<[u16; 4]>) -> Result<i32, String> {
+        self.log(format!("mesh_new {points:?} {faces:?}"));
+        Ok(self.next_mesh.fetch_add(1, Ordering::SeqCst))
+    }
+    fn mesh_draw(&self, id: i32, x: i32, y: i32, size: i32, rx: i32, ry: i32, rz: i32, mode: i32, c: u32) {
+        self.log(format!("mesh_draw {id} {x} {y} {size} {rx} {ry} {rz} {mode} {c:#08x}"))
+    }
+    fn mesh_draw_cost(&self, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> u64 { 0 }
+    fn mesh_free(&self, id: i32) { self.log(format!("mesh_free {id}")) }
     fn fill_circle(&self, x: i32, y: i32, r: i32, c: u32) { self.log(format!("fill_circle {x} {y} {r} {c:#08x}")) }
     fn draw_text(&self, t: &str, _x: i32, _y: i32, _fg: u32, _bg: u32) { self.log(format!("text {t}")) }
     fn draw_window_frame(&self, t: &str) { self.log(format!("frame {t}")) }
@@ -605,4 +620,64 @@ fn screen_size_returns_width_and_height() {
         acid_draw_text(w .. "x" .. h, 0, 0, 0, 0)
     "#);
     assert_eq!(api.texts(), ["640x360"]);
+}
+
+#[test]
+fn line_and_triangle_reach_the_api() {
+    let api = FakeApi::with_events(vec![]);
+    let lua = state(api.clone());
+    run(&lua, "acid_draw_line(1, 2, 3, 4, 0xFF0000)  acid_fill_triangle(1, 2, 3, 4, 5, 6, 0x00FF00)");
+    let calls = api.calls();
+    assert!(calls.contains(&"line 1 2 3 4 0xff0000".to_string()), "{calls:?}");
+    assert!(calls.contains(&"tri 1 2 3 4 5 6 0x00ff00".to_string()), "{calls:?}");
+}
+
+#[test]
+fn mesh_new_converts_one_based_faces_to_zero_based() {
+    let api = FakeApi::with_events(vec![]);
+    let lua = state(api.clone());
+    run(&lua, r#"
+        local id = acid_mesh_new({0,0,0, 10,0,0, 0,10,0}, {{1,2,3}})
+        local q = acid_mesh_new({0,0,0, 10,0,0, 0,10,0, 5,5,5}, {{1,2,3,4}})
+        acid_draw_text(id .. "," .. q, 0, 0, 0, 0)
+        acid_mesh_draw(id, 10, 20, 64, 1, 2, 3, 2, 0xABCDEF)
+        acid_mesh_free(id)
+    "#);
+    let calls = api.calls();
+    assert!(calls.contains(&"mesh_new [(0, 0, 0), (10, 0, 0), (0, 10, 0)] [[0, 1, 2, 65535]]".to_string()), "{calls:?}");
+    assert!(calls.contains(&"mesh_new [(0, 0, 0), (10, 0, 0), (0, 10, 0), (5, 5, 5)] [[0, 1, 2, 3]]".to_string()), "{calls:?}");
+    assert_eq!(api.texts(), ["1,2"]);
+    assert!(calls.contains(&"mesh_draw 1 10 20 64 1 2 3 2 0xabcdef".to_string()), "{calls:?}");
+    assert!(calls.contains(&"mesh_free 1".to_string()), "{calls:?}");
+}
+
+#[test]
+fn mesh_new_rejects_bad_shapes_before_the_api() {
+    let api = FakeApi::with_events(vec![]);
+    let lua = state(api.clone());
+    run(&lua, r#"
+        local cases = {
+            {{0,0,0, 1,0}, {{1,2,3}}},
+            {{0,0,0, 1,0,0, 0,1,0}, {{1,2}}},
+            {{0,0,0, 1,0,0, 0,1,0}, {{1,2,3,1,2}}},
+            {{0,0,0, 1,0,0, 0,1,0}, {{0,1,2}}},
+            {{0,0,0, 1,0,0, 0,1,0}, {{-1,1,2}}},
+        }
+        for _, c in ipairs(cases) do
+            local id, err = acid_mesh_new(c[1], c[2])
+            acid_draw_text(tostring(id) .. ":" .. tostring(err), 0, 0, 0, 0)
+        end
+    "#);
+    assert_eq!(api.texts(), vec!["nil:bad mesh"; 5]);
+    assert!(!api.calls().iter().any(|c| c.starts_with("mesh_new")), "{:?}", api.calls());
+}
+
+#[test]
+fn mesh_builtin_returns_an_id_or_nil() {
+    let api = FakeApi::with_events(vec![]);
+    let lua = state(api.clone());
+    run(&lua, r#"
+        acid_draw_text(tostring(acid_mesh_builtin("cube")) .. " " .. tostring(acid_mesh_builtin("nope")), 0, 0, 0, 0)
+    "#);
+    assert_eq!(api.texts(), ["1 nil"]);
 }
