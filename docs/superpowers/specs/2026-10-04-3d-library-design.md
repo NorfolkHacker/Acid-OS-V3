@@ -79,7 +79,7 @@ Vec<(u16, u16)> }`.
   4. an index out of range, or a face that repeats an index (including a
      quad's 4th slot) → Bad.
 
-## 1.4 Drawing a mesh
+### 1.4 Drawing a mesh
 
 `draw_mesh(canvas, mesh, cx, cy, size, rx, ry, rz, mode, color)`:
 
