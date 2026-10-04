@@ -230,3 +230,22 @@ fn boot_with_spawns_the_desktop_screen_wide() {
     let wins = k.with_state(|st| st.windows.in_z_order().iter().map(|w| (w.x, w.y, w.w, w.h)).collect::<Vec<_>>());
     assert_eq!(wins, [(0, 0, 800, 204)]);
 }
+
+#[test]
+fn desktop_draws_its_clock_at_the_right_edge_of_a_wider_screen() {
+    let p = FakePlatform::new(FakePlatform::repo_root());
+    let k = boot_with(p.clone(), Screen::SVGA);
+    let text = Some(rgb565(0xD4E6DB));
+    let start = std::time::Instant::now();
+    loop {
+        let clock_at_800 = k.with_state(|st| {
+            st.windows.in_z_order().iter().find(|w| w.app_name == DESKTOP_PATH).is_some_and(|w| {
+                let c = w.canvas.lock();
+                (730..796).any(|x| (8..16).any(|y| c.pixel(x, y) == text))
+            })
+        });
+        if clock_at_800 { break; }
+        assert!(start.elapsed() < Duration::from_secs(10), "desktop never drew its clock at the 800 px edge");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}

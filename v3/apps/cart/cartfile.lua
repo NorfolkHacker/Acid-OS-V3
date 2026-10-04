@@ -41,14 +41,15 @@ Cartfile.MAX_SLUG = 24    -- destination filename length, sans extension
 Cartfile.MAX_TEXT = 40    -- longest header value kept (name, desc)
 Cartfile.MAX_LIBS = 8     -- most modules one cart may pull in
 
--- Window bounds: the 640x360 screen less the desktop strip. A cart
+-- Window bounds: the screen less the desktop strip. A cart
 -- asking for something outside this gets clamped rather than refused -- a
 -- bad number is a typo, not an attack, but an unclamped one is a window
 -- nobody can reach the title bar of.
+local screen_w, screen_h = acid_screen_size()
 Cartfile.MIN_W = 80
-Cartfile.MAX_W = 640
+Cartfile.MAX_W = screen_w
 Cartfile.MIN_H = 48
-Cartfile.MAX_H = 336
+Cartfile.MAX_H = screen_h - 24
 Cartfile.DEFAULT_W = 220
 Cartfile.DEFAULT_H = 160
 

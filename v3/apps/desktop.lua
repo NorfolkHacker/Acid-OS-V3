@@ -9,11 +9,8 @@ DesktopApp = AcidApp:extend("DesktopApp")
 -- window.
 DesktopApp.MY_APP_NAME = "v3/apps/desktop.lua"
 
--- Must match the boot code's own screen width (it hardcodes 640 directly in
--- its kernel_spawn_app(MY_APP_NAME, 0, 0, 640, ...) call) -- there's no
--- shared header between Lua and the Rust boot code to pull this from, so
--- it's kept in sync by comment, the same way MY_APP_NAME already has to be.
-DesktopApp.SCREEN_W = 640
+-- The screen's width: the boot code spawns this window that wide.
+DesktopApp.SCREEN_W = (acid_screen_size())
 
 -- The visible taskbar strip's height -- matches the kernel's desktop strip
 -- height (24), which is what the router uses to decide a touch belongs to
@@ -53,8 +50,8 @@ DesktopApp.MAX_TASKBAR_SLOTS = (DesktopApp.SCREEN_W - DesktopApp.BUTTON_W - Desk
 
 -- The dropdown: a small rectangle directly under the Menu button (NOT
 -- the full screen width -- an explicit user request, since a single
--- column of app names never needed the other 480+ px of a 640px-wide
--- screen and it read as an oversized, out-of-place bar). Wide enough
+-- column of app names never needed most of the screen's width
+-- and it read as an oversized, out-of-place bar). Wide enough
 -- for the longest real app name today ("System Monitor", 14 chars) with
 -- a little breathing room either side.
 DesktopApp.DROPDOWN_W = 150
@@ -66,9 +63,8 @@ DesktopApp.DROPDOWN_H = DesktopApp.ITEM_H * DesktopApp.MAX_LAUNCHER_ITEMS
 -- tall (so the router's normal, non-strip hit-testing finds desktop
 -- at all beneath the strip while the dropdown is open) -- only what
 -- gets DRAWN inside that canvas shrank to a rectangle, not desktop's
--- own registered bounds. Must match the boot code's own
--- kernel_spawn_app(MY_APP_NAME, 0, 0, 640, TOTAL_H, 0) call, synced by
--- comment on both sides, same as SCREEN_W above.
+-- own registered bounds. Must match DESKTOP_H in the boot code
+-- (crates/acid-os/src/lib.rs), synced by comment on both sides.
 DesktopApp.TOTAL_H = DesktopApp.STRIP_H + DesktopApp.DROPDOWN_H
 
 DesktopApp.BG_COLOR = 0x0B1712      -- THEME_PANEL

@@ -139,3 +139,16 @@ fn cartfile() {
 fn cart_install() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/cart/cartfile.lua", "v3/apps/cart.lua", "v3/tools/test_cart_install.lua"]), 76);
 }
+
+#[test]
+fn apps_follow_the_screen_size() {
+    run_suite(&[
+        "v3/tools/screen_800x600.lua",
+        "v3/tools/game_test_env.lua",
+        "v3/apps/desktop.lua",
+        "v3/apps/cart/cartfile.lua",
+        "v3/apps/lib/acid_sprite.lua",
+        "v3/apps/lib/acid_eggs.lua",
+        "v3/tools/test_screen_svga.lua",
+    ], 5);
+}

@@ -6,8 +6,7 @@ EditorLayout = {}
 
 -- Must match editor.app.toml and the kernel's title bar height.
 -- 420x280 gives 25 lines of 65 columns; the old 240x170 gave 14 of 35,
--- which is a viewer more than an editor. The screen is 640x360, so two
--- of these still fit side by side.
+-- which is a viewer more than an editor. The smallest screen is 640x360, so it fits at every screen size.
 EditorLayout.WINDOW_W = 420
 EditorLayout.WINDOW_H = 280
 EditorLayout.TITLE_BAR_H = 16

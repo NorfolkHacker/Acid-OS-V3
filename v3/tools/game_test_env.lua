@@ -16,6 +16,13 @@ PASSES = 0
 
 local function push(t, v) t[#t + 1] = v end
 
+-- The screen size apps see. The suites' expectations were written for
+-- v2's 640x360; a suite can load a file setting SCREEN_W/SCREEN_H before
+-- this one to run at another size (screen_800x600.lua).
+SCREEN_W = SCREEN_W or 640
+SCREEN_H = SCREEN_H or 360
+function acid_screen_size() return SCREEN_W, SCREEN_H end
+
 function acid_play_note(voice, ona, volume) push(NOTES, { "play", voice, ona, volume }) end
 function acid_trigger_arp(voice, n0, n1, n2, n3, count, rate_ms)
   push(NOTES, { "arp", voice, n0, n1, n2, n3, count, rate_ms })

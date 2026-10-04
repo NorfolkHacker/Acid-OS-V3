@@ -12,8 +12,7 @@
 -- (tools/test_acid_eggs.lua).
 AcidEggs = {}
 
-AcidEggs.SCREEN_W = 640   -- KERNEL_SCREEN_W
-AcidEggs.SCREEN_H = 360   -- KERNEL_SCREEN_H
+AcidEggs.SCREEN_W, AcidEggs.SCREEN_H = acid_screen_size()
 AcidEggs.TICK_MS = 33     -- ~30fps
 AcidEggs.SCALE = 3
 
