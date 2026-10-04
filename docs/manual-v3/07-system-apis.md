@@ -729,6 +729,7 @@ app carries on.
 | `acid_launcher_spawn`, `acid_spawn_app` | return `false` once the cart's own window has been closed, even if the cart is still running |
 | `acid_cart_roots`, `acid_cart_list`, `acid_cart_stat`, `acid_cart_read` | `nil, "not allowed"` |
 | `acid_close_window` | returns `false` |
+| `acid_restart` | returns `false` |
 | `acid_activate_window` | does nothing unless the index is the cart's own window |
 | `acid_overlay_open` | returns `false`, so a cart can never hold the full-screen overlay |
 

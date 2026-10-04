@@ -45,6 +45,7 @@ or wait three seconds for the default. `-- --screen 800x600` skips the picker.
 Then the desktop appears. **Menu** is at the top left. Config's FONT setting
 switches the text apps (Terminal, Editor, File Manager, System Monitor, About
 and Network) between Normal and Large; it applies to apps you open afterwards.
+Config's RESTART (press it twice) brings the OS back to the size picker.
 
 Try **Acid Spin**: spinning 3D shapes. It isn't in the Menu. Open File
 Manager, go into `App` and click Acid Spin's `.app.toml` file. Left and Right

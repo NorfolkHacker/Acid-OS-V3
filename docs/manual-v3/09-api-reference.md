@@ -56,7 +56,7 @@ limits or errors, then what a cart gets (if that differs).
 
 **Launching** — [`acid_launcher_register`](#acid_launcher_register) · [`acid_launcher_count`](#acid_launcher_count) · [`acid_launcher_name`](#acid_launcher_name) · [`acid_launcher_path`](#acid_launcher_path) · [`acid_launcher_spawn`](#acid_launcher_spawn) · [`acid_spawn_app`](#acid_spawn_app) · [`acid_launch_arg`](#acid_launch_arg)
 
-**System** — [`acid_refresh_tasks`](#acid_refresh_tasks) · [`acid_task_count`](#acid_task_count) · [`acid_task_info`](#acid_task_info) · [`acid_mem_used_kb`](#acid_mem_used_kb) · [`acid_composited_frames`](#acid_composited_frames) · [`acid_skipped_frames`](#acid_skipped_frames) · [`acid_network_info`](#acid_network_info) · [`acid_set_wallpaper_enabled`](#acid_set_wallpaper_enabled) · [`acid_get_wallpaper_enabled`](#acid_get_wallpaper_enabled)
+**System** — [`acid_refresh_tasks`](#acid_refresh_tasks) · [`acid_task_count`](#acid_task_count) · [`acid_task_info`](#acid_task_info) · [`acid_mem_used_kb`](#acid_mem_used_kb) · [`acid_composited_frames`](#acid_composited_frames) · [`acid_skipped_frames`](#acid_skipped_frames) · [`acid_network_info`](#acid_network_info) · [`acid_set_wallpaper_enabled`](#acid_set_wallpaper_enabled) · [`acid_get_wallpaper_enabled`](#acid_get_wallpaper_enabled) · [`acid_restart`](#acid_restart)
 
 **File system** — [`acid_fs_list`](#acid_fs_list) · [`acid_fs_read`](#acid_fs_read) · [`acid_fs_size`](#acid_fs_size) · [`acid_fs_write`](#acid_fs_write) · [`acid_fs_rename`](#acid_fs_rename) · [`acid_fs_delete`](#acid_fs_delete)
 
@@ -786,6 +786,23 @@ Despite the name, it doesn't ask any other window to repaint.
 
 It copies the wallpaper pixels at the *same coordinates*, so it only looks
 right for a window sitting at the screen's `(0, 0)`.
+
+### `acid_restart`
+
+```lua snippet
+local ok = acid_restart()   -- on success it doesn't return
+```
+
+Restarts the whole OS from its boot-time screen-size picker. On the desktop
+build a fresh copy of the program starts, with the same command line minus
+`--screen`, and this one exits. Every open app ends at once, without being
+asked to save. Config's RESTART button asks for a second press first, and your
+own app should confirm too.
+
+Returns `false` only if the restart couldn't happen, in which case everything
+keeps running.
+
+**Cart:** always `false`.
 
 ### `acid_screen_size`
 
