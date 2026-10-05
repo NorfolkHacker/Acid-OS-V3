@@ -64,6 +64,11 @@ turns towards it), P pauses. Every fifth pellet brings a rainbow pellet for a
 few seconds: it's worth five times as much and sets the snake's colours
 spinning.
 
+**Acid Invaders** is there too. Left/A or Right/D set the cannon moving (the
+other way stops it) and Down/S stops it. Space, Up or W fires. Holding the
+pointer slides the cannon under it, and a tap fires. Shoot the saucer for a
+few seconds of rainbow triple shot.
+
 > **Run it from the top folder of the repository.** Acid OS finds app scripts
 > by a path relative to that folder (`v3/apps/<name>.lua`). Run it from
 > anywhere else and no app will launch.

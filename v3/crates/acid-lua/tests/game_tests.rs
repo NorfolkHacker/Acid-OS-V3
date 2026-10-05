@@ -154,6 +154,11 @@ fn acid_snake() {
 }
 
 #[test]
+fn acid_invaders() {
+    run_suite_with("WIN_W, WIN_H = 320, 256", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/acid_invaders.lua", "v3/tools/test_acid_invaders.lua"]), 80);
+}
+
+#[test]
 fn tetris() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/tetris.lua", "v3/tools/test_tetris.lua"]), 24);
 }
