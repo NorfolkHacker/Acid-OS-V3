@@ -246,3 +246,6 @@ clear, which = drawn_text_clear()
 ok(clear, "game over text doesn't overlap at Large" .. (which and (": " .. which) or ""))
 FONT_W, FONT_H = 6, 8
 G:layout()
+
+group("whole pixels")
+eq(NON_INT, {}, "every drawing call got whole pixels")

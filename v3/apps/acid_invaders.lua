@@ -265,8 +265,9 @@ function AcidInvaders:hit_shield(x, y)
   return false
 end
 
+-- Drawing calls take whole pixels; the saucer and cannon move in fractions.
 function AcidInvaders:ring(x, y, color)
-  self.rings[#self.rings + 1] = { x = x, y = y, t = 0, color = color }
+  self.rings[#self.rings + 1] = { x = math.floor(x), y = math.floor(y), t = 0, color = color }
 end
 
 -- Shots and bombs move several pixels a tick but shield cells are only
