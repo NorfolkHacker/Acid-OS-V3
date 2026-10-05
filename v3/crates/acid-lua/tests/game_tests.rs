@@ -149,6 +149,11 @@ fn acidstorm() {
 }
 
 #[test]
+fn acid_snake() {
+    run_suite_with("WIN_W, WIN_H = 320, 256", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/acid_snake.lua", "v3/tools/test_acid_snake.lua"]), 68);
+}
+
+#[test]
 fn tetris() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/tetris.lua", "v3/tools/test_tetris.lua"]), 24);
 }

@@ -59,6 +59,11 @@ that way until you press it again. Hold the pointer down to fire at it. Space
 stops moving and firing, and P pauses. Rescue the humans and clear the
 hostiles to finish a wave.
 
+**Acid Snake** is in the same folder. The arrows or W, A, S and D turn (a tap
+turns towards it), P pauses. Every fifth pellet brings a rainbow pellet for a
+few seconds: it's worth five times as much and sets the snake's colours
+spinning.
+
 > **Run it from the top folder of the repository.** Acid OS finds app scripts
 > by a path relative to that folder (`v3/apps/<name>.lua`). Run it from
 > anywhere else and no app will launch.
