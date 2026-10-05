@@ -52,6 +52,13 @@ Manager, go into `App` and click Acid Spin's `.app.toml` file. Left and Right
 change the shape, Up and Down the speed, Space cycles wire, solid and both, and
 you can resize its window.
 
+**AcidStorm** opens the same way: an arena shooter over an acid plasma
+background. Keys only send presses, so controls stay on once set. W, A, S and D
+set the way you move (the opposite key stops that direction). An arrow fires
+that way until you press it again. Hold the pointer down to fire at it. Space
+stops moving and firing, and P pauses. Rescue the humans and clear the
+hostiles to finish a wave.
+
 > **Run it from the top folder of the repository.** Acid OS finds app scripts
 > by a path relative to that folder (`v3/apps/<name>.lua`). Run it from
 > anywhere else and no app will launch.
