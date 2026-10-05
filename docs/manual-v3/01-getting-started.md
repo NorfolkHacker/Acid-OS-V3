@@ -53,25 +53,23 @@ change the shape, Up and Down the speed, Space cycles wire, solid and both, and
 you can resize its window.
 
 **AcidStorm** opens the same way: an arena shooter over an acid plasma
-background. Keys only send presses, so controls stay on once set. W, A, S and D
-set the way you move (the opposite key stops that direction). An arrow fires
-that way until you press it again. Hold the pointer down to fire at it. Space
-stops moving and firing, and P pauses. Rescue the humans and clear the
-hostiles to finish a wave.
+background. Hold W, A, S and D to move and the arrows to fire; hold two for a
+diagonal. Or hold the pointer down to fire at it. P pauses. Rescue the humans
+and clear the robots to finish a wave.
 
 **Acid Snake** is in the same folder. The arrows or W, A, S and D turn (a tap
 turns towards it), P pauses. Every fifth pellet brings a rainbow pellet for a
 few seconds: it's worth five times as much and sets the snake's colours
 spinning.
 
-**Acid Invaders** is there too. Left/A or Right/D set the cannon moving (the
-other way stops it) and Down/S stops it. Space, Up or W fires. Holding the
-pointer slides the cannon under it, and a tap fires. Shoot the saucer for a
+**Acid Invaders** is there too. Hold Left/A or Right/D to move. Space, Up or W
+fires, and holding it keeps firing. Holding the pointer slides the cannon
+under it, and a tap fires. Shoot the saucer for a
 few seconds of rainbow triple shot.
 
-**Acid Rocks** is a vector rock shooter. Left/A or Right/D set the ship turning
-(the other way stops it), Up/W switches thrust on and off, Space fires and
-Down/S jumps through hyperspace. Hold the pointer to turn towards it and fire.
+**Acid Rocks** is a vector rock shooter. Hold Left/A or Right/D to turn and
+Up/W to thrust. Space fires (hold it to keep firing) and Down/S jumps through
+hyperspace. Hold the pointer to turn towards it and fire.
 
 > **Run it from the top folder of the repository.** Acid OS finds app scripts
 > by a path relative to that folder (`v3/apps/<name>.lua`). Run it from
