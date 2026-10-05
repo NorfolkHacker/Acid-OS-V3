@@ -247,5 +247,9 @@ ok(clear, "game over text doesn't overlap at Large" .. (which and (": " .. which
 FONT_W, FONT_H = 6, 8
 G:layout()
 
+group("frames")
+eq(FRAME_DEPTH, 0, "every frame begun was ended")
+ok(FRAMES_ENDED > 0, "redraws go through frames")
+
 group("whole pixels")
 eq(NON_INT, {}, "every drawing call got whole pixels")

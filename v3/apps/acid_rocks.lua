@@ -4,11 +4,10 @@
 -- itself, thrust leaves a rainbow exhaust, and a broken rock throws off
 -- shards.
 --
--- Keys arrive as presses only, so controls latch: Left/A or Right/D set
--- the ship turning (the other way stops it), Up/W toggles thrust, Space
--- fires, Down/S jumps through hyperspace. Holding the pointer turns the
--- ship towards it and fires on its own; a fresh tap fires at once.
--- P pauses.
+-- Hold Left/A or Right/D to turn and Up/W to thrust. Space fires, and
+-- keeps firing while held; Down/S jumps through hyperspace. Holding the
+-- pointer turns the ship towards it and fires on its own; a fresh tap
+-- fires at once. P pauses.
 
 AcidRocks = AcidGame:extend("AcidRocks")
 
@@ -78,6 +77,8 @@ function AcidRocks:on_create()
   self.ticks = 0
   self.best = 0
   self.touch_held = false
+  self.was_focused = false
+  self:drop_held()
   self:layout()
   self:to_title()
 end
@@ -111,8 +112,6 @@ end
 
 function AcidRocks:reset_ship()
   self.ship = { x = self.cx, y = self.cy, vx = 0, vy = 0, a = -math.pi / 2, r = R.SHIP_R }
-  self.turn = 0
-  self.thrust = false
   self.invuln = R.INVULN_SECS
 end
 
@@ -226,8 +225,6 @@ function AcidRocks:ship_hit()
   self:burst(s.x, s.y, 24, 0)
   self:play_sfx("death")
   self.lives = self.lives - 1
-  self.thrust = false
-  self.turn = 0
   if self.lives <= 0 then
     self.state = "dead"
     self.dead_ticks = 0
@@ -321,6 +318,10 @@ function AcidRocks:step_ship(dt)
     end
   else
     s.a = s.a + self.turn * R.TURN_SPEED * dt
+    if self.held.fire and self.fire_cd <= 0 then
+      self:fire()
+      self.fire_cd = R.AUTO_FIRE_SECS
+    end
   end
   s.a = s.a % TAU
 
@@ -363,7 +364,10 @@ function AcidRocks:on_tick()
   local focused = self:focused()
   -- Unfocused, keys and touches go elsewhere: hold still, and drop a
   -- pointer whose release we may never see.
-  if not focused then self.pointer = nil end
+  if not focused then
+    self.pointer = nil
+    if self.was_focused then self:drop_held() end
+  end
   if focused then
     self.ticks = self.ticks + 1
     if self.state == "title" then
@@ -383,17 +387,28 @@ function AcidRocks:on_tick()
     end
   end
   self:tick_sfx()
+  self.was_focused = focused
   if focused then self:redraw() end
 end
 
 -- ---- input ----
 
-local LEFT_KEYS = { [AcidKeys.LEFT] = true, [string.byte("a")] = true, [string.byte("A")] = true }
-local RIGHT_KEYS = { [AcidKeys.RIGHT] = true, [string.byte("d")] = true, [string.byte("D")] = true }
-local THRUST_KEYS = { [AcidKeys.UP] = true, [string.byte("w")] = true, [string.byte("W")] = true }
+-- Key code -> the held action it drives.
+local ACTIONS = {
+  [AcidKeys.LEFT] = "left", [string.byte("a")] = "left", [string.byte("A")] = "left",
+  [AcidKeys.RIGHT] = "right", [string.byte("d")] = "right", [string.byte("D")] = "right",
+  [AcidKeys.UP] = "thrust", [string.byte("w")] = "thrust", [string.byte("W")] = "thrust",
+  [32] = "fire",
+}
 local HYPER_KEYS = { [AcidKeys.DOWN] = true, [string.byte("s")] = true, [string.byte("S")] = true }
 
 function AcidRocks:on_key(code, pressed)
+  local action = ACTIONS[code]
+  if action then
+    self.held[action] = pressed or nil
+    self.turn = (self.held.right and 1 or 0) - (self.held.left and 1 or 0)
+    self.thrust = self.held.thrust == true
+  end
   if not pressed then return end
   local confirm = code == 32 or code == AcidKeys.ENTER
   if self.state == "title" then
@@ -406,17 +421,19 @@ function AcidRocks:on_key(code, pressed)
     self.paused = not self.paused
   elseif self.paused or self.waiting then
     return
-  elseif LEFT_KEYS[code] then
-    self.turn = self.turn == 1 and 0 or -1
-  elseif RIGHT_KEYS[code] then
-    self.turn = self.turn == -1 and 0 or 1
-  elseif THRUST_KEYS[code] then
-    self.thrust = not self.thrust
   elseif HYPER_KEYS[code] then
     self:hyperspace()
-  elseif code == 32 then
+  elseif action == "fire" then
     self:fire()
+    self.fire_cd = R.AUTO_FIRE_SECS
   end
+end
+
+-- Forget every held key (focus gone: releases may never arrive).
+function AcidRocks:drop_held()
+  self.held = {}
+  self.turn = 0
+  self.thrust = false
 end
 
 function AcidRocks:on_touch(x, y, pressed)
@@ -558,12 +575,20 @@ function AcidRocks:draw_title()
   self:centred("ACID ROCKS", self.ay0 + 8, AcidPalette.hue(self.ticks * 4))
   if (self.ticks // 15) % 2 == 0 then self:centred("SPACE OR TAP TO START", self.ay0 + 12 + ch, 0x00FFFF) end
   local y = self.ay1 - 4 - 3 * (ch + 2)
-  self:centred("LEFT RIGHT TURN  UP THRUST", y, R.MUTED_COLOR)
+  self:centred("HOLD LEFT RIGHT UP TO FLY", y, R.MUTED_COLOR)
   self:centred("SPACE FIRE  DOWN JUMP", y + ch + 2, R.MUTED_COLOR)
   self:centred("HOLD POINTER TO AIM", y + 2 * (ch + 2), R.MUTED_COLOR)
 end
 
+-- One frame, shown whole: the compositor never catches the window cleared
+-- or half-painted.
 function AcidRocks:redraw()
+  acid_begin_frame()
+  self:paint()
+  acid_end_frame()
+end
+
+function AcidRocks:paint()
   acid_clear_user_area()
   acid_draw_window_frame(self:window_title())
   if self.state == "title" then

@@ -159,6 +159,8 @@ function AcidSpin:on_tick()
 end
 
 function AcidSpin:redraw()
+  -- One frame, shown whole: no flash of the cleared window.
+  acid_begin_frame()
   acid_clear_user_area()
   acid_draw_window_frame(self:window_title())
   local color = AcidPalette.hue(self.step)
@@ -178,6 +180,7 @@ function AcidSpin:redraw()
   local label = SHAPE_NAMES[self.shape] .. " " .. MODE_NAMES[self.mode] .. " x" .. self.speed
   acid_draw_text(label:sub(1, (self.w - 8) // cw), 4, self.h - ch - 4, AcidSpin.MUTED_COLOR, AcidSpin.BG_COLOR)
   acid_draw_window_border()
+  acid_end_frame()
 end
 
 function AcidSpin:on_destroy()

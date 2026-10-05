@@ -4,10 +4,10 @@
 -- gives a rainbow triple shot for a few seconds. The formation speeds up
 -- as it thins out and starts lower each wave.
 --
--- Keys arrive as presses only, so movement latches: Left/A or Right/D set
--- the cannon moving that way (the other way stops it), Down/S stops.
--- Space, Up or W fires; one volley is in the air at a time. Holding the
--- pointer slides the cannon under it, and a fresh tap fires. P pauses.
+-- Hold Left/A or Right/D to move. Space, Up or W fires; one volley is in
+-- the air at a time, and holding fire shoots again as soon as it's gone.
+-- Holding the pointer slides the cannon under it, and a fresh tap fires.
+-- P pauses.
 
 AcidInvaders = AcidGame:extend("AcidInvaders")
 
@@ -113,6 +113,8 @@ function AcidInvaders:on_create()
   self.ticks = 0
   self.best = 0
   self.touch_held = false
+  self.was_focused = false
+  self:drop_held()
   self:layout()
   self:to_title()
 end
@@ -140,7 +142,6 @@ function AcidInvaders:start_game()
   self.lives = 3
   self.paused = false
   self.player_x = (self.ax0 + self.ax1) / 2
-  self.move = 0
   self.pointer = nil
   self:build_shields()
   self:start_wave(1)
@@ -355,15 +356,22 @@ function AcidInvaders:game_over()
   self.state = "dead"
   self.dead_ticks = 0
   if self.score > self.best then self.best = self.score end
-  self.move = 0
+  self:drop_held()
   self.pointer = nil
+end
+
+-- Forget every held key (game over, or focus gone: releases may never
+-- arrive).
+function AcidInvaders:drop_held()
+  self.held = {}
+  self.move = 0
 end
 
 function AcidInvaders:step(dt)
   if self.invuln > 0 then self.invuln = self.invuln - dt end
   if self.trip > 0 then self.trip = self.trip - 1 end
 
-  -- Cannon: the pointer, while held, wins over the latched direction.
+  -- Cannon: the pointer, while held, wins over the keys.
   local half = V.PLAYER_W / 2
   if self.pointer then
     local d = self.pointer.x - self.player_x
@@ -374,6 +382,8 @@ function AcidInvaders:step(dt)
     self.player_x = self.player_x + self.move * V.PLAYER_SPEED * dt
   end
   self.player_x = math.max(self.ax0 + half, math.min(self.ax1 - half, self.player_x))
+  -- Fire held: shoot again the moment the last volley is gone.
+  if self.held.fire then self:fire() end
 
   self.march_timer = self.march_timer + 1
   if self.march_timer >= self:march_every() then
@@ -427,7 +437,10 @@ function AcidInvaders:on_tick()
   local focused = self:focused()
   -- Unfocused, keys and touches go elsewhere: hold still, and drop a
   -- pointer whose release we may never see.
-  if not focused then self.pointer = nil end
+  if not focused then
+    self.pointer = nil
+    if self.was_focused then self:drop_held() end
+  end
   if focused then
     self.ticks = self.ticks + 1
     if self.state == "playing" and not self.paused then
@@ -443,17 +456,25 @@ function AcidInvaders:on_tick()
     end
   end
   self:tick_sfx()
+  self.was_focused = focused
   if focused then self:redraw() end
 end
 
 -- ---- input ----
 
-local LEFT_KEYS = { [AcidKeys.LEFT] = true, [string.byte("a")] = true, [string.byte("A")] = true }
-local RIGHT_KEYS = { [AcidKeys.RIGHT] = true, [string.byte("d")] = true, [string.byte("D")] = true }
-local STOP_KEYS = { [AcidKeys.DOWN] = true, [string.byte("s")] = true, [string.byte("S")] = true }
-local FIRE_KEYS = { [32] = true, [AcidKeys.UP] = true, [string.byte("w")] = true, [string.byte("W")] = true }
+-- Key code -> the held action it drives.
+local ACTIONS = {
+  [AcidKeys.LEFT] = "left", [string.byte("a")] = "left", [string.byte("A")] = "left",
+  [AcidKeys.RIGHT] = "right", [string.byte("d")] = "right", [string.byte("D")] = "right",
+  [32] = "fire", [AcidKeys.UP] = "fire", [string.byte("w")] = "fire", [string.byte("W")] = "fire",
+}
 
 function AcidInvaders:on_key(code, pressed)
+  local action = ACTIONS[code]
+  if action then
+    self.held[action] = pressed or nil
+    self.move = (self.held.right and 1 or 0) - (self.held.left and 1 or 0)
+  end
   if not pressed then return end
   local confirm = code == 32 or code == AcidKeys.ENTER
   if self.state == "title" then
@@ -462,15 +483,7 @@ function AcidInvaders:on_key(code, pressed)
     if confirm and self.dead_ticks >= V.DEAD_LOCK_TICKS then self:start_game() end
   elseif code == string.byte("p") or code == string.byte("P") then
     if self.state == "playing" then self.paused = not self.paused end
-  elseif self.paused then
-    return
-  elseif LEFT_KEYS[code] then
-    self.move = self.move == 1 and 0 or -1
-  elseif RIGHT_KEYS[code] then
-    self.move = self.move == -1 and 0 or 1
-  elseif STOP_KEYS[code] then
-    self.move = 0
-  elseif FIRE_KEYS[code] and self.state == "playing" then
+  elseif action == "fire" and self.state == "playing" and not self.paused then
     self:fire()
   end
 end
@@ -617,12 +630,20 @@ function AcidInvaders:draw_title()
   end
   self:centred("ACID INVADERS", mid - ch * 4, AcidPalette.hue(self.ticks * 4))
   if (self.ticks // 15) % 2 == 0 then self:centred("SPACE OR TAP TO START", mid - ch, 0x00FFFF) end
-  self:centred("LEFT RIGHT MOVE  DOWN STOP", mid + ch * 2, V.MUTED_COLOR)
+  self:centred("HOLD LEFT RIGHT TO MOVE", mid + ch * 2, V.MUTED_COLOR)
   self:centred("SPACE FIRE  P PAUSE", mid + ch * 3 + 2, V.MUTED_COLOR)
   self:centred("SHOOT THE SAUCER", mid + ch * 4 + 4, V.MUTED_COLOR)
 end
 
+-- One frame, shown whole: the compositor never catches the window cleared
+-- or half-painted.
 function AcidInvaders:redraw()
+  acid_begin_frame()
+  self:paint()
+  acid_end_frame()
+end
+
+function AcidInvaders:paint()
   acid_clear_user_area()
   acid_draw_window_frame(self:window_title())
   self:draw_hud()

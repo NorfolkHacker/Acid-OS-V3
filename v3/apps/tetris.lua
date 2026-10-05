@@ -259,6 +259,8 @@ end
 
 function Tetris:draw()
   if not self:focused() then return end
+  -- One frame, shown whole: no flash of the cleared window.
+  acid_begin_frame()
   acid_clear_user_area()
   acid_draw_window_frame(self:window_title())
   self:draw_grid()
@@ -267,6 +269,7 @@ function Tetris:draw()
     acid_draw_text("GAME OVER", Tetris.GRID_X + 4, Tetris.GRID_Y + Tetris.GRID_H // 2 - 4, Tetris.TEXT_COLOR, Tetris.BG_COLOR)
   end
   acid_draw_window_border()
+  acid_end_frame()
 end
 
 function Tetris:draw_grid()

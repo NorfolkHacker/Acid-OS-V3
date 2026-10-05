@@ -145,22 +145,22 @@ fn acid_blaster() {
 
 #[test]
 fn acidstorm() {
-    run_suite_with("WIN_W, WIN_H = 320, 256", &with_libs(&["v3/tools/game_test_env.lua", "v3/tools/int_draw_guard.lua", "v3/apps/acidstorm.lua", "v3/tools/test_acidstorm.lua"]), 71);
+    run_suite_with("WIN_W, WIN_H = 320, 256", &with_libs(&["v3/tools/game_test_env.lua", "v3/tools/int_draw_guard.lua", "v3/apps/acidstorm.lua", "v3/tools/test_acidstorm.lua"]), 74);
 }
 
 #[test]
 fn acid_snake() {
-    run_suite_with("WIN_W, WIN_H = 320, 256", &with_libs(&["v3/tools/game_test_env.lua", "v3/tools/int_draw_guard.lua", "v3/apps/acid_snake.lua", "v3/tools/test_acid_snake.lua"]), 69);
+    run_suite_with("WIN_W, WIN_H = 320, 256", &with_libs(&["v3/tools/game_test_env.lua", "v3/tools/int_draw_guard.lua", "v3/apps/acid_snake.lua", "v3/tools/test_acid_snake.lua"]), 71);
 }
 
 #[test]
 fn acid_invaders() {
-    run_suite_with("WIN_W, WIN_H = 320, 256", &with_libs(&["v3/tools/game_test_env.lua", "v3/tools/int_draw_guard.lua", "v3/apps/acid_invaders.lua", "v3/tools/test_acid_invaders.lua"]), 81);
+    run_suite_with("WIN_W, WIN_H = 320, 256", &with_libs(&["v3/tools/game_test_env.lua", "v3/tools/int_draw_guard.lua", "v3/apps/acid_invaders.lua", "v3/tools/test_acid_invaders.lua"]), 88);
 }
 
 #[test]
 fn acid_rocks() {
-    run_suite_with("WIN_W, WIN_H = 320, 256", &with_libs(&["v3/tools/game_test_env.lua", "v3/tools/int_draw_guard.lua", "v3/apps/acid_rocks.lua", "v3/tools/test_acid_rocks.lua"]), 76);
+    run_suite_with("WIN_W, WIN_H = 320, 256", &with_libs(&["v3/tools/game_test_env.lua", "v3/tools/int_draw_guard.lua", "v3/apps/acid_rocks.lua", "v3/tools/test_acid_rocks.lua"]), 80);
 }
 
 #[test]

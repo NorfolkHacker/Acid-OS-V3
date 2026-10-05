@@ -3,13 +3,9 @@
 -- hunt the wandering humans; rescue the humans, clear the hostiles, next
 -- wave.
 --
--- Keys arrive as presses only (no release, no repeat), so nothing can be
--- "held". Movement and aim are latched instead: W/A/S/D set a direction
--- you keep moving in (the opposite key stops that axis, so two axes give a
--- diagonal); an arrow aims and fires that way until the same arrow is
--- pressed again. Holding the pointer down fires at the pointer. Space
--- stops moving and firing, P pauses. Speeds are per second, stepped by
--- the fixed tick.
+-- W/A/S/D move and the arrows fire, for as long as they're held; hold two
+-- for a diagonal. Holding the pointer down fires at the pointer instead.
+-- P pauses. Speeds are per second, stepped by the fixed tick.
 
 AcidStorm = AcidGame:extend("AcidStorm")
 
@@ -23,6 +19,11 @@ S.TEXT_COLOR = 0xD4E6DB   -- THEME_TEXT
 S.MUTED_COLOR = 0x9DAAA3  -- THEME_MUTED
 
 S.PLASMA_CELL = 16
+-- Under play the plasma is a faint backdrop, dark enough that every sprite
+-- stands out against it; the title gets it brighter, but not so loud the
+-- text fights it.
+S.PLAY_PLASMA_PERCENT = 11
+S.TITLE_PLASMA_PERCENT = 45
 S.PLAYER_R = 3.5
 S.PLAYER_SPEED = 78
 S.BULLET_SPEED = 230
@@ -68,6 +69,7 @@ function AcidStorm:on_create()
   self.time = 0
   self.touch_held = false
   self.was_focused = false
+  self:stop_input()
   self:layout()
   self:to_title()
 end
@@ -100,7 +102,10 @@ function AcidStorm:start_game()
   self:start_wave(1)
 end
 
+-- Forget every held key (a new wave, game over, or focus gone: releases
+-- may never arrive).
 function AcidStorm:stop_input()
+  self.held = {}
   self.move_x, self.move_y = 0, 0
   self.aim_x, self.aim_y = 0, 0
 end
@@ -131,7 +136,6 @@ function AcidStorm:start_wave(wave)
   }
   self.invuln = 1.0
   self.fire_cd = 0
-  self:stop_input()
 
   local humans = math.min(4 + wave % 3, 8)
   self.humans_alive = humans
@@ -201,50 +205,41 @@ end
 
 -- ---- input ----
 
-local MOVE_KEYS = {
-  [string.byte("w")] = { 0, -1 }, [string.byte("W")] = { 0, -1 },
-  [string.byte("s")] = { 0, 1 },  [string.byte("S")] = { 0, 1 },
-  [string.byte("a")] = { -1, 0 }, [string.byte("A")] = { -1, 0 },
-  [string.byte("d")] = { 1, 0 },  [string.byte("D")] = { 1, 0 },
+-- Key code -> the held action it drives.
+local ACTIONS = {
+  [string.byte("w")] = "up", [string.byte("W")] = "up",
+  [string.byte("s")] = "down", [string.byte("S")] = "down",
+  [string.byte("a")] = "left", [string.byte("A")] = "left",
+  [string.byte("d")] = "right", [string.byte("D")] = "right",
+  [AcidKeys.UP] = "aim_up", [AcidKeys.DOWN] = "aim_down",
+  [AcidKeys.LEFT] = "aim_left", [AcidKeys.RIGHT] = "aim_right",
 }
-local AIM_KEYS = {
-  [AcidKeys.UP] = { 0, -1 }, [AcidKeys.DOWN] = { 0, 1 },
-  [AcidKeys.LEFT] = { -1, 0 }, [AcidKeys.RIGHT] = { 1, 0 },
-}
-
--- Pressing a direction on an axis moving the other way stops that axis.
-local function latch(cur, dir)
-  if dir == 0 then return cur end
-  if cur == -dir then return 0 end
-  return dir
-end
 
 function AcidStorm:on_key(code, pressed)
+  local action = ACTIONS[code]
+  if action then
+    -- Held state is tracked on every screen, so a key held through the
+    -- title or a wave change still counts once play starts.
+    self.held[action] = pressed or nil
+    self:read_held()
+  end
   if not pressed then return end
   local confirm = code == 32 or code == AcidKeys.ENTER
   if self.state == "title" then
     if confirm then self:start_game() end
   elseif self.state == "game_over" then
     if confirm and self.state_timer > S.GAME_OVER_LOCK_SECS then self:to_title() end
-  elseif self.state ~= "playing" then
-    return
-  elseif code == string.byte("p") or code == string.byte("P") then
+  elseif self.state == "playing" and (code == string.byte("p") or code == string.byte("P")) then
     self.paused = not self.paused
-  elseif not self.paused then
-    local m, a = MOVE_KEYS[code], AIM_KEYS[code]
-    if m then
-      self.move_x = latch(self.move_x, m[1])
-      self.move_y = latch(self.move_y, m[2])
-    elseif a then
-      if self.aim_x == a[1] and self.aim_y == a[2] then
-        self.aim_x, self.aim_y = 0, 0
-      else
-        self.aim_x, self.aim_y = a[1], a[2]
-      end
-    elseif code == 32 then
-      self:stop_input()
-    end
   end
+end
+
+-- Held keys -> a movement and an aim direction, each -1, 0 or 1 per axis.
+function AcidStorm:read_held()
+  local h = self.held
+  local function axis(neg, pos) return (h[pos] and 1 or 0) - (h[neg] and 1 or 0) end
+  self.move_x, self.move_y = axis("left", "right"), axis("up", "down")
+  self.aim_x, self.aim_y = axis("aim_left", "aim_right"), axis("aim_up", "aim_down")
 end
 
 function AcidStorm:on_touch(x, y, pressed)
@@ -439,7 +434,10 @@ function AcidStorm:on_tick()
   local focused = self:focused()
   -- Unfocused, keys and touches go elsewhere: hold the game still, and
   -- drop a pointer whose release we may never see.
-  if not focused then self.pointer = nil end
+  if not focused then
+    self.pointer = nil
+    if self.was_focused then self:stop_input() end
+  end
   if focused then
     self.time = self.time + dt
     if self.state == "playing" and not self.paused then
@@ -501,7 +499,7 @@ end
 -- Coarse plasma: three sine waves summed per cell, onto the hue wheel.
 -- Dimmed to a quarter under play so the sprites read.
 function AcidStorm:draw_plasma(percent)
-  local t = self.time * (self.state == "title" and 1.0 or 0.4)
+  local t = self.time * (self.state == "title" and 1.0 or 0.25)
   local cell = S.PLASMA_CELL
   local y = S.TITLE_BAR_H
   while y < self.h do
@@ -539,22 +537,91 @@ function AcidStorm:draw_hud()
   self:text(right, self.w - 4 - #right * self.cw, self.hud_y, 0xFF3CC8)
 end
 
+-- Sprites, 1 px per cell, two frames where they walk. Original pixel
+-- art: grunts are little robots, enforcers hovering drones with one eye,
+-- hulks big brutes, humans little people.
+local SPRITES = {
+  grunt = {
+    { ".XXXXX.", ".X.X.X.", ".XXXXX.", "XXXXXXX", "X.XXX.X", "..X.X..", ".XX..X." },
+    { ".XXXXX.", ".X.X.X.", ".XXXXX.", "XXXXXXX", "X.XXX.X", "..X.X..", ".X..XX." },
+  },
+  enforcer = {
+    { "..XXXXX..", ".XX...XX.", "XXX.X.XXX", ".XX...XX.", "..XXXXX..", ".X..X..X." },
+    { "..XXXXX..", ".XX...XX.", "XXX.X.XXX", ".XX...XX.", "..XXXXX..", "X...X...X" },
+  },
+  hulk = {
+    { "...XXXXX...", "..XXXXXXX..", "..X..X..X..", "..XXXXXXX..", "XXXXXXXXXXX", "XXXXXXXXXXX",
+      "XX.XXXXX.XX", "XX.XXXXX.XX", "...XX.XX...", "...XX.XX...", "..XXX.XXX.." },
+  },
+  human = {
+    { "..X..", ".XXX.", "X.X.X", "..X..", ".X.X.", ".X.X." },
+    { "..X..", ".XXX.", "X.X.X", "..X..", ".X.X.", "X...X" },
+  },
+}
+
+-- Each sprite's filled cells merged into horizontal runs, one rect each.
+local function runs(pattern)
+  local out = {}
+  for row, line in ipairs(pattern) do
+    local start = nil
+    for col = 1, #line + 1 do
+      local filled = line:sub(col, col) == "X"
+      if filled and not start then start = col end
+      if not filled and start then
+        out[#out + 1] = { start - 1, row - 1, col - start }
+        start = nil
+      end
+    end
+  end
+  return { w = #pattern[1], h = #pattern, runs = out }
+end
+
+local SPRITE_RUNS = {}
+for kind, frames in pairs(SPRITES) do
+  SPRITE_RUNS[kind] = {}
+  for f, pattern in ipairs(frames) do SPRITE_RUNS[kind][f] = runs(pattern) end
+end
+
+-- Draws a kind's sprite centred on (x, y), walking frame by `step`.
+local function draw_sprite(kind, x, y, step, color)
+  local frames = SPRITE_RUNS[kind]
+  local spr = frames[step % #frames + 1]
+  local x0, y0 = x - spr.w // 2, y - spr.h // 2
+  for _, r in ipairs(spr.runs) do
+    acid_fill_rect(x0 + r[1], y0 + r[2], r[3], 1, color)
+  end
+end
+
+-- Enemy eyes and details over the body colour.
+S.GRUNT_EYE = 0xFFFFFF
+S.ENFORCER_COLOR = 0xFFD200
+S.ENFORCER_EYE = 0xFF2850
+S.HULK_COLOR = 0x46DC3C
+S.HULK_EYE = 0xFF2828
+S.HUMAN_COLOR = 0xFFE6C8
+
 function AcidStorm:draw_ent(e, i)
   local x, y, k = math.floor(e.x), math.floor(e.y), e.kind
+  local step = math.floor(self.time * 6) + i
   if k == "pbullet" then
     acid_fill_rect(x - 1, y - 1, 2, 2, 0xFFFFFF)
   elseif k == "ebullet" then
     acid_fill_rect(x - 1, y - 1, 2, 2, 0xFF5A28)
   elseif k == "grunt" then
-    acid_fill_rect(x - 3, y - 3, 7, 7, AcidPalette.hue(math.floor(self.time * 150) + i * 13))
+    -- Warm hues only (red through magenta), drifting per robot.
+    draw_sprite("grunt", x, y, step, AcidPalette.hue(200 + (math.floor(self.time * 40) + i * 9) % 70))
+    -- In the two gaps of the face row.
+    acid_fill_rect(x - 1, y - 2, 1, 1, S.GRUNT_EYE)
+    acid_fill_rect(x + 1, y - 2, 1, 1, S.GRUNT_EYE)
   elseif k == "enforcer" then
-    acid_fill_circle(x, y, 4, 0xFF78DC)
-    acid_fill_circle(x, y, 3, 0xFFE600)
+    draw_sprite("enforcer", x, y, step, S.ENFORCER_COLOR)
+    acid_fill_rect(x, y - 1, 1, 1, S.ENFORCER_EYE)
   elseif k == "hulk" then
-    acid_fill_rect(x - 6, y - 6, 12, 12, 0x782800)
-    acid_fill_rect(x - 5, y - 5, 10, 10, 0xFF8C1E)
+    draw_sprite("hulk", x, y, 0, S.HULK_COLOR)
+    acid_fill_rect(x - 2, y - 3, 2, 1, S.HULK_EYE)
+    acid_fill_rect(x + 1, y - 3, 2, 1, S.HULK_EYE)
   elseif k == "human" then
-    acid_fill_circle(x, y, 2, 0xB4FFB4)
+    draw_sprite("human", x, y, step, S.HUMAN_COLOR)
   elseif k == "electrode" then
     local c = math.floor(self.time * 6) % 2 == 1 and 0xFFFF00 or 0xC800FF
     acid_fill_circle(x, y, 3, c)
@@ -585,21 +652,29 @@ function AcidStorm:draw_title()
   if math.floor(self.time * 2) % 2 == 0 then
     self:centred("SPACE OR TAP TO START", mid, 0x00FFFF)
   end
-  self:centred("WASD MOVE  ARROWS FIRE", mid + ch * 2, S.MUTED_COLOR)
-  self:centred("HOLD POINTER TO AIM", mid + ch * 3 + 2, S.MUTED_COLOR)
-  self:centred("SPACE STOP  P PAUSE", mid + ch * 4 + 4, S.MUTED_COLOR)
+  self:centred("HOLD WASD TO MOVE", mid + ch * 2, S.MUTED_COLOR)
+  self:centred("HOLD ARROWS TO FIRE", mid + ch * 3 + 2, S.MUTED_COLOR)
+  self:centred("OR HOLD POINTER  P PAUSE", mid + ch * 4 + 4, S.MUTED_COLOR)
 end
 
+-- One frame, shown whole: the compositor never catches the window cleared
+-- or half-painted.
 function AcidStorm:redraw()
+  acid_begin_frame()
+  self:paint()
+  acid_end_frame()
+end
+
+function AcidStorm:paint()
   acid_clear_user_area()
   acid_draw_window_frame(self:window_title())
   if self.state == "title" then
-    self:draw_plasma(100)
+    self:draw_plasma(S.TITLE_PLASMA_PERCENT)
     self:draw_title()
     acid_draw_window_border()
     return
   end
-  self:draw_plasma(25)
+  self:draw_plasma(S.PLAY_PLASMA_PERCENT)
   box(self.ax0 - 2, self.ay0 - 2, self.ax1 - self.ax0 + 4, self.ay1 - self.ay0 + 4,
     AcidPalette.hue(math.floor(self.time * 40)))
   for i, e in ipairs(self.ents) do self:draw_ent(e, i) end

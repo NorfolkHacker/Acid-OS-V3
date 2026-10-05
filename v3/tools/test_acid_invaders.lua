@@ -22,6 +22,12 @@ local function has_text(s)
   return false
 end
 
+-- A key pressed and let go.
+local function tap(code)
+  G:on_key(code, true)
+  G:on_key(code, false)
+end
+
 local function fresh_frame() TEXT_AT, RECTS = {}, {} end
 
 local function shields_left()
@@ -45,9 +51,9 @@ eq(G.state, "title", "opens on the title screen")
 fresh_frame()
 G:on_tick()
 ok(has_text("ACID INVADERS"), "the title is drawn")
-G:on_key(AcidKeys.LEFT, true)
+tap(AcidKeys.LEFT)
 eq(G.state, "title", "a move key doesn't start the game")
-G:on_key(32, true)
+tap(32)
 eq(G.state, "playing", "space starts")
 eq(#G.aliens, V.COLS * V.ROWS, "a full 8x5 formation")
 eq(G.lives, 3, "three lives")
@@ -79,24 +85,48 @@ quiet()
 local px = G.player_x
 G:on_key(AcidKeys.LEFT, true)
 G:on_tick(); G:on_tick()
-ok(G.player_x < px, "left keeps it moving with no key held")
-G:on_key(string.byte("d"), true)
-eq(G.move, 0, "the other way stops it")
+ok(G.player_x < px, "holding left moves it")
+G:on_key(AcidKeys.LEFT, false)
+local stopped = G.player_x
+G:on_tick()
+eq(G.player_x, stopped, "letting go stops it")
 G:on_key(string.byte("D"), true)
-eq(G.move, 1, "then moves that way")
-G:on_key(AcidKeys.DOWN, true)
-eq(G.move, 0, "down stops")
-G:on_key(AcidKeys.RIGHT, true)
+eq(G.move, 1, "holding D moves right (shift works too)")
+G:on_key(string.byte("a"), true)
+eq(G.move, 0, "both ways at once cancel")
+G:on_key(string.byte("a"), false)
 for _ = 1, 300 do G:on_tick() end
 eq(G.player_x, G.ax1 - V.PLAYER_W / 2, "the wall stops it")
-G:on_key(AcidKeys.DOWN, true)
+G:on_key(string.byte("D"), false)
+
+group("held fire")
+quiet(113, 80)
+G.player_x = 120
+G:on_key(32, true)
+eq(#G.shots, 1, "space fires on the press")
+for _ = 1, 40 do G:on_tick() end
+eq(#G.aliens, 0, "and kills the alien")
+G.state = "playing"
+G.aliens = { { row = 5, col = 1, x = 20, y = 60 } }
+G.shots = {}
+G:on_tick()
+eq(#G.shots, 1, "still held: it fires again once the shot is gone")
+G:on_key(32, false)
+G.shots = {}
+G:on_tick()
+eq(#G.shots, 0, "let go: no more")
+G:on_key(AcidKeys.RIGHT, true)
+G.focused = function() return false end
+G:on_tick()
+G.focused = nil
+eq(G.move, 0, "keys held when the window lost focus are dropped")
 
 group("shooting")
 quiet(113, 80)  -- in the gap between the first two shields
 G.player_x = 120
-G:on_key(32, true)
+tap(32)
 eq(#G.shots, 1, "space fires")
-G:on_key(AcidKeys.UP, true)
+tap(AcidKeys.UP)
 eq(#G.shots, 1, "one shot in the air at a time")
 local before = G.score
 NOTES = {}
@@ -211,14 +241,14 @@ G.bombs = { { x = G.player_x, y = G.player_y - 2 } }
 G:on_tick()
 eq(G.state, "dead", "losing the last life ends the game")
 eq(G.best, 90, "the best score is kept")
-G:on_key(32, true)
+tap(32)
 eq(G.state, "dead", "space straight away does nothing")
 for _ = 1, V.DEAD_LOCK_TICKS do G:on_tick() end
 ok(stops(V.SFX.death.voice) > 0, "the death note is turned off")
 fresh_frame()
 G:redraw()
 ok(has_text("GAME OVER"), "game over is drawn")
-G:on_key(32, true)
+tap(32)
 eq(G.state, "playing", "then space plays again")
 -- At the right wall, so the next step is a drop onto the cannon's row.
 quiet(G.ax1 - 2 - V.ALIEN_W, G.player_y - V.ALIEN_H - 2)
@@ -231,13 +261,15 @@ group("pause")
 quiet()
 G:on_key(string.byte("p"), true)
 G:on_key(AcidKeys.LEFT, true)
-eq(G.move, 0, "keys are ignored while paused")
-local ax = G.aliens[1].x
+local ax, cx = G.aliens[1].x, G.player_x
 G.march_timer = 0
 for _ = 1, 30 do G:on_tick() end
-eq(G.aliens[1].x, ax, "nothing moves while paused")
+eq({ G.aliens[1].x, G.player_x }, { ax, cx }, "nothing moves while paused, even with a key held")
 G:on_key(string.byte("P"), true)
 ok(not G.paused, "P again resumes")
+G:on_tick()
+ok(G.player_x < cx, "and the key still held moves at once")
+G:on_key(AcidKeys.LEFT, false)
 
 group("sound lifecycle")
 quiet()
@@ -290,6 +322,10 @@ clear, which = drawn_text_clear()
 ok(clear, "game over text doesn't overlap at Large" .. (which and (": " .. which) or ""))
 FONT_W, FONT_H = 6, 8
 G:layout()
+
+group("frames")
+eq(FRAME_DEPTH, 0, "every frame begun was ended")
+ok(FRAMES_ENDED > 0, "redraws go through frames")
 
 group("whole pixels")
 eq(NON_INT, {}, "every drawing call got whole pixels")

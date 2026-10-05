@@ -388,7 +388,15 @@ function AcidSnake:draw_title()
   self:centred("P PAUSE", mid + ch * 4 + 4, N.MUTED_COLOR)
 end
 
+-- One frame, shown whole: the compositor never catches the window cleared
+-- or half-painted.
 function AcidSnake:redraw()
+  acid_begin_frame()
+  self:paint()
+  acid_end_frame()
+end
+
+function AcidSnake:paint()
   acid_clear_user_area()
   acid_draw_window_frame(self:window_title())
   self:draw_board()

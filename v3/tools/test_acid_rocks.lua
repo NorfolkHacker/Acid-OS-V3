@@ -22,6 +22,12 @@ local function has_text(s)
   return false
 end
 
+-- A key pressed and let go.
+local function tap(code)
+  G:on_key(code, true)
+  G:on_key(code, false)
+end
+
 local function fresh_frame() TEXT_AT, RECTS, LINES = {}, {}, {} end
 
 -- A still rock, so tests decide where everything is.
@@ -47,9 +53,9 @@ fresh_frame()
 G:on_tick()
 ok(has_text("ACID ROCKS"), "the title is drawn")
 ok(#LINES > 0, "with a rock in vector lines")
-G:on_key(AcidKeys.LEFT, true)
+tap(AcidKeys.LEFT)
 eq(G.state, "title", "a turn key doesn't start the game")
-G:on_key(32, true)
+tap(32)
 eq(G.state, "playing", "space starts")
 eq(#G.rocks, 4, "wave 1 has 4 big rocks")
 eq(G.lives, 3, "three lives")
@@ -64,32 +70,36 @@ quiet()
 local a0 = G.ship.a
 G:on_key(AcidKeys.RIGHT, true)
 G:on_tick(); G:on_tick()
-ok(near(G.ship.a, (a0 + 2 * R.TURN_SPEED * R.DT) % (2 * math.pi)), "right keeps turning with no key held")
-G:on_key(string.byte("a"), true)
-eq(G.turn, 0, "the other way stops it")
+ok(near(G.ship.a, (a0 + 2 * R.TURN_SPEED * R.DT) % (2 * math.pi)), "holding right turns")
+G:on_key(AcidKeys.RIGHT, false)
+local a1 = G.ship.a
+G:on_tick()
+eq(G.ship.a, a1, "letting go stops turning")
 G:on_key(string.byte("A"), true)
-eq(G.turn, -1, "then turns that way")
+eq(G.turn, -1, "holding A turns the other way")
 G:on_key(AcidKeys.RIGHT, true)
-eq(G.turn, 0, "and stops again")
+eq(G.turn, 0, "both ways at once cancel")
+G:on_key(AcidKeys.RIGHT, false)
+G:on_key(string.byte("A"), false)
 
 group("thrust and drift")
 quiet()
 G.ship.a = 0
 G:on_key(AcidKeys.UP, true)
-ok(G.thrust, "up switches thrust on")
+ok(G.thrust, "holding up thrusts")
 for _ = 1, 10 do G:on_tick() end
-ok(G.ship.vx > 0 and near(G.ship.vy, 0), "and pushes the way it faces")
+ok(G.ship.vx > 0 and near(G.ship.vy, 0), "the way it faces")
 ok(#G.parts > 0, "leaving exhaust")
-G:on_key(string.byte("w"), true)
-ok(not G.thrust, "up again switches it off")
+G:on_key(AcidKeys.UP, false)
+ok(not G.thrust, "letting go stops thrusting")
 local v = G.ship.vx
 G:on_tick()
 ok(G.ship.vx < v and G.ship.vx > 0, "then it drifts, slowing")
 G.ship.vx, G.ship.vy = 1e6, 0
-G:on_key(AcidKeys.UP, true)
+G:on_key(string.byte("w"), true)
 G:on_tick()
 ok(G.ship.vx <= R.MAX_SPEED + 1e-6, "never faster than its top speed")
-G:on_key(AcidKeys.UP, true)
+G:on_key(string.byte("w"), false)
 
 group("wrapping")
 quiet()
@@ -105,11 +115,19 @@ group("shooting")
 quiet()
 G.ship.a = 0
 G:on_key(32, true)
-eq(#G.bullets, 1, "space fires")
-for _ = 1, 10 do G:on_key(32, true) end
-eq(#G.bullets, R.MAX_BULLETS, "at most 4 in the air")
+eq(#G.bullets, 1, "space fires on the press")
+for _ = 1, 30 do G:on_tick() end
+eq(#G.bullets, R.MAX_BULLETS, "keeps firing while held, at most 4 in the air")
+G:on_key(32, false)
 for _ = 1, math.ceil(R.BULLET_LIFE / R.DT) + 1 do G:on_tick() end
-eq(#G.bullets, 0, "bullets run out")
+eq(#G.bullets, 0, "let go: bullets run out")
+for _ = 1, 10 do tap(32) end
+eq(#G.bullets, R.MAX_BULLETS, "taps are capped at 4 too")
+G:on_key(AcidKeys.LEFT, true)
+G.focused = function() return false end
+G:on_tick()
+G.focused = nil
+eq(G.turn, 0, "keys held when the window lost focus are dropped")
 
 group("splitting")
 quiet()
@@ -118,7 +136,7 @@ local big = rock(3, G.ship.x + 40, G.ship.y)
 G.rocks = { big, rock(1, 20, 240) }
 G.score = 0
 NOTES = {}
-G:on_key(32, true)
+tap(32)
 for _ = 1, 10 do G:on_tick() end
 local sizes = {}
 for _, r in ipairs(G.rocks) do sizes[#sizes + 1] = r.size end
@@ -154,7 +172,7 @@ ok(G.waiting, "the ship waits to come back")
 local played = false
 for _, n in ipairs(NOTES) do if n[1] == "play" and n[2] == R.SFX.death.voice then played = true end end
 ok(played, "with the death sound")
-G:on_key(32, true)
+tap(32)
 eq(#G.bullets, 0, "no firing while waiting")
 G:on_tick()
 ok(G.waiting, "not while a rock is in the middle")
@@ -217,7 +235,7 @@ G.rocks = { rock(3, G.ship.x, G.ship.y) }
 G:on_tick()
 eq(G.state, "dead", "losing the last ship ends the game")
 eq(G.best, 70, "the best score is kept")
-G:on_key(32, true)
+tap(32)
 eq(G.state, "dead", "space straight away does nothing")
 G:on_touch(9, 99, true)
 for _ = 1, R.DEAD_LOCK_TICKS do G:on_tick(); G:on_touch(9, 99, true) end
@@ -236,12 +254,15 @@ quiet()
 G.rocks[1].vx = 30
 G:on_key(string.byte("p"), true)
 local rx = G.rocks[1].x
-for _ = 1, 10 do G:on_tick() end
-eq(G.rocks[1].x, rx, "nothing moves while paused")
 G:on_key(AcidKeys.LEFT, true)
-eq(G.turn, 0, "keys are ignored while paused")
+local pa = G.ship.a
+for _ = 1, 10 do G:on_tick() end
+eq({ G.rocks[1].x, G.ship.a }, { rx, pa }, "nothing moves while paused, even with a key held")
 G:on_key(string.byte("P"), true)
 ok(not G.paused, "P again resumes")
+G:on_tick()
+ok(G.ship.a ~= pa, "and the key still held turns at once")
+G:on_key(AcidKeys.LEFT, false)
 
 group("sound lifecycle")
 quiet()
@@ -260,7 +281,8 @@ quiet()
 G.rocks = { rock(3, G.ax0 + 2, G.ay0 + 2), rock(2, 150, 100) }
 G:on_key(AcidKeys.UP, true)
 for _ = 1, 5 do G:on_tick() end
-G:on_key(32, true)
+G:on_key(AcidKeys.UP, false)
+tap(32)
 fresh_frame()
 G:redraw()
 local fits, what = drawn_inside_window()
@@ -291,6 +313,10 @@ tclear, which = drawn_text_clear()
 ok(tclear, "game over text doesn't overlap at Large" .. (which and (": " .. which) or ""))
 FONT_W, FONT_H = 6, 8
 G:layout()
+
+group("frames")
+eq(FRAME_DEPTH, 0, "every frame begun was ended")
+ok(FRAMES_ENDED > 0, "redraws go through frames")
 
 group("whole pixels")
 eq(NON_INT, {}, "every drawing call got whole pixels")
