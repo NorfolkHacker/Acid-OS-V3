@@ -94,7 +94,7 @@ These are the app names you can use with `--app`:
 
 | Kind | Names |
 |---|---|
-| Games | `tetris`, `breakout`, `acid_blaster`, `acidstorm`, `acid_snake`, `acid_invaders` |
+| Games | `tetris`, `breakout`, `acid_blaster`, `acidstorm`, `acid_snake`, `acid_invaders`, `acid_rocks` |
 | Toys | `piano`, `acid_spin`, `sprite` (Sprite Paint), `hello_acid` |
 | Tools | `terminal`, `editor`, `file_manager`, `sysmon`, `network`, `config`, `about`, `cart` (Load Cart) |
 

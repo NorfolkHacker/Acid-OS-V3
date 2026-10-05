@@ -1,0 +1,5 @@
+name = Acid Rocks
+w = 320
+h = 256
+desc = Vector rocks on acid
+menu = false

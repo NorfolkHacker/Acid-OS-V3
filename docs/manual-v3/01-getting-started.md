@@ -69,6 +69,10 @@ other way stops it) and Down/S stops it. Space, Up or W fires. Holding the
 pointer slides the cannon under it, and a tap fires. Shoot the saucer for a
 few seconds of rainbow triple shot.
 
+**Acid Rocks** is a vector rock shooter. Left/A or Right/D set the ship turning
+(the other way stops it), Up/W switches thrust on and off, Space fires and
+Down/S jumps through hyperspace. Hold the pointer to turn towards it and fire.
+
 > **Run it from the top folder of the repository.** Acid OS finds app scripts
 > by a path relative to that folder (`v3/apps/<name>.lua`). Run it from
 > anywhere else and no app will launch.
