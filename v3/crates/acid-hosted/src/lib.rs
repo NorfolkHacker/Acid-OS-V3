@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use acid_gfx::rgb565_to_888;
 use acid_platform::std_impl::carts::HostCarts;
 use acid_platform::std_impl::{StdFs, StdSignal, std_spawn};
-use acid_platform::{CartStat, Display, FsError, Fs, Input, Platform, Signal, SpawnError, TaskFn, TouchState};
+use acid_platform::{CartStat, Display, FsError, Fs, Input, KeyEvent, Platform, Signal, SpawnError, TaskFn, TouchState};
 use winit::event_loop::EventLoopProxy;
 
 /// Key queue capacity: a full queue drops the newest press.
@@ -32,7 +32,7 @@ pub enum UserEvent {
 #[derive(Default)]
 pub struct HostedInput {
     touch: Mutex<TouchState>,
-    keys: Mutex<VecDeque<i32>>,
+    keys: Mutex<VecDeque<KeyEvent>>,
     quit: AtomicBool,
 }
 
@@ -47,10 +47,14 @@ impl HostedInput {
         self.touch.lock().unwrap().pressed = pressed;
     }
 
-    pub fn push_key(&self, code: i32) {
+    /// Queues a press or release. A full queue drops presses, but keeps
+    /// room for releases (up to twice the cap): a lost release would leave
+    /// an app thinking the key is still held.
+    pub fn push_key(&self, code: i32, pressed: bool) {
         let mut q = self.keys.lock().unwrap();
-        if q.len() < KEY_QUEUE_CAP {
-            q.push_back(code);
+        let cap = if pressed { KEY_QUEUE_CAP } else { 2 * KEY_QUEUE_CAP };
+        if q.len() < cap {
+            q.push_back(KeyEvent { code, pressed });
         }
     }
 
@@ -64,7 +68,7 @@ impl Input for HostedInput {
         *self.touch.lock().unwrap()
     }
 
-    fn poll_key(&self) -> Option<i32> {
+    fn poll_key(&self) -> Option<KeyEvent> {
         self.keys.lock().unwrap().pop_front()
     }
 
@@ -195,13 +199,28 @@ mod tests {
     fn key_queue_drops_past_sixteen() {
         let input = HostedInput::default();
         for i in 0..20 {
-            input.push_key(i);
+            input.push_key(i, true);
         }
+        let mut got = Vec::new();
+        while let Some(k) = input.poll_key() {
+            got.push(k.code);
+        }
+        assert_eq!(got, (0..16).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_full_queue_still_takes_releases() {
+        let input = HostedInput::default();
+        for i in 0..20 {
+            input.push_key(i, true);
+        }
+        input.push_key(3, false);
         let mut got = Vec::new();
         while let Some(k) = input.poll_key() {
             got.push(k);
         }
-        assert_eq!(got, (0..16).collect::<Vec<_>>());
+        assert_eq!(got.len(), 17);
+        assert_eq!(got[16], KeyEvent { code: 3, pressed: false });
     }
 
     #[test]

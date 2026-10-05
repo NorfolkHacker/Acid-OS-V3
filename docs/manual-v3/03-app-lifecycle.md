@@ -173,10 +173,26 @@ That table is already set up for you by `lib/acid_keys.lua`. It's shown here
 so you can see the values. To turn a code into a character, use
 `string.char(code)`.
 
-On the Linux build, `pressed` is always `true`. Only key presses are sent:
-there are no releases and no auto-repeat, so holding a key down sends one
-event. Check `pressed` anyway, as `PickerApp` does, so your app keeps working
-if releases are added later.
+Every key sends two events: `pressed = true` when it goes down and
+`pressed = false` when it comes back up. There's no auto-repeat, so holding a
+key down sends one press, then one release when you let go. Most apps only
+care about presses and start with `if not pressed then return end`, as
+`PickerApp` does.
+
+A game that needs to know which keys are *held* keeps a table of them, set
+on the press and cleared on the release:
+
+```lua snippet
+function MyGame:on_key(code, pressed)
+  self.held[code] = pressed or nil
+end
+```
+
+The release carries the same `code` as its press, even if Shift changed in
+between, and it reaches the window that got the press even if another window
+has been focused since. Clear the table when your window loses focus anyway
+(`self:focused()` turns false): keys pressed while another window was
+focused never reach you, so their releases won't either.
 
 Each window has a small queue that holds up to 8 waiting events. If your app
 is slow to collect them, the extra events are dropped rather than holding up

@@ -537,6 +537,18 @@ fn register_api(lua: &Lua, api: Arc<dyn AcidApi>, last_poll: Arc<AtomicU64>) -> 
     })?)?;
 
     let a = api.clone();
+    g.set("acid_begin_frame", lua.create_function(move |_, ()| {
+        a.begin_frame();
+        Ok(())
+    })?)?;
+
+    let a = api.clone();
+    g.set("acid_end_frame", lua.create_function(move |_, ()| {
+        a.end_frame();
+        Ok(())
+    })?)?;
+
+    let a = api.clone();
     g.set("acid_clear_user_area", lua.create_function(move |_, ()| {
         a.clear_user_area();
         Ok(())

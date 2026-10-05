@@ -44,7 +44,7 @@ limits or errors, then what a cart gets (if that differs).
 
 **Graphics** — [`acid_fill_rect`](#acid_fill_rect) · [`acid_fill_circle`](#acid_fill_circle) · [`acid_draw_text`](#acid_draw_text) · [`acid_draw_line`](#acid_draw_line) · [`acid_fill_triangle`](#acid_fill_triangle) · [`acid_mesh_builtin`](#acid_mesh_builtin) · [`acid_mesh_new`](#acid_mesh_new) · [`acid_mesh_draw`](#acid_mesh_draw) · [`acid_mesh_free`](#acid_mesh_free)
 
-**Chrome** — [`acid_clear_user_area`](#acid_clear_user_area) · [`acid_draw_window_frame`](#acid_draw_window_frame) · [`acid_draw_window_border`](#acid_draw_window_border) · [`acid_repaint_region`](#acid_repaint_region)
+**Chrome** — [`acid_begin_frame`](#acid_begin_frame) · [`acid_end_frame`](#acid_end_frame) · [`acid_clear_user_area`](#acid_clear_user_area) · [`acid_draw_window_frame`](#acid_draw_window_frame) · [`acid_draw_window_border`](#acid_draw_window_border) · [`acid_repaint_region`](#acid_repaint_region)
 
 **Overlay** — [`acid_overlay_open`](#acid_overlay_open) · [`acid_overlay_clear`](#acid_overlay_clear) · [`acid_overlay_fill_rect`](#acid_overlay_fill_rect) · [`acid_overlay_close`](#acid_overlay_close)
 
@@ -156,6 +156,30 @@ file (`"file"`), and its size in bytes. On failure it returns `nil, err`, with
 the same errors as [`acid_cart_read`](#acid_cart_read) except `too big`.
 
 **Cart:** `nil, "not allowed"`.
+
+### `acid_begin_frame`
+
+```lua snippet
+acid_begin_frame()
+```
+
+Starts a frame. Until `acid_end_frame`, everything you draw goes to a private
+copy of your window, not the window itself, so the screen never shows a
+half-drawn frame. The copy starts as what the window shows now, so a frame can
+repaint just part of it. A second `acid_begin_frame` while a frame is open does
+nothing. See [§4.4](04-graphics.md#44-partial-redraws-and-flicker).
+
+### `acid_end_frame`
+
+```lua snippet
+acid_end_frame()
+```
+
+Shows everything drawn since `acid_begin_frame`, all at once. Does nothing if
+no frame is open. If the window was resized during the frame, the frame is
+dropped: it was drawn for the old size, and the resize makes you redraw.
+**Always pair it with `acid_begin_frame`:** while a frame is open, nothing you
+draw reaches the screen.
 
 ### `acid_clear_user_area`
 
@@ -752,7 +776,7 @@ is:
 | nothing | Timed out, nothing waiting |
 | `"close"` | Close button, or the kernel ending this app |
 | `"moved"` | Window was dragged; repaint, then `acid_notify_redraw_done` (not sent in this version) |
-| `"key", code, pressed` | Key event; `code` is ASCII or an `AcidKeys` constant. Only presses are generated, so `pressed` is always `true` |
+| `"key", code, pressed` | Key event; `code` is ASCII or an `AcidKeys` constant. `pressed` is `true` when the key goes down and `false` when it comes back up (no auto-repeat) |
 | `"touch", x, y, pressed` | Touch event, window-relative; may fall outside the window during a drag |
 
 A negative `timeout_ms` counts as `0`. With `0` the call doesn't wait at all,

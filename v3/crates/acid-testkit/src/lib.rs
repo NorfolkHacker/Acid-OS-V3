@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub use acid_platform::std_impl::{StdFs, StdSignal};
-use acid_platform::{CartStat, FsError, LocalTime, NetworkInfo, ThreadSample, Display, Fs, Input, Platform, Signal, SpawnError, TaskFn, TouchState, std_impl::carts::HostCarts, std_impl::std_spawn};
+use acid_platform::{CartStat, FsError, LocalTime, NetworkInfo, ThreadSample, Display, Fs, Input, KeyEvent, Platform, Signal, SpawnError, TaskFn, TouchState, std_impl::carts::HostCarts, std_impl::std_spawn};
 
 #[derive(Default)]
 pub struct FakeDisplay {
@@ -48,7 +48,7 @@ impl Display for FakeDisplay {
 #[derive(Default)]
 pub struct FakeInput {
     touch: Mutex<TouchState>,
-    keys: Mutex<VecDeque<i32>>,
+    keys: Mutex<VecDeque<KeyEvent>>,
     quit: AtomicBool,
 }
 
@@ -57,8 +57,14 @@ impl FakeInput {
         *self.touch.lock().unwrap() = TouchState { x, y, pressed };
     }
 
+    /// Queues a key press.
     pub fn push_key(&self, code: i32) {
-        self.keys.lock().unwrap().push_back(code);
+        self.keys.lock().unwrap().push_back(KeyEvent { code, pressed: true });
+    }
+
+    /// Queues a key release.
+    pub fn release_key(&self, code: i32) {
+        self.keys.lock().unwrap().push_back(KeyEvent { code, pressed: false });
     }
 
     pub fn request_quit(&self) {
@@ -71,7 +77,7 @@ impl Input for FakeInput {
         *self.touch.lock().unwrap()
     }
 
-    fn poll_key(&self) -> Option<i32> {
+    fn poll_key(&self) -> Option<KeyEvent> {
         self.keys.lock().unwrap().pop_front()
     }
 
@@ -291,7 +297,9 @@ mod tests {
         p.input.set_touch(5, 6, true);
         p.input.push_key(65);
         assert_eq!(p.input().poll_touch(), TouchState { x: 5, y: 6, pressed: true });
-        assert_eq!(p.input().poll_key(), Some(65));
+        p.input.release_key(65);
+        assert_eq!(p.input().poll_key(), Some(KeyEvent { code: 65, pressed: true }));
+        assert_eq!(p.input().poll_key(), Some(KeyEvent { code: 65, pressed: false }));
         assert_eq!(p.input().poll_key(), None);
         assert!(!p.input().should_quit());
         p.input.request_quit();

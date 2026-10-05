@@ -35,6 +35,15 @@ function acid_configure_osc(...) end
 function acid_set_ring_partner(...) end
 
 function acid_clear_user_area() DRAW_CALLS = DRAW_CALLS + 1 end
+-- Frames: FRAME_DEPTH must be back to 0 after every redraw, or nothing an
+-- app draws would ever reach the screen.
+FRAME_DEPTH = 0
+FRAMES_ENDED = 0
+function acid_begin_frame() FRAME_DEPTH = 1 end
+function acid_end_frame()
+  if FRAME_DEPTH == 1 then FRAMES_ENDED = FRAMES_ENDED + 1 end
+  FRAME_DEPTH = 0
+end
 function acid_draw_window_frame(title) DRAW_CALLS = DRAW_CALLS + 1 end
 function acid_draw_window_border() DRAW_CALLS = DRAW_CALLS + 1 end
 function acid_draw_text(str, x, y, fg, bg) DRAW_CALLS = DRAW_CALLS + 1; push(TEXTS, str); push(TEXT_AT, { str, x, y }) end

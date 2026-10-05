@@ -107,7 +107,7 @@ A few things to know:
 | Left mouse button | Touch: press, drag, release. Other buttons do nothing |
 | Dragging a title bar | Moves a window |
 | The green dot at a title bar's right | Closes that window |
-| Keyboard | Delivered to the focused window as key events (presses only, no auto-repeat) |
+| Keyboard | Delivered to the focused window as key events: a press, then a release (no auto-repeat) |
 | Closing the host window | Ends the process |
 
 Keys arrive already worked out for you. Shift gives you the character that

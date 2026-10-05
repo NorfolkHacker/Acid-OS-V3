@@ -18,7 +18,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-use crate::keymap::translate_key;
+use crate::keymap::HeldKeys;
 use crate::picker::{PICKER_SCREEN, Picker, PickerKey};
 use crate::{HostedPlatform, UserEvent};
 
@@ -39,6 +39,7 @@ struct App {
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     shift: bool,
+    held: HeldKeys,
     /// The surface's size: the picker's until a size is chosen.
     size: Screen,
     stage: Stage,
@@ -243,13 +244,21 @@ impl App {
                 input.set_pressed(state == ElementState::Pressed)
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                // Presses only, no auto-repeat: keys are edge-triggered.
-                if event.state == ElementState::Pressed && !event.repeat {
-                    if let PhysicalKey::Code(code) = event.physical_key {
-                        if let Some(k) = translate_key(code, self.shift) {
-                            input.push_key(k);
-                        }
+                // A press, then a release with the same code; no auto-repeat.
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    let ev = if event.state == ElementState::Pressed {
+                        self.held.press(code, self.shift)
+                    } else {
+                        self.held.release(code)
+                    };
+                    if let Some(k) = ev {
+                        input.push_key(k.code, k.pressed);
                     }
+                }
+            }
+            WindowEvent::Focused(false) => {
+                for k in self.held.release_all() {
+                    input.push_key(k.code, k.pressed);
                 }
             }
             _ => {}
@@ -272,6 +281,7 @@ pub fn run_window(
                 window: None,
                 surface: None,
                 shift: false,
+                held: HeldKeys::default(),
                 size: s,
                 stage: Stage::Running,
                 boot: None,
@@ -285,6 +295,7 @@ pub fn run_window(
             window: None,
             surface: None,
             shift: false,
+            held: HeldKeys::default(),
             size: PICKER_SCREEN,
             stage: Stage::Picking {
                 picker: Picker::new(),

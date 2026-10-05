@@ -105,6 +105,13 @@ pub trait AcidApi: Send + Sync {
     fn draw_window_frame(&self, title: &str);
     fn draw_window_border(&self);
     fn clear_user_area(&self);
+    /// Starts a frame: drawing goes to a private copy of the window until
+    /// `end_frame`, so the compositor never shows a half-drawn frame. A
+    /// second `begin_frame` while one is open does nothing.
+    fn begin_frame(&self) {}
+    /// Shows everything drawn since `begin_frame` in one step. Does
+    /// nothing with no frame open.
+    fn end_frame(&self) {}
     fn am_i_focused(&self) -> bool;
     fn launch_arg(&self) -> String;
     /// Start a note on a voice, owned by the caller.
@@ -253,6 +260,9 @@ pub struct KernelApi {
     /// Lock order: this store, then the canvas, never the reverse
     /// (`mesh_draw` holds this while `draw` takes the canvas).
     meshes: Mutex<MeshStore>,
+    /// The back buffer while a frame is open (begin_frame..end_frame).
+    /// Lock order: the mesh store, then this, then the canvas.
+    frame: Mutex<Option<acid_gfx::Canvas>>,
 }
 
 impl KernelApi {
@@ -265,7 +275,13 @@ impl KernelApi {
 
     pub fn new(ctx: AppContext) -> Self {
         let (x, y) = (ctx.x, ctx.y);
-        Self { ctx, window_x: AtomicI32::new(x), window_y: AtomicI32::new(y), meshes: Mutex::new(MeshStore::new()) }
+        Self {
+            ctx,
+            window_x: AtomicI32::new(x),
+            window_y: AtomicI32::new(y),
+            meshes: Mutex::new(MeshStore::new()),
+            frame: Mutex::new(None),
+        }
     }
 
     /// Spec §14.2: cart-level apps change files only under Home.
@@ -296,7 +312,7 @@ impl KernelApi {
                 PolledEvent::Moved
             }
             Event::Resized { w, h } => PolledEvent::Resized { w, h },
-            Event::Key { code } => PolledEvent::Key { code, pressed: true },
+            Event::Key { code, pressed } => PolledEvent::Key { code, pressed },
             Event::Touch { x, y, pressed } => PolledEvent::Touch { x, y, pressed },
         }
     }
@@ -304,11 +320,22 @@ impl KernelApi {
     /// The canvas's current size. Read it before `draw`, which holds the
     /// (non-re-entrant) canvas lock.
     fn live_size(&self) -> (i32, i32) {
+        if let Some(back) = self.frame.lock().as_ref() {
+            return (back.width(), back.height());
+        }
         let c = self.ctx.canvas.lock();
         (c.width(), c.height())
     }
 
+    /// Draws into the back buffer while a frame is open (nothing to show
+    /// yet, so not dirty), else straight into the window.
     fn draw(&self, f: impl FnOnce(&mut acid_gfx::Canvas)) {
+        let mut frame = self.frame.lock();
+        if let Some(back) = frame.as_mut() {
+            f(back);
+            return;
+        }
+        drop(frame);
         f(&mut self.ctx.canvas.lock());
         self.ctx.kernel.mark_dirty();
     }
@@ -402,6 +429,25 @@ impl AcidApi for KernelApi {
     fn draw_window_border(&self) {
         let (w, h) = self.live_size();
         self.draw(|c| chrome::draw_window_border(c, w, h));
+    }
+
+    fn begin_frame(&self) {
+        let mut frame = self.frame.lock();
+        if frame.is_none() {
+            *frame = Some(self.ctx.canvas.lock().clone());
+        }
+    }
+
+    fn end_frame(&self) {
+        let Some(back) = self.frame.lock().take() else { return };
+        let mut canvas = self.ctx.canvas.lock();
+        // Resized mid-frame: the frame was drawn for the old size, so drop
+        // it; the app redraws for the new size anyway.
+        if back.width() == canvas.width() && back.height() == canvas.height() {
+            *canvas = back;
+            drop(canvas);
+            self.ctx.kernel.mark_dirty();
+        }
     }
 
     fn clear_user_area(&self) {
@@ -875,11 +921,13 @@ mod tests {
     fn poll_event_maps_kernel_events() {
         let (_k, api) = spawn(10, 10);
         let q = api.context().queue.clone();
-        q.send(Event::Key { code: 65 });
+        q.send(Event::Key { code: 65, pressed: true });
+        q.send(Event::Key { code: 65, pressed: false });
         q.send(Event::Touch { x: 1, y: 2, pressed: false });
         q.send(Event::Moved { x: 7, y: 8 });
         q.send(Event::Close);
         assert_eq!(api.poll_event(100), Some(PolledEvent::Key { code: 65, pressed: true }));
+        assert_eq!(api.poll_event(100), Some(PolledEvent::Key { code: 65, pressed: false }));
         assert_eq!(api.poll_event(100), Some(PolledEvent::Touch { x: 1, y: 2, pressed: false }));
         assert_eq!(api.poll_event(100), Some(PolledEvent::Moved));
         assert_eq!(api.window_pos(), (7, 8), "Moved updates the app's idea of its position");
@@ -917,6 +965,46 @@ mod tests {
         std::thread::sleep(Duration::from_millis(20));
         let t1 = a.now_ms();
         assert!(t1 >= t0 + 15, "{t0} -> {t1}");
+    }
+
+    #[test]
+    fn a_frame_shows_all_at_once() {
+        let (k, api) = spawn(10, 10);
+        api.fill_rect(0, 0, 10, 10, 0x0000FF);
+        api.begin_frame();
+        k.take_dirty();
+        api.clear_user_area();
+        api.fill_rect(1, 1, 2, 2, 0xFF0000);
+        assert!(!k.take_dirty(), "nothing to show mid-frame");
+        assert_eq!(px(&api, 1, 1), rgb565(0x0000FF), "the window still shows the last frame");
+        api.end_frame();
+        assert!(k.take_dirty(), "the finished frame is shown");
+        assert_eq!(px(&api, 1, 1), rgb565(0xFF0000));
+        api.end_frame();
+        assert!(!k.take_dirty(), "end_frame with no frame open does nothing");
+        api.fill_rect(5, 5, 1, 1, 0x00FF00);
+        assert_eq!(px(&api, 5, 5), rgb565(0x00FF00), "outside a frame, drawing is direct again");
+    }
+
+    #[test]
+    fn a_frame_starts_from_the_window_so_partial_redraws_keep_the_rest() {
+        let (_k, api) = spawn(10, 10);
+        api.fill_rect(0, 0, 10, 10, 0x0000FF);
+        api.begin_frame();
+        api.fill_rect(0, 0, 1, 1, 0xFF0000);
+        api.end_frame();
+        assert_eq!(px(&api, 5, 5), rgb565(0x0000FF));
+        assert_eq!(px(&api, 0, 0), rgb565(0xFF0000));
+    }
+
+    #[test]
+    fn a_frame_drawn_for_an_old_size_is_dropped() {
+        let (_k, api) = spawn(10, 10);
+        api.begin_frame();
+        api.fill_rect(0, 0, 2, 2, 0xFF0000);
+        *api.context().canvas.lock() = acid_gfx::Canvas::new(20, 20);
+        api.end_frame();
+        assert_eq!(px(&api, 1, 1), 0, "the stale frame never lands");
     }
 
     #[test]

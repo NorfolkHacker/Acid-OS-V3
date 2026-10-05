@@ -403,11 +403,16 @@ impl Kernel {
         self.state.lock().router.focus
     }
 
+    /// Every queued key goes out on this tick (not one per tick, which
+    /// would make a burst of presses and releases arrive late), then the
+    /// touch state.
     pub fn poll_input(&self) {
         let input = self.platform.input();
-        let key = input.poll_key();
-        let touch = input.poll_touch();
-        router::poll(&mut self.state.lock(), key, touch, &self.dirty);
+        let mut st = self.state.lock();
+        while let Some(k) = input.poll_key() {
+            router::poll_key(&mut st, k);
+        }
+        router::poll(&mut st, None, input.poll_touch(), &self.dirty);
     }
 
     /// Wallpaper, then every window back to front, then present. The
@@ -671,6 +676,42 @@ mod tests {
         k.activate_window(task);
         tx.send(()).unwrap();
         wait_until(|| k.focus().is_none() && k.with_state(|st| st.windows.count()) == 0);
+    }
+
+    #[test]
+    fn one_poll_delivers_every_queued_key() {
+        let p = FakePlatform::new(".");
+        let k = Kernel::new(p.clone());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx = std::sync::Mutex::new(tx);
+        // An app that never reads its queue, so the test can.
+        k.set_runner(Arc::new(move |ctx| {
+            let kernel = ctx.kernel.clone();
+            tx.lock().unwrap().send(ctx).unwrap();
+            while kernel.with_state(|st| st.windows.count()) > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }));
+        let task = k.spawn_app(req(0, 30, 10, 10)).unwrap();
+        let ctx = recv(&rx);
+        k.activate_window(task);
+        p.input.push_key(65);
+        p.input.release_key(65);
+        p.input.push_key(66);
+        k.poll_input();
+        let mut got = Vec::new();
+        while let Some(ev) = ctx.queue.try_recv() {
+            got.push(ev);
+        }
+        assert_eq!(
+            got,
+            [
+                crate::event::Event::Key { code: 65, pressed: true },
+                crate::event::Event::Key { code: 65, pressed: false },
+                crate::event::Event::Key { code: 66, pressed: true },
+            ]
+        );
+        k.close_window(task);
     }
 
     #[test]

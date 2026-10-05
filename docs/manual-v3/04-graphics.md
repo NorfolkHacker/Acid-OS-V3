@@ -308,7 +308,28 @@ When you repaint just one area, watch out for two things:
   `acid_draw_window_border` again afterwards, or stop your repaint just short
   of the edge.
 
-There's a third trick for apps that redraw on a timer: skip the repaint when
+### Frames: a whole repaint, shown at once
+
+A game that repaints its whole window on every tick can't avoid the clear, and
+the screen may be composited while it's halfway through: a flicker of blank
+window or half-drawn sprites. Wrap the repaint in a frame instead:
+
+```lua snippet
+function MyGame:redraw()
+  acid_begin_frame()
+  acid_clear_user_area()
+  acid_draw_window_frame(self:window_title())
+  self:draw_everything()
+  acid_draw_window_border()
+  acid_end_frame()
+end
+```
+
+Between `acid_begin_frame` and `acid_end_frame` your drawing goes to a private
+copy of the window; `acid_end_frame` shows the finished picture in one step.
+Every built-in game that repaints on a tick does this.
+
+There's another trick for apps that redraw on a timer: skip the repaint when
 nothing has changed. Keep a **state signature**, a single value that captures
 everything that affects the picture, and only redraw when it's different.
 Lua compares tables by identity, not by contents, so build the signature as a

@@ -13,7 +13,7 @@ pub enum Event {
     Close,
     /// Reserved for window moves; the router never sends it yet.
     Moved { x: i32, y: i32 },
-    Key { code: i32 },
+    Key { code: i32, pressed: bool },
     /// The window was resized; the app re-lays out (resizable windows).
     Resized { w: i32, h: i32 },
 }
@@ -78,9 +78,9 @@ mod tests {
     #[test]
     fn delivers_in_order() {
         let q = queue();
-        assert!(q.send(Event::Key { code: 1 }));
+        assert!(q.send(Event::Key { code: 1, pressed: true }));
         assert!(q.send(Event::Close));
-        assert_eq!(q.try_recv(), Some(Event::Key { code: 1 }));
+        assert_eq!(q.try_recv(), Some(Event::Key { code: 1, pressed: true }));
         assert_eq!(q.try_recv(), Some(Event::Close));
         assert_eq!(q.try_recv(), None);
     }
@@ -89,10 +89,10 @@ mod tests {
     fn drops_when_full_instead_of_blocking() {
         let q = queue();
         for i in 0..EVENT_QUEUE_CAP as i32 {
-            assert!(q.send(Event::Key { code: i }));
+            assert!(q.send(Event::Key { code: i, pressed: true }));
         }
-        assert!(!q.send(Event::Key { code: 99 }));
-        assert_eq!(q.try_recv(), Some(Event::Key { code: 0 }));
+        assert!(!q.send(Event::Key { code: 99, pressed: true }));
+        assert_eq!(q.try_recv(), Some(Event::Key { code: 0, pressed: true }));
     }
 
     #[test]

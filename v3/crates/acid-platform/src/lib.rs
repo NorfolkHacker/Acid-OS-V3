@@ -36,10 +36,20 @@ pub trait Display: Send + Sync {
     fn present(&self, pixels: &[u16], width: usize, height: usize);
 }
 
+/// One key going down or coming back up. A release carries the same code
+/// as its press, so an app tracking held keys sees them pair up even if
+/// Shift changed in between. No auto-repeat: a held key is one press,
+/// then one release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyEvent {
+    pub code: i32,
+    pub pressed: bool,
+}
+
 pub trait Input: Send + Sync {
     fn poll_touch(&self) -> TouchState;
-    /// Next queued key press (edge-triggered, Shift already resolved), if any.
-    fn poll_key(&self) -> Option<i32>;
+    /// Next queued key press or release (Shift already resolved), if any.
+    fn poll_key(&self) -> Option<KeyEvent>;
     fn should_quit(&self) -> bool;
 }
 

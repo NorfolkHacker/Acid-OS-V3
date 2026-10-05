@@ -2,6 +2,7 @@
 //! final character or a KEY_* constant. Anything unmapped (function keys,
 //! Ctrl/Alt) is ignored.
 
+use acid_platform::KeyEvent;
 use acid_platform::keys::*;
 pub use winit::keyboard::KeyCode;
 
@@ -45,6 +46,39 @@ pub fn translate_key(code: KeyCode, shift: bool) -> Option<i32> {
         KeyCode::Slash => pick('/', '?'),
         KeyCode::Backquote => pick('`', '~'),
         _ => None,
+    }
+}
+
+/// Which physical keys are down, and the code each was pressed as. A
+/// release sends the code from the press, so `a` pressed then Shift then
+/// release still releases `a`. Repeats of a held key send nothing.
+#[derive(Default)]
+pub struct HeldKeys {
+    down: Vec<(KeyCode, i32)>,
+}
+
+impl HeldKeys {
+    /// The event a press should send, if the key maps and isn't already down.
+    pub fn press(&mut self, key: KeyCode, shift: bool) -> Option<KeyEvent> {
+        if self.down.iter().any(|&(k, _)| k == key) {
+            return None;
+        }
+        let code = translate_key(key, shift)?;
+        self.down.push((key, code));
+        Some(KeyEvent { code, pressed: true })
+    }
+
+    /// The event a release should send, if that key was pressed.
+    pub fn release(&mut self, key: KeyCode) -> Option<KeyEvent> {
+        let i = self.down.iter().position(|&(k, _)| k == key)?;
+        let (_, code) = self.down.remove(i);
+        Some(KeyEvent { code, pressed: false })
+    }
+
+    /// Releases for every key still down: the window lost focus, so their
+    /// real releases will never arrive.
+    pub fn release_all(&mut self) -> Vec<KeyEvent> {
+        self.down.drain(..).map(|(_, code)| KeyEvent { code, pressed: false }).collect()
     }
 }
 
@@ -102,5 +136,34 @@ mod tests {
     fn unmapped_keys_are_ignored() {
         assert_eq!(translate_key(KeyCode::F1, false), None);
         assert_eq!(translate_key(KeyCode::ControlLeft, false), None);
+    }
+
+    #[test]
+    fn a_release_pairs_with_its_press() {
+        let mut h = HeldKeys::default();
+        assert_eq!(h.press(KeyCode::KeyA, false), Some(KeyEvent { code: 'a' as i32, pressed: true }));
+        assert_eq!(h.press(KeyCode::KeyA, false), None, "a repeat sends nothing");
+        // Shift went down while A was held: the release is still 'a'.
+        assert_eq!(h.release(KeyCode::KeyA), Some(KeyEvent { code: 'a' as i32, pressed: false }));
+        assert_eq!(h.release(KeyCode::KeyA), None, "no second release");
+    }
+
+    #[test]
+    fn unmapped_keys_never_press_or_release() {
+        let mut h = HeldKeys::default();
+        assert_eq!(h.press(KeyCode::F1, false), None);
+        assert_eq!(h.release(KeyCode::F1), None);
+    }
+
+    #[test]
+    fn losing_focus_releases_everything_held() {
+        let mut h = HeldKeys::default();
+        h.press(KeyCode::ArrowLeft, false);
+        h.press(KeyCode::KeyW, true);
+        assert_eq!(
+            h.release_all(),
+            [KeyEvent { code: KEY_LEFT, pressed: false }, KeyEvent { code: 'W' as i32, pressed: false }]
+        );
+        assert_eq!(h.release_all(), []);
     }
 }

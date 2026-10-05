@@ -4,7 +4,9 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use acid_platform::TouchState;
+use alloc::vec::Vec;
+
+use acid_platform::{KeyEvent, TouchState};
 
 use crate::TaskId;
 use crate::event::{Event, EventQueue};
@@ -48,6 +50,9 @@ pub struct RouterState {
     /// Keyboard focus. Only activate_window gains it, and that also raises
     /// the window; a newly registered window is in front but unfocused.
     pub focus: Option<TaskId>,
+    /// Keys down and the window each press went to: its release goes there
+    /// too, even if focus moved while the key was held.
+    key_owners: Vec<(i32, TaskId)>,
 }
 
 /// Everything behind the one kernel lock.
@@ -191,9 +196,28 @@ pub fn forget_task(st: &mut KernelState, task: TaskId) {
     }
 }
 
-pub fn poll(st: &mut KernelState, key: Option<i32>, touch: TouchState, dirty: &AtomicBool) {
-    if let (Some(code), Some(focus)) = (key, st.router.focus) {
-        st.send(focus, Event::Key { code });
+/// A press goes to the focused window (none focused: dropped); a release
+/// goes to whichever window got that key's press, if any.
+pub fn poll_key(st: &mut KernelState, key: KeyEvent) {
+    route_key(st, key.code, key.pressed);
+}
+
+fn route_key(st: &mut KernelState, code: i32, pressed: bool) {
+    if pressed {
+        let Some(focus) = st.router.focus else { return };
+        // A second press without a release (a missed one) moves ownership.
+        st.router.key_owners.retain(|&(c, _)| c != code);
+        st.router.key_owners.push((code, focus));
+        st.send(focus, Event::Key { code, pressed: true });
+    } else if let Some(i) = st.router.key_owners.iter().position(|&(c, _)| c == code) {
+        let (_, owner) = st.router.key_owners.remove(i);
+        st.send(owner, Event::Key { code, pressed: false });
+    }
+}
+
+pub fn poll(st: &mut KernelState, key: Option<KeyEvent>, touch: TouchState, dirty: &AtomicBool) {
+    if let Some(KeyEvent { code, pressed }) = key {
+        route_key(st, code, pressed);
     }
 
     let TouchState { x, y, pressed } = touch;
@@ -530,12 +554,28 @@ mod tests {
         let d = AtomicBool::new(false);
         let qa = add(&mut st, 1, 0, 30, 100, 100, true);
         let qb = add(&mut st, 2, 200, 30, 100, 100, true);
-        poll(&mut st, Some(65), UP, &d);
+        poll(&mut st, Some(KeyEvent { code: 65, pressed: true }), UP, &d);
         assert!(drain(&qa).is_empty() && drain(&qb).is_empty(), "no focus yet: key dropped");
         activate_window(&mut st, TaskId(1), &d);
-        poll(&mut st, Some(65), UP, &d);
-        assert_eq!(drain(&qa), [Event::Key { code: 65 }]);
+        poll(&mut st, Some(KeyEvent { code: 65, pressed: true }), UP, &d);
+        assert_eq!(drain(&qa), [Event::Key { code: 65, pressed: true }]);
         assert!(drain(&qb).is_empty());
+    }
+
+    #[test]
+    fn a_release_follows_its_press_even_after_a_focus_change() {
+        let mut st = KernelState::new();
+        let d = AtomicBool::new(false);
+        let qa = add(&mut st, 1, 0, 30, 100, 100, true);
+        let qb = add(&mut st, 2, 200, 30, 100, 100, true);
+        activate_window(&mut st, TaskId(1), &d);
+        poll(&mut st, Some(KeyEvent { code: 65, pressed: true }), UP, &d);
+        activate_window(&mut st, TaskId(2), &d);
+        poll(&mut st, Some(KeyEvent { code: 65, pressed: false }), UP, &d);
+        assert_eq!(drain(&qa), [Event::Key { code: 65, pressed: true }, Event::Key { code: 65, pressed: false }]);
+        assert!(drain(&qb).is_empty(), "the newly focused window never saw the press");
+        poll(&mut st, Some(KeyEvent { code: 65, pressed: false }), UP, &d);
+        assert!(drain(&qa).is_empty() && drain(&qb).is_empty(), "a release with no press is dropped");
     }
 
     #[test]
