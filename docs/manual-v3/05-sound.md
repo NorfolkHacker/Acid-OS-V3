@@ -78,10 +78,14 @@ reserve a voice. Instead, apps simply agree to use different ones:
 | Voice | Used by |
 |---|---|
 | 0, 1 | Acid Blaster (hit, game over) |
+| 0, 1, 2 | AcidStorm, Acid Snake, Acid Invaders and Acid Rocks (a short hit, a bonus, a death) |
 | 2, 3, 4 | Breakout (brick, paddle, game over) |
 | 5 | Piano |
 | 6 | Tetris, and the Terminal's easter eggs |
 | **7** | **free** |
+
+The games share voices with each other because a game only plays while its
+window is focused, so two of them are rarely sounding at once.
 
 If your app is the only thing making noise, use whatever voices you like. To be
 a good neighbour, use 7. If you need more, pick the highest numbers you can and

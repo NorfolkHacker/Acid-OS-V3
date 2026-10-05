@@ -51,7 +51,7 @@ or touch any Rust.
 | **[3. The app lifecycle](03-app-lifecycle.md)** | `AcidApp`, the event loop, touch, keys, idle, redraw, focus. |
 | **[4. Graphics](04-graphics.md)** | Drawing inside your window, the theme palette, the 256-colour hue wheel, the full-screen overlay and sprites. |
 | **[5. Sound](05-sound.md)** | The 8-voice synthesiser: notes, envelopes, waveforms, the filter, ring modulation and the arpeggiator. |
-| **[6. Games](06-games.md)** | `AcidGame`, fixed-tick loops, and the sound-effect lifecycle. |
+| **[6. Games](06-games.md)** | `AcidGame`, fixed-tick loops, the sound-effect lifecycle, held keys and frames. |
 | **[7. System APIs](07-system-apis.md)** | Windows, launching other apps, task and memory stats, network, master volume. |
 | **[8. Cookbook](08-cookbook.md)** | Recipes, conventions and the mistakes that bite. |
 | **[9. API reference](09-api-reference.md)** | Every `acid_*` function and every library module, alphabetically. |

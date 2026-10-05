@@ -32,7 +32,8 @@ Everything else works as it does in `AcidApp`, with three differences:
 
 1. **`on_idle` is never called.** `on_tick` takes its place.
 2. **`redraw` is never called for you**, not at startup and not on `"moved"`.
-   Your game is expected to repaint its whole scene from `on_tick`. The default
+   Your game is expected to repaint its whole scene from `on_tick`, inside a
+   frame so it never flickers ([§6.7](#67-held-keys-and-frames)). The default
    `AcidGame` draws nothing at all, so a game that never draws won't even have a
    window border.
 3. **`quit` does nothing.** `AcidGame` runs its own loop and ignores `AcidApp`'s
@@ -465,6 +466,57 @@ afterimages built by remembering previous angles, a window that re-centres
 when it is resized, and a custom mesh built with `acid_mesh_new`. Like the
 games, it isn't in the Menu: open File Manager, go into `App` and click its
 `.app.toml` file.
+
+## 6.7 Held keys and frames
+
+Two habits every built-in action game follows.
+
+**Held keys.** A key sends a press when it goes down and a release when it
+comes up ([§3.1](03-app-lifecycle.md#31-the-callbacks)), with no auto-repeat
+in between. A game that moves while a key is down keeps a table of what's held
+and reads it on every tick:
+
+```lua snippet
+function MyGame:on_key(code, pressed)
+  self.held[code] = pressed or nil
+end
+
+function MyGame:on_tick()
+  if not self:focused() then
+    -- Keys go to the focused window, so a key let go elsewhere never
+    -- reaches you: forget everything held.
+    self.held = {}
+    return
+  end
+  local dx = (self.held[AcidKeys.RIGHT] and 1 or 0) - (self.held[AcidKeys.LEFT] and 1 or 0)
+  self.x = self.x + dx * 2
+  self:redraw()
+end
+```
+
+Act on the *press* for one-off things (fire one shot, rotate a Tetris piece,
+start the game), and on the *held* table for anything continuous (moving,
+turning, thrusting, firing again while the key stays down).
+
+**Frames.** A game that clears and repaints its whole window every tick wraps
+the repaint in `acid_begin_frame` / `acid_end_frame`
+([§4.4](04-graphics.md#44-partial-redraws-and-flicker)), so the screen never
+shows it half-drawn:
+
+```lua snippet
+function MyGame:redraw()
+  acid_begin_frame()
+  acid_clear_user_area()
+  acid_draw_window_frame(self:window_title())
+  self:draw_scene()
+  acid_draw_window_border()
+  acid_end_frame()
+end
+```
+
+For longer examples, read `acidstorm.lua` (eight-way movement and firing from
+held keys), `acid_invaders.lua` (held movement, fire that repeats while held)
+and `acid_rocks.lua` (held turning and thrust, vector lines that wrap).
 
 ---
 

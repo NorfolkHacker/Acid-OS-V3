@@ -87,7 +87,8 @@ pub enum PolledEvent {
     Moved,
     /// The window was resized to `w` x `h`; the app re-lays out.
     Resized { w: i32, h: i32 },
-    /// `pressed` is always true: only presses are generated.
+    /// `pressed` is true when the key goes down and false when it comes
+    /// back up (no auto-repeat).
     Key { code: i32, pressed: bool },
     Touch { x: i32, y: i32, pressed: bool },
 }
