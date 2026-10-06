@@ -33,7 +33,7 @@ mod tests {
         for bad in [
             "", "/v3/apps", "v3/apps/../crates/x", "..", "v3/apps//x", "v3/apps/", "v3/appsx",
             "v3/fsroot2/x", "v3", "v3/crates/acid-os", "v3/apps/a\0b", "v3\\apps", "./v3/apps",
-            "v3/apps/./x.lua", "v3/fsroot/App/.",
+            "v3/apps/./x.lua", "v3/fsroot/Source/.",
         ] {
             assert!(!fs_path_is_allowed(bad), "{bad:?} should be rejected");
         }

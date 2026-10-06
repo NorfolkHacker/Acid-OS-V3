@@ -354,7 +354,7 @@ function AcidApp:on_key(code, pressed) end
 function AcidApp:on_idle() end
 function AcidApp:on_resize(w, h) end
 function AcidApp:on_destroy() end
-AcidApp.FSROOT_APP_PREFIX = "v3/fsroot/App/"
+AcidApp.FSROOT_APP_PREFIX = "v3/fsroot/Source/"
 AcidApp.CANONICAL_APP_PREFIX = "v3/apps/"
 function AcidApp:canonical_app_path(path)
   local prefix = AcidApp.FSROOT_APP_PREFIX

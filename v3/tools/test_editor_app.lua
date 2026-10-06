@@ -85,9 +85,9 @@ esc("q")
 eq(G.running, false, "a second q closes")
 
 group("run")
-FS["v3/fsroot/App/tetris.lua"] = "-- t"
-FS["v3/fsroot/App/tetris.app.toml"] = "name = Tetris\nw = 160\nh = 150\n"
-LAUNCH_ARG = "v3/fsroot/App/tetris.lua"
+FS["v3/fsroot/Source/tetris.lua"] = "-- t"
+FS["v3/fsroot/Source/tetris.app.toml"] = "name = Tetris\nw = 160\nh = 150\n"
+LAUNCH_ARG = "v3/fsroot/Source/tetris.lua"
 G:on_create()
 CALLS = {}
 esc("!")

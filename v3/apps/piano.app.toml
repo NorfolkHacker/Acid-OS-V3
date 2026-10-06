@@ -3,3 +3,4 @@ w = 200
 h = 100
 menu = false
 desc = 8-voice synth keyboard
+category = app

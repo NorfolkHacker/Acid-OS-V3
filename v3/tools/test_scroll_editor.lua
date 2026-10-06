@@ -55,7 +55,7 @@ for _, r in ipairs(RECTS) do
 end
 ok(clear, "with highlighting on nothing reaches the bar's column either")
 G.hl_on = false
-ok(EditorLayout.own_source(G, "v3/apps/lib/acid_scrollbar.lua") and EditorLayout.own_source(G, "v3/fsroot/App/lib/acid_scrollbar.lua"),
+ok(EditorLayout.own_source(G, "v3/apps/lib/acid_scrollbar.lua") and EditorLayout.own_source(G, "v3/fsroot/Source/lib/acid_scrollbar.lua"),
   "the scroll bar lib Editor loads counts as its own source")
 load(100)
 

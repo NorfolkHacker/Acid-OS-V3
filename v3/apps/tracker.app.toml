@@ -2,6 +2,7 @@ name = Acid Tracker
 w = 480
 h = 320
 desc = 4-channel tracker for .trk songs
+category = app
 multi = true
 libs = lib/acid_palette.lua, tracker/song.lua, tracker/edit.lua, tracker/layout.lua, tracker/cmd.lua
 resizable = true

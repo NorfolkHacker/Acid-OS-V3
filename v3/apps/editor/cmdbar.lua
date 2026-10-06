@@ -266,7 +266,7 @@ function EditorCmd.cmd_run(self, ch)
 end
 
 -- Save, then launch the file being edited as a live app window. The
--- whole point of this editor is that fsroot/App is a real symlink to
+-- whole point of this editor is that fsroot/Source is a real symlink to
 -- v3/apps, so a change to an app's source is live on its next launch
 -- with no rebuild step -- this makes that a two-keystroke loop instead
 -- of a trip through the File Manager.
@@ -277,7 +277,7 @@ function EditorCmd.cmd_run_file(self)
   end
   -- Running the editor's own source (or one of its mixins/acid_app.lua)
   -- from inside itself doesn't open a harmless second window -- it
-  -- breaks the spawned one. The cause is the fsroot/App
+  -- breaks the spawned one. The cause is the fsroot/Source
   -- symlink mismatch (see AcidApp:canonical_app_path): a launch through
   -- it doesn't match the registry's canonical v3/apps path. Refusing
   -- here is the editor protecting itself even if that mapping is ever

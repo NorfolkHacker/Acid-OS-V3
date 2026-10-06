@@ -39,7 +39,7 @@ function EditorApp:on_create()
   -- arg -- see file_manager.lua); opened directly from Menu with no
   -- arg, it falls back to the general notes file it always edited
   -- before. Either way the file is genuinely editable and saveable,
-  -- including files under fsroot/App (a real symlink to v3/apps) --
+  -- including files under fsroot/Source (a real symlink to v3/apps) --
   -- there's no separate read-only mode, by design: this is meant to
   -- double as a live way to tweak an app's own source and see the
   -- change on its next launch, no rebuild step.
@@ -93,7 +93,7 @@ function EditorApp:save_file()
   local tmp = self.path .. EditorApp.SAVE_TMP_SUFFIX
   -- Trailing newline, not just lines joined by one -- POSIX text files
   -- end in one, and this app regularly saves real source files under
-  -- fsroot/App (the live v3/apps symlink): saving without it would strip
+  -- fsroot/Source (the live v3/apps symlink): saving without it would strip
   -- an existing app's final newline on every save, which is diff noise
   -- against git history for no reason.
   local wrote, werr = acid_fs_write(tmp, table.concat(self.buf:lines(), "\n") .. "\n")

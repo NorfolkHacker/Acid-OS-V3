@@ -42,7 +42,7 @@ EditorLayout.compute(acid_window_size())
 -- it lives here, in the one module both sides share.
 --
 -- Anchored to the two roots this file can actually be reached through
--- -- v3/apps (canonical) and v3/fsroot/App (the live symlink to it) --
+-- -- v3/apps (canonical) and v3/fsroot/Source (the live symlink to it) --
 -- not a bare filename-tail suffix. A bare suffix match ("ends with
 -- /editor.lua") would be a real bug: a user's OWN script at
 -- v3/fsroot/Home/editor.lua, or v3/fsroot/Home/lib/acid_app.lua, also ends
@@ -54,7 +54,7 @@ EditorLayout.compute(acid_window_size())
 -- path list means a file under fsroot/Home can never match no matter
 -- what it's named, while both real forms of each own-source file still do.
 -- Called as a method (self:own_source(path)) once mixed into EditorApp.
-EditorLayout.OWN_SOURCE_ROOTS = { "v3/apps/", "v3/fsroot/App/" }
+EditorLayout.OWN_SOURCE_ROOTS = { "v3/apps/", "v3/fsroot/Source/" }
 EditorLayout.OWN_SOURCE_RELATIVE_PATHS = {
   "editor.lua",
   "editor/buffer.lua",

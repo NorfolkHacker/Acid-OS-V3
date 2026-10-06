@@ -1,5 +1,7 @@
 -- File Manager: browse the sandboxed fsroot, preview text files, open
 -- .lua and .snd files in Editor, .spr files in Sprite Paint, .trk files in Acid Tracker, and launch apps from their .app.toml manifests.
+-- The top level offers Apps and Games, which are views built from the
+-- manifests (not folders), then the real folders; Source is the OS's code.
 
 FileManagerApp = AcidApp:extend("FileManagerApp")
 
@@ -10,6 +12,9 @@ local CW, CH = acid_font_size()
 FileManagerApp.TITLE_BAR_H = 16
 FileManagerApp.ROW_H = CH + 4
 FileManagerApp.ROOT_DIR = "v3/fsroot"
+FileManagerApp.APPS_DIR = "v3/apps"
+-- The virtual folders at the top level: { label, view, the category it lists }.
+FileManagerApp.VIEWS = { { "Apps", "apps", "app" }, { "Games", "games", "game" } }
 
 FileManagerApp.BG_COLOR = 0x0B1712      -- THEME_PANEL -- header row
 FileManagerApp.BODY_BG = 0x050607       -- THEME_BG -- list/preview rows
@@ -84,6 +89,7 @@ end
 function FileManagerApp:on_create()
   self:layout()
   self.dir = self.ROOT_DIR
+  self.view = nil
   self.entries = {}
   self.selected = 0
   self.scroll = 0
@@ -99,6 +105,11 @@ function FileManagerApp:scan_dir()
   self.scroll = 0
   if self.dir ~= self.ROOT_DIR then
     self.entries[#self.entries + 1] = { name = "..", dir = true, size = 0 }
+  end
+  if self.dir == self.ROOT_DIR then
+    for _, v in ipairs(self.VIEWS) do
+      self.entries[#self.entries + 1] = { name = v[1], dir = true, view = v[2], size = 0 }
+    end
   end
   local list, err = acid_fs_list(self.dir)
   if not list then
@@ -124,6 +135,29 @@ function FileManagerApp:scan_dir()
   self.selected = 0
 end
 
+-- Apps or Games: one entry per manifest of that category (none means app),
+-- labelled with its name. Selecting one launches it.
+function FileManagerApp:scan_view()
+  self.entries = { { name = "..", dir = true, size = 0 } }
+  self.scroll, self.selected = 0, 0
+  local want
+  for _, v in ipairs(self.VIEWS) do
+    if v[2] == self.view then want = v[3] end
+  end
+  local found = {}
+  for _, name in ipairs(acid_fs_list(self.APPS_DIR) or {}) do
+    if ends_with(name, ".app.toml") then
+      local f = self:read_manifest(self.APPS_DIR .. "/" .. name)
+      local category = f and f.category == "game" and "game" or "app"
+      if f and f.name and category == want then
+        found[#found + 1] = { name = name, label = f.name, desc = f.desc or "", launch = true, dir = false, size = 0 }
+      end
+    end
+  end
+  table.sort(found, function(a, b) return a.label:lower() < b.label:lower() end)
+  for _, e in ipairs(found) do self.entries[#self.entries + 1] = e end
+end
+
 function FileManagerApp:visible_rows()
   return (self.WINDOW_H - self.TITLE_BAR_H) // self.ROW_H
 end
@@ -137,7 +171,7 @@ end
 
 -- Keeps self.selected on screen by moving self.scroll to match, same idea as
 -- editor's own ensure_scroll -- without this, a directory with more
--- entries than fit on screen (v3/apps, now browsable via fsroot/App,
+-- entries than fit on screen (v3/apps, now browsable via fsroot/Source,
 -- easily has more files than this window's dozen or so visible rows)
 -- left every entry past the first screenful permanently unreachable:
 -- arrow-key selection moved self.selected past the visible range with
@@ -221,8 +255,13 @@ function FileManagerApp:draw_listing()
   acid_fill_rect(0, y, self.WINDOW_W, self.ROW_H, self.BG_COLOR)
   local n = #self.entries
   local label = self.dir
+  if self.view then
+    label = self.view:sub(1, 1):upper() .. self.view:sub(2)
+    local sel = self.entries[self.selected + 1]
+    if sel and sel.desc and sel.desc ~= "" then label = label .. ": " .. sel.desc end
+  end
   if n > self:visible_listing_rows() then
-    label = self.dir .. " (" .. (self.selected + 1) .. "/" .. n .. ")"
+    label = label .. " (" .. (self.selected + 1) .. "/" .. n .. ")"
   end
   acid_draw_text(label:sub(1, self.HEAD_COLS), 2, y + 2, self.TEXT_COLOR, self.BG_COLOR)
   y = y + self.ROW_H
@@ -234,6 +273,8 @@ function FileManagerApp:draw_listing()
     local entry_label
     if e.dir then
       entry_label = "[" .. e.name .. "]"
+    elseif e.label then
+      entry_label = " " .. e.label
     else
       entry_label = " " .. e.name .. " (" .. e.size .. "B)"
     end
@@ -249,6 +290,7 @@ end
 -- <name>.lua / <name>.app.toml pair is the one that starts the app.
 function FileManagerApp:entry_color(e)
   if e.dir then return self.DIR_COLOR end
+  if e.launch then return self.TOML_COLOR end
   if ends_with(e.name, ".toml") then return self.TOML_COLOR end
   return self.TEXT_COLOR
 end
@@ -345,6 +387,16 @@ end
 function FileManagerApp:activate_selected()
   local entry = self.entries[self.selected + 1]
   if not entry then return end
+  if entry.view then
+    self.view = entry.view
+    self:scan_view()
+    self:redraw()
+    return
+  end
+  if entry.launch then
+    self:launch_manifest(entry.name, self.APPS_DIR)
+    return
+  end
   if entry.name == ".." then
     self:go_up()
   elseif entry.dir then
@@ -373,30 +425,36 @@ end
 -- things from a manifest (desktop also needs the `menu` flag and
 -- registers into the launcher list, this just needs enough to spawn
 -- once).
-function FileManagerApp:launch_manifest(name)
-  local path = self.dir .. "/" .. name
+-- A manifest's "key = value" fields, or nil if it can't be read.
+function FileManagerApp:read_manifest(path)
+  local text = acid_fs_read(path)
+  if not text then return nil end
   local fields = {}
+  for _, line in ipairs(split_lines(text)) do
+    line = trim(line)
+    if line ~= "" and line:sub(1, 1) ~= "#" then
+      local eq = line:find("=", 1, true)
+      if eq then fields[trim(line:sub(1, eq - 1))] = trim(line:sub(eq + 1)) end
+    end
+  end
+  return fields
+end
+
+function FileManagerApp:launch_manifest(name, dir)
+  dir = dir or self.dir
+  local path = dir .. "/" .. name
   -- This pcall covers the read and the parse, and also the spawn's
   -- integer conversion, which can raise on a digit run beyond i32.
   local ok = pcall(function()
-    local text = acid_fs_read(path)
-    if not text then error("unreadable") end
-    for _, line in ipairs(split_lines(text)) do
-      line = trim(line)
-      if line ~= "" and line:sub(1, 1) ~= "#" then
-        local eq = line:find("=", 1, true)
-        if eq then
-          fields[trim(line:sub(1, eq - 1))] = trim(line:sub(eq + 1))
-        end
-      end
-    end
+    local fields = self:read_manifest(path)
+    if not fields then error("unreadable") end
     if not (fields["w"] and fields["h"]) then return end
     -- Spec §15.4: `runtime = wasm` means the app is <stem>.wasm.
     local ext = fields["runtime"] == "wasm" and ".wasm" or ".lua"
-    local script_path = self.dir .. "/" .. name:sub(1, #name - #".app.toml") .. ext
+    local script_path = dir .. "/" .. name:sub(1, #name - #".app.toml") .. ext
     -- canonical_app_path is defined on AcidApp (v3/apps/lib/acid_app.lua),
-    -- not here -- browsing to a manifest under fsroot/App (which this app
-    -- itself makes possible) built script_path still under fsroot/App, and
+    -- not here -- browsing to a manifest under fsroot/Source (which this app
+    -- itself makes possible) built script_path still under fsroot/Source, and
     -- the launcher registry only matches the canonical v3/apps form (see
     -- AcidApp's comment on why). A method call here resolves through
     -- self's class chain (FileManagerApp extends AcidApp), the same way
@@ -407,6 +465,12 @@ function FileManagerApp:launch_manifest(name)
 end
 
 function FileManagerApp:go_up()
+  if self.view then
+    self.view = nil
+    self:scan_dir()
+    self:redraw()
+    return
+  end
   if self.dir == self.ROOT_DIR then return end
   local slash
   for i = #self.dir, 1, -1 do

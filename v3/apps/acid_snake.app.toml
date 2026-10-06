@@ -2,4 +2,5 @@ name = Acid Snake
 w = 320
 h = 256
 desc = Snake on acid
+category = game
 menu = false

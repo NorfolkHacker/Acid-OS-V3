@@ -85,7 +85,7 @@ fn editor_opens_a_lua_file_from_file_manager() {
         assert!(start.elapsed() < Duration::from_secs(10), "Editor never registered");
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert!(k.spawn_by_path("v3/apps/editor.lua", 420, 280, Some("v3/fsroot/App/tetris.lua".into()), false));
+    assert!(k.spawn_by_path("v3/apps/editor.lua", 420, 280, Some("v3/fsroot/Source/tetris.lua".into()), false));
     std::thread::sleep(Duration::from_millis(800));
     let open = k.with_state(|st| st.windows.in_z_order().iter().any(|w| w.app_name == "v3/apps/editor.lua"));
     assert!(open, "Editor stayed open on a .lua file");
@@ -166,6 +166,8 @@ fn installing_the_sample_cart_end_to_end() {
     p.set_cart_roots(vec!["v3/carts".into()]);
     let k = Kernel::new(p.clone());
     k.set_runner(acid_lua::lua_runner(APPS_DIR));
+    // Installing writes under v3/apps, which is locked unless Developer Mode is on.
+    k.set_dev_mode(true);
     let cart = spawn_from_manifest(&k, "cart").unwrap();
     k.activate_window(cart);
     std::thread::sleep(Duration::from_millis(300));

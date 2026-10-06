@@ -2,6 +2,7 @@ name = File Manager
 w = 220
 h = 160
 desc = Browse the real filesystem
+category = app
 multi = true
 libs = lib/acid_scrollbar.lua
 font = scalable

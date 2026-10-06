@@ -311,6 +311,8 @@ fn installing_the_wasm_cart_end_to_end() {
     p.set_cart_roots(vec!["v3/carts".into()]);
     let k = Kernel::new(p.clone());
     k.set_runner(runner(APPS_DIR));
+    // Installing writes under v3/apps, which is locked unless Developer Mode is on.
+    k.set_dev_mode(true);
     let cart = acid_os::spawn_from_manifest(&k, "cart").unwrap();
     k.activate_window(cart);
     std::thread::sleep(Duration::from_millis(300));

@@ -179,7 +179,7 @@ mod fs_tests {
         std::fs::create_dir_all(root.join("v3/apps")).unwrap();
         std::fs::create_dir_all(root.join("v3/fsroot/Home")).unwrap();
         std::fs::create_dir_all(root.join("outside")).unwrap();
-        std::os::unix::fs::symlink("../apps", root.join("v3/fsroot/App")).unwrap();
+        std::os::unix::fs::symlink("../apps", root.join("v3/fsroot/Source")).unwrap();
         std::os::unix::fs::symlink(root.join("outside"), root.join("v3/fsroot/Out")).unwrap();
         root
     }
@@ -191,7 +191,7 @@ mod fs_tests {
         let fs = StdFs::new(&root);
         assert_eq!(fs.write("v3/fsroot/Home/new.txt", b"hi"), Ok(()), "a new file in a real directory");
         assert_eq!(std::fs::read(root.join("v3/fsroot/Home/new.txt")).unwrap(), b"hi");
-        assert_eq!(fs.write("v3/fsroot/App/x.lua", b"-- x"), Ok(()), "through the App link into the apps root");
+        assert_eq!(fs.write("v3/fsroot/Source/x.lua", b"-- x"), Ok(()), "through the Source link into the apps root");
         assert!(root.join("v3/apps/x.lua").exists());
         let bad = Err(FsError::Other("bad path".into()));
         assert_eq!(fs.write("v3/fsroot/Out/evil.txt", b"x"), bad, "a link out of the roots is refused");
@@ -209,8 +209,8 @@ mod fs_tests {
         let root = os_tree("resolves");
         let fs = StdFs::new(&root);
         std::fs::write(root.join("v3/apps/a.lua"), b"x").unwrap();
-        assert!(fs.resolves_into("v3/fsroot/App/a.lua", "v3/apps"), "a file through a link");
-        assert!(fs.resolves_into("v3/fsroot/App/new.lua", "v3/apps"), "a file not there yet");
+        assert!(fs.resolves_into("v3/fsroot/Source/a.lua", "v3/apps"), "a file through a link");
+        assert!(fs.resolves_into("v3/fsroot/Source/new.lua", "v3/apps"), "a file not there yet");
         assert!(fs.resolves_into("v3/apps/a.lua", "v3/apps"));
         assert!(!fs.resolves_into("v3/fsroot/Home/a.lua", "v3/apps"), "outside it");
         assert!(!fs.resolves_into("v3/fsroot/Out/a.lua", "v3/apps"), "a link elsewhere");
@@ -230,11 +230,11 @@ mod fs_tests {
         assert_eq!(fs.rename("v3/fsroot", "v3/fsroot/Home/y"), bad);
         assert_eq!(fs.rename("v3/fsroot/Home", "v3/apps"), bad, "nor replaced");
         assert!(root.join("v3/apps").is_dir() && root.join("v3/fsroot").is_dir());
-        assert_eq!(fs.rename("v3/fsroot/App", "v3/fsroot/Home/app"), bad, "a link is not moved");
-        assert!(root.join("v3/fsroot/App").exists());
+        assert_eq!(fs.rename("v3/fsroot/Source", "v3/fsroot/Home/app"), bad, "a link is not moved");
+        assert!(root.join("v3/fsroot/Source").exists());
         fs.write("v3/fsroot/Home/x", b"x").unwrap();
-        assert_eq!(fs.rename("v3/fsroot/Home/x", "v3/fsroot/App"), bad, "a link is not replaced");
-        assert!(std::fs::symlink_metadata(root.join("v3/fsroot/App")).unwrap().file_type().is_symlink());
+        assert_eq!(fs.rename("v3/fsroot/Home/x", "v3/fsroot/Source"), bad, "a link is not replaced");
+        assert!(std::fs::symlink_metadata(root.join("v3/fsroot/Source")).unwrap().file_type().is_symlink());
         assert!(root.join("v3/fsroot/Home/x").exists(), "the source stays put");
         std::os::unix::fs::symlink(root.join("v3/apps"), root.join("v3/fsroot/Home/appsroot")).unwrap();
         assert_eq!(fs.rename("v3/fsroot/Home/x", "v3/fsroot/Home/appsroot/."), bad, "a root under another spelling");

@@ -77,14 +77,14 @@ At `v3/fsroot` the list is:
 
 - Entering either one lists `..`, then one entry per `v3/apps/*.app.toml` whose `category` matches (a missing field means `app`). Each entry is labelled with its `name` field, sorted case-insensitively.
 - Selecting an entry launches it through the existing `launch_manifest` path.
-- The status line shows the selected entry's `desc`.
+- The header row shows `Apps: <desc>` (or `Games: …`) for the selected entry.
 - `..` returns to `v3/fsroot`.
 - Delete and rename do nothing in these views.
 - The File Manager knows it's in a virtual view through its own state (`self.view = "apps" | "games" | nil`). `self.dir` stays `v3/fsroot` while in a view.
 
 ### 3.3 Messages
 
-When a delete or rename returns `read only`, the File Manager shows `read only (turn on DEV MODE in Config)`.
+File Manager has no delete or rename, so the lock's user-facing message is the Editor's (§4).
 
 ## 4. Editor
 

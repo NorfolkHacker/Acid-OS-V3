@@ -2,4 +2,5 @@ name = Acid Blaster
 w = 250
 h = 180
 desc = Tap-to-shoot arcade
+category = game
 menu = false

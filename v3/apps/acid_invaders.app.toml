@@ -2,4 +2,5 @@ name = Acid Invaders
 w = 320
 h = 256
 desc = Invaders on acid
+category = game
 menu = false

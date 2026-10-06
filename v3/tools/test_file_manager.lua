@@ -19,36 +19,38 @@ local function names()
 end
 
 group("listing")
-eq(G.entries[1].name, "(error: not found)", "an unreadable root lists the error")
+eq(G.entries[#G.entries].name, "(error: not found)", "an unreadable root lists the error")
 local long = {}
 for i = 1, 20 do long[i] = "line " .. i end
 local many = {}
 for i = 1, 20 do many[i] = string.format("f%02d.txt", i) end
-FS["v3/fsroot"] = { "readme.txt", "Help", "App", "long.txt", "Many" }
+FS["v3/fsroot"] = { "readme.txt", "Help", "Source", "long.txt", "Many" }
 FS["v3/fsroot/readme.txt"] = "hello"
 FS["v3/fsroot/long.txt"] = table.concat(long, "\n")
 FS["v3/fsroot/Help"] = { "about.txt" }
 FS["v3/fsroot/Help/about.txt"] = "a\nb\nc\n"
-FS["v3/fsroot/App"] = { "tetris.lua", "tetris.app.toml" }
-FS["v3/fsroot/App/tetris.app.toml"] = "name = Tetris\nw = 160\nh = 160\n"
-FS["v3/fsroot/App/tetris.lua"] = "-- code"
+FS["v3/fsroot/Source"] = { "tetris.lua", "tetris.app.toml" }
+FS["v3/fsroot/Source/tetris.app.toml"] = "name = Tetris\nw = 160\nh = 160\n"
+FS["v3/fsroot/Source/tetris.lua"] = "-- code"
 FS["v3/fsroot/Many"] = many
 G:on_create()
-eq(names(), { "App", "Help", "Many", "long.txt", "readme.txt" }, "the root lists sorted names with no ..")
-eq({ G.entries[1].dir, G.entries[5].dir, G.entries[5].size }, { true, false, 5 }, "directories and file sizes are told apart")
+eq(names(), { "Apps", "Games", "Help", "Many", "Source", "long.txt", "readme.txt" }, "the root lists the views, then sorted names with no ..")
+eq({ G.entries[1].dir, G.entries[7].dir, G.entries[7].size }, { true, false, 5 }, "directories and file sizes are told apart")
 TEXTS = {}
 G:redraw()
-ok(has(TEXTS, "[App]"), "a directory row is bracketed")
+ok(has(TEXTS, "[Source]"), "a directory row is bracketed")
 ok(has(TEXTS, " readme.txt (5B)"), "a file row shows its size")
 eq(G:entry_color({ name = "t.app.toml", dir = false }), F.TOML_COLOR, "manifests are violet")
 
 group("opening entries")
+key(AcidKeys.DOWN)
 key(AcidKeys.DOWN)
 key(AcidKeys.ENTER)
 eq(G.dir, "v3/fsroot/Help", "Enter on a directory opens it")
 eq(names(), { "..", "about.txt" }, ".. appears below the root")
 key(AcidKeys.ENTER)
 eq(G.dir, "v3/fsroot", "Enter on the .. row goes up a level")
+key(AcidKeys.DOWN)
 key(AcidKeys.DOWN)
 key(AcidKeys.ENTER)
 key(AcidKeys.DOWN)
@@ -58,6 +60,7 @@ key(AcidKeys.ESCAPE)
 eq(G.preview, nil, "Escape closes the preview")
 key(AcidKeys.BACKSPACE)
 eq(G.dir, "v3/fsroot", "Backspace goes up a level")
+for _ = 1, 4 do key(AcidKeys.DOWN) end
 key(AcidKeys.ENTER)
 CALLS = {}
 key(AcidKeys.DOWN)
@@ -65,7 +68,7 @@ key(AcidKeys.ENTER)
 eq(CALLS[1], { "spawn", "v3/apps/tetris.lua", 160, 160, "" }, "a manifest launches its app through the canonical v3/apps path")
 key(AcidKeys.DOWN)
 key(AcidKeys.ENTER)
-eq(CALLS[2], { "spawn", "v3/apps/editor.lua", 420, 280, "v3/fsroot/App/tetris.lua" }, "a .lua opens in Editor with its path")
+eq(CALLS[2], { "spawn", "v3/apps/editor.lua", 420, 280, "v3/fsroot/Source/tetris.lua" }, "a .lua opens in Editor with its path")
 
 group("preview and taps")
 G.dir = "v3/fsroot"
@@ -80,8 +83,8 @@ G:on_touch(10, 50, true)
 eq(G.preview, nil, "a tap closes the preview")
 G:on_touch(10, 50, true)
 eq(G.dir, "v3/fsroot", "holding the tap doesn't act again")
-G:on_touch(10, 50, false)
-G:on_touch(10, 50, true)
+G:on_touch(10, 62, false)
+G:on_touch(10, 62, true)
 eq(G.dir, "v3/fsroot/Help", "a fresh tap on a row opens it")
 
 group("scrolling")
@@ -143,8 +146,8 @@ eq(thumbs(), 0, "no scroll bar when everything fits")
 group("wasm manifests")
 -- Spec §15.4: a runtime = wasm manifest launches <name>.wasm, still
 -- through the canonical v3/apps path.
-FS["v3/fsroot/App/toy.app.toml"] = "name = Toy\nw = 120\nh = 90\nruntime = wasm\nsource = cart\n"
-G.dir = "v3/fsroot/App"
+FS["v3/fsroot/Source/toy.app.toml"] = "name = Toy\nw = 120\nh = 90\nruntime = wasm\nsource = cart\n"
+G.dir = "v3/fsroot/Source"
 CALLS = {}
 G:launch_manifest("toy.app.toml")
 eq(CALLS[1], { "spawn", "v3/apps/toy.wasm", 120, 90, "" }, "a runtime = wasm manifest launches its .wasm through the canonical path")
@@ -180,3 +183,36 @@ pick("b.snd")
 CALLS = {}
 G:activate_selected()
 eq(CALLS[1], { "spawn", "v3/apps/editor.lua", 420, 280, "v3/fsroot/Music/b.snd" }, "a .snd opens in the Editor")
+
+group("Apps and Games")
+FS["v3/fsroot"] = { "Home", "Source" }
+FS["v3/fsroot/Home"] = {}
+FS["v3/fsroot/Source"] = {}
+FS["v3/apps"] = { "zed.app.toml", "alpha.app.toml", "tetris.app.toml", "old.app.toml", "tetris.lua" }
+FS["v3/apps/zed.app.toml"] = "name = Zed\nw = 100\nh = 80\ndesc = last app\ncategory = app\n"
+FS["v3/apps/alpha.app.toml"] = "name = alpha\nw = 100\nh = 80\ndesc = first app\ncategory = app\n"
+FS["v3/apps/tetris.app.toml"] = "name = Tetris\nw = 160\nh = 160\ndesc = blocks\ncategory = game\n"
+FS["v3/apps/old.app.toml"] = "name = Old\nw = 90\nh = 70\n"
+G.dir = "v3/fsroot"
+G:on_create()
+eq(names(), { "Apps", "Games", "Home", "Source" }, "Apps and Games come first at the top level")
+key(AcidKeys.ENTER)
+local labels = {}
+for i, e in ipairs(G.entries) do labels[i] = e.label or e.name end
+eq(labels, { "..", "alpha", "Old", "Zed" }, "Apps lists app names, a missing category counting as app")
+key(AcidKeys.DOWN)
+TEXTS = {}
+G:redraw()
+ok(has(TEXTS, "Apps: first app"), "the header shows the selected app's description")
+CALLS = {}
+key(AcidKeys.ENTER)
+eq(CALLS[1], { "spawn", "v3/apps/alpha.lua", 100, 80, "" }, "Enter launches the app")
+key(AcidKeys.BACKSPACE)
+eq({ G.view, names()[1] }, { nil, "Apps" }, "Backspace goes back to the top level")
+key(AcidKeys.DOWN)
+key(AcidKeys.ENTER)
+labels = {}
+for i, e in ipairs(G.entries) do labels[i] = e.label or e.name end
+eq(labels, { "..", "Tetris" }, "Games lists only games")
+key(AcidKeys.ENTER)
+eq(G.view, nil, "the .. row goes back up too")

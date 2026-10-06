@@ -2,6 +2,7 @@ name = Hello Acid
 w = 200
 h = 150
 desc = Example cart -- colour-cycling bars
+category = app
 libs = lib/acid_palette.lua
 menu = false
 source = cart

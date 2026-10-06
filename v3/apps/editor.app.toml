@@ -2,6 +2,7 @@ name = Editor
 w = 420
 h = 280
 desc = Text editor for app source
+category = app
 multi = true
 libs = lib/acid_scrollbar.lua, editor/buffer.lua, editor/hl.lua, editor/layout.lua, editor/cmdbar.lua, editor/touch.lua
 font = scalable

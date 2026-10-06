@@ -52,11 +52,11 @@ function AcidApp:quit()
   self.running = false
 end
 
--- v3/fsroot/App is a symlink to v3/apps. Launch paths are matched by
+-- v3/fsroot/Source is a symlink to v3/apps. Launch paths are matched by
 -- exact string against the canonical v3/apps form, so a path that came
 -- through the symlink is mapped back here (the hw target has no
 -- realpath).
-AcidApp.FSROOT_APP_PREFIX = "v3/fsroot/App/"
+AcidApp.FSROOT_APP_PREFIX = "v3/fsroot/Source/"
 AcidApp.CANONICAL_APP_PREFIX = "v3/apps/"
 
 function AcidApp:canonical_app_path(path)

@@ -2,6 +2,7 @@ name = Terminal
 w = 260
 h = 160
 desc = Command-line shell
+category = app
 multi = true
 libs = lib/acid_sprite.lua, lib/acid_eggs.lua, lib/acid_scrollbar.lua
 font = scalable

@@ -263,6 +263,6 @@ mod tests {
         w.app_name = "v3/apps/editor.lua".into();
         r.register(w);
         assert_eq!(r.find_by_app_name("v3/apps/editor.lua"), Some(TaskId(1)));
-        assert_eq!(r.find_by_app_name("v3/fsroot/App/editor.lua"), None);
+        assert_eq!(r.find_by_app_name("v3/fsroot/Source/editor.lua"), None);
     }
 }

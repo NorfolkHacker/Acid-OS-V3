@@ -2,4 +2,5 @@ name = AcidStorm
 w = 320
 h = 256
 desc = Acid arena shooter
+category = game
 menu = false

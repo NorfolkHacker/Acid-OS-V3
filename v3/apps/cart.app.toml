@@ -2,4 +2,5 @@ name = Load Cart
 w = 300
 h = 210
 desc = Install .cart programs from a card
+category = app
 libs = cart/cartfile.lua, lib/acid_scrollbar.lua

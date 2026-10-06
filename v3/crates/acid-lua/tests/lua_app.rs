@@ -618,7 +618,7 @@ fn fs_size_binding_returns_bytes_or_nil_err() {
 fn canonical_app_path_maps_the_fsroot_app_symlink_back() {
     let lua = state(FakeApi::with_events(vec![]));
     run(&lua, r#"
-      assert(AcidApp:canonical_app_path("v3/fsroot/App/x.lua") == "v3/apps/x.lua", "mapped")
+      assert(AcidApp:canonical_app_path("v3/fsroot/Source/x.lua") == "v3/apps/x.lua", "mapped")
       assert(AcidApp:canonical_app_path("v3/apps/y.lua") == "v3/apps/y.lua", "canonical unchanged")
       assert(AcidApp:canonical_app_path("v3/fsroot/Home/n.txt") == "v3/fsroot/Home/n.txt", "other fsroot unchanged")
     "#);
