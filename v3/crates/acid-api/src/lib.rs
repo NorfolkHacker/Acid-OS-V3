@@ -243,6 +243,10 @@ pub trait AcidApi: Send + Sync {
     /// (spec §16.2); otherwise false only if the platform can't.
     /// Required, so every implementor decides.
     fn restart(&self) -> bool;
+    /// Developer Mode: while on, system source is writable. Off at boot.
+    fn dev_mode(&self) -> bool { false }
+    /// Sets Developer Mode; false (and no change) for a cart.
+    fn set_dev_mode(&self, _on: bool) -> bool { false }
     /// Send the caller's window to the back.
     fn send_self_to_back(&self);
     /// Add a launcher entry; empty `libs` means none.
@@ -296,6 +300,14 @@ pub trait AcidApi: Send + Sync {
     fn cart_read(&self, path: &str) -> Result<Vec<u8>, String>;
 }
 
+/// The OS's own source: v3/apps, reached directly or through fsroot's
+/// Source link. Read-only unless Developer Mode is on.
+fn is_system_source(path: &str) -> bool {
+    ["v3/apps", "v3/fsroot/Source"]
+        .iter()
+        .any(|r| path == *r || path.strip_prefix(r).is_some_and(|rest| rest.starts_with('/')))
+}
+
 fn fs_error(e: FsError) -> String {
     match e {
         FsError::NotFound => String::from("not found"),
@@ -341,6 +353,12 @@ impl KernelApi {
     /// Spec §14.2: cart-level apps change files only under Home.
     fn cart_may_change(&self, path: &str) -> bool {
         !self.ctx.cart || path.starts_with("v3/fsroot/Home/")
+    }
+
+    /// Whether the caller may change `path`: carts only under Home, and
+    /// nobody touches system source while Developer Mode is off.
+    fn may_change(&self, path: &str) -> bool {
+        self.cart_may_change(path) && (!is_system_source(path) || self.ctx.kernel.dev_mode())
     }
 
     /// Reads a file named inside a .trk or .snd: paths there are fsroot-relative.
@@ -733,6 +751,19 @@ impl AcidApi for KernelApi {
         self.ctx.kernel.restart()
     }
 
+    fn dev_mode(&self) -> bool {
+        self.ctx.kernel.dev_mode()
+    }
+
+    fn set_dev_mode(&self, on: bool) -> bool {
+        // Unlocking the OS's own code is not a cart's call (spec §16.2).
+        if self.ctx.cart {
+            return false;
+        }
+        self.ctx.kernel.set_dev_mode(on);
+        true
+    }
+
     fn close_window(&self, i: i64) -> bool {
         // Spec §16.2: a cart closes no windows (its own ends with its run loop).
         if self.ctx.cart {
@@ -842,7 +873,7 @@ impl AcidApi for KernelApi {
         if !acid_kernel::fs_path::fs_path_is_allowed(path) {
             return Err(String::from("bad path"));
         }
-        if !self.cart_may_change(path) {
+        if !self.may_change(path) {
             return Err(String::from("read only"));
         }
         self.ctx.kernel.platform().fs().write(path, data).map_err(fs_error)
@@ -852,7 +883,7 @@ impl AcidApi for KernelApi {
         if !acid_kernel::fs_path::fs_path_is_allowed(from) || !acid_kernel::fs_path::fs_path_is_allowed(to) {
             return Err(String::from("bad path"));
         }
-        if !self.cart_may_change(from) || !self.cart_may_change(to) {
+        if !self.may_change(from) || !self.may_change(to) {
             return Err(String::from("read only"));
         }
         self.ctx.kernel.platform().fs().rename(from, to).map_err(fs_error)
@@ -862,7 +893,7 @@ impl AcidApi for KernelApi {
         if !acid_kernel::fs_path::fs_path_is_allowed(path) {
             return Err(String::from("bad path"));
         }
-        if !self.cart_may_change(path) {
+        if !self.may_change(path) {
             return Err(String::from("read only"));
         }
         self.ctx.kernel.platform().fs().delete(path).map_err(fs_error)
@@ -1036,6 +1067,43 @@ mod tests {
         assert_eq!(api.fs_read(&p), Ok(b"abc".to_vec()));
         assert_eq!(api.fs_delete(&p), Ok(()));
         assert_eq!(api.fs_delete(&p), Err("not found".into()));
+    }
+
+    #[test]
+    fn system_source_is_read_only_unless_developer_mode_is_on() {
+        let (k, api) = spawn_on(FakePlatform::new(FakePlatform::repo_root()), 10, 10);
+        let name = format!("v3/apps/lock-test-{}.txt", std::process::id());
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(FakePlatform::repo_root().join(&name));
+        let ro = Err(String::from("read only"));
+        assert!(!k.dev_mode(), "Developer Mode is off at boot");
+        assert_eq!(api.fs_write(&name, b"x"), ro);
+        assert_eq!(api.fs_delete("v3/apps/hello_acid.lua"), ro);
+        assert_eq!(api.fs_rename("v3/apps/hello_acid.lua", "v3/fsroot/Tmp/x.lua"), ro, "out of source");
+        assert_eq!(api.fs_rename("v3/fsroot/Home/notes.txt", &name), ro, "into source");
+        assert_eq!(api.fs_write("v3/fsroot/Source/x.lua", b"x"), ro, "the Source spelling is locked too");
+        assert!(api.fs_read("v3/apps/hello_acid.app.toml").is_ok(), "reading is never locked");
+        assert!(api.set_dev_mode(true));
+        assert!(api.dev_mode());
+        assert_eq!(api.fs_write(&name, b"x"), Ok(()));
+        assert_eq!(api.fs_delete(&name), Ok(()));
+        assert!(api.set_dev_mode(false));
+        let tmp = format!("v3/fsroot/Tmp/lock-test-{}.txt", std::process::id());
+        let _c2 = Cleanup(FakePlatform::repo_root().join(&tmp));
+        assert_eq!(api.fs_write(&tmp, b"x"), Ok(()), "outside source nothing changes");
+        assert_eq!(api.fs_delete(&tmp), Ok(()));
+    }
+
+    #[test]
+    fn a_cart_cannot_turn_on_developer_mode() {
+        let (k, cart) = spawn_cart_on(FakePlatform::new(FakePlatform::repo_root()), 10, 10);
+        assert!(!cart.set_dev_mode(true));
+        assert!(!k.dev_mode());
     }
 
     #[test]

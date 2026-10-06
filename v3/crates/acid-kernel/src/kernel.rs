@@ -173,6 +173,9 @@ pub struct Kernel {
     tasks: Mutex<crate::tasks::TaskSampler>,
     wallpaper: Canvas,
     wallpaper_enabled: AtomicBool,
+    /// Config's Developer Mode: while on, system source (v3/apps) is
+    /// writable. Off at every boot, never saved.
+    dev_mode: AtomicBool,
     composited: AtomicU32,
     skipped: AtomicU32,
     font_scale: AtomicI32,
@@ -201,6 +204,7 @@ impl Kernel {
             wallpaper: wallpaper_canvas_for(screen.w, screen.h),
             // On at boot; the setting lives in memory only.
             wallpaper_enabled: AtomicBool::new(true),
+            dev_mode: AtomicBool::new(false),
             composited: AtomicU32::new(0),
             skipped: AtomicU32::new(0),
             font_scale: AtomicI32::new(1),
@@ -358,6 +362,14 @@ impl Kernel {
         if s == 1 || s == 2 {
             self.font_scale.store(s, Ordering::SeqCst);
         }
+    }
+
+    pub fn dev_mode(&self) -> bool {
+        self.dev_mode.load(Ordering::SeqCst)
+    }
+
+    pub fn set_dev_mode(&self, on: bool) {
+        self.dev_mode.store(on, Ordering::SeqCst);
     }
 
     pub fn wallpaper_enabled(&self) -> bool {

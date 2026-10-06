@@ -176,7 +176,7 @@ FAIL_RENAMES = {}  -- from-path -> true: acid_fs_rename fails for it
 function acid_launch_arg() return LAUNCH_ARG end
 function acid_fs_write(path, data)
   push(CALLS, { "write", path })
-  if FAIL_WRITES[path] then return nil, "disk full" end
+  if FAIL_WRITES[path] then return nil, type(FAIL_WRITES[path]) == "string" and FAIL_WRITES[path] or "disk full" end
   FS[path] = data
   return true
 end
@@ -250,6 +250,9 @@ end
 function acid_launcher_spawn(i) push(CALLS, { "launch", i }); return true end
 RESTART_OK = true  -- what acid_restart answers
 function acid_restart() push(CALLS, { "restart" }); return RESTART_OK end
+DEV_MODE = false   -- what acid_get_dev_mode answers
+function acid_get_dev_mode() return DEV_MODE end
+function acid_set_dev_mode(on) push(CALLS, { "set_dev_mode", on }); DEV_MODE = on; return true end
 function acid_get_wallpaper_enabled() return WALLPAPER end
 function acid_set_wallpaper_enabled(on) WALLPAPER = on; push(CALLS, { "set_wallpaper", on }) end
 function acid_get_volume() return VOLUME end

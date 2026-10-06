@@ -692,6 +692,10 @@ fn register_api(lua: &Lua, api: Arc<dyn AcidApi>, last_poll: Arc<AtomicU64>) -> 
     let a = api.clone();
     g.set("acid_restart", lua.create_function(move |_, ()| Ok(a.restart()))?)?;
     let a = api.clone();
+    g.set("acid_get_dev_mode", lua.create_function(move |_, ()| Ok(a.dev_mode()))?)?;
+    let a = api.clone();
+    g.set("acid_set_dev_mode", lua.create_function(move |_, on: bool| Ok(a.set_dev_mode(on)))?)?;
+    let a = api.clone();
     g.set("acid_send_self_to_back", lua.create_function(move |_, ()| { a.send_self_to_back(); Ok(()) })?)?;
     let a = api.clone();
     g.set("acid_launcher_register", lua.create_function(
