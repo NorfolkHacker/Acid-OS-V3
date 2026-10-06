@@ -217,12 +217,17 @@ impl Engine {
             }
         }
         let id = self.next_id;
-        // Ids wrap but skip 0.
-        self.next_id = self.next_id.wrapping_add(1).max(1);
+        // Ids stay in 1..=i32::MAX so Lua always sees a positive id it can stop.
+        self.next_id = if self.next_id >= i32::MAX as u32 { 1 } else { self.next_id + 1 };
         let mut inst = Instance::new(block, [Some(v1), v2], note, 0, self.ticks ^ id.rotate_left(16));
         inst.start(synth);
         self.sounds.push(Sound { id, owner, prog, inst });
         Some(id)
+    }
+
+    #[cfg(test)]
+    fn set_next_id(&mut self, id: u32) {
+        self.next_id = id;
     }
 
     pub fn stop_sound(&mut self, synth: &mut Synth, owner: u32, id: u32) {
@@ -599,5 +604,15 @@ mod tests {
         e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
         e.play_song(&mut s, 1, 1, song(4), 0, 0);
         assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
+    }
+
+    #[test]
+    fn sound_ids_stay_positive_as_i32() {
+        let (mut e, mut s) = (Engine::new(), Synth::new());
+        e.set_next_id(i32::MAX as u32 - 1);
+        let p = prog("gate on\nwait 50");
+        let ids: Vec<u32> = (0..3).map(|_| e.play_sound(&mut s, 1, p.clone(), 0, 40, 0).unwrap()).collect();
+        assert_eq!(ids, vec![i32::MAX as u32 - 1, i32::MAX as u32, 1]);
+        assert!(ids.iter().all(|&id| i32::try_from(id).is_ok_and(|i| i > 0)));
     }
 }

@@ -587,7 +587,7 @@ impl AcidApi for KernelApi {
         } else {
             p.block(name)?
         };
-        self.ctx.kernel.audio_sound_play(self.ctx.task, p, block, note).map(|id| id as i32)
+        self.ctx.kernel.audio_sound_play(self.ctx.task, p, block, note).and_then(|id| i32::try_from(id).ok())
     }
 
     fn sound_stop(&self, id: i32) {
