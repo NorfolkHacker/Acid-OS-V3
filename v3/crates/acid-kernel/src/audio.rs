@@ -181,8 +181,14 @@ impl Kernel {
         self.audio.state.lock().engine.update_song(task.0, handle, song);
     }
 
-    pub fn audio_song_position(&self) -> Option<(i32, i32, i32)> {
-        self.audio.state.lock().engine.song_position()
+    /// Where the song is, if `task` started it: an app that lost the
+    /// song to another sees None, so it stops following.
+    pub fn audio_song_position(&self, task: TaskId) -> Option<(i32, i32, i32)> {
+        let a = self.audio.state.lock();
+        if a.engine.song_owner() != Some(task.0) {
+            return None;
+        }
+        a.engine.song_position()
     }
 
     /// Mutes channel `ch` (1-based) of the song, if `task` started it.
@@ -496,7 +502,7 @@ mod tests {
         k.audio_sound_play(TaskId(1), prog, 0, 40).unwrap();
         render(&k, 441);
         k.audio_release_owner(TaskId(1));
-        assert_eq!(k.audio_song_position(), None);
+        assert_eq!(k.audio_song_position(TaskId(1)), None);
         assert_eq!(k.audio.state.lock().engine.sound_count(), 0);
     }
 
@@ -507,10 +513,19 @@ mod tests {
         render(&k, 441);
         k.audio_song_mute(TaskId(2), 1, true);
         k.audio_song_stop(TaskId(2));
-        assert!(k.audio_song_position().is_some());
+        assert!(k.audio_song_position(TaskId(1)).is_some());
         assert!(!k.audio.state.lock().engine.song_player().unwrap().muted(0));
         k.audio_song_stop(TaskId(1));
-        assert_eq!(k.audio_song_position(), None);
+        assert_eq!(k.audio_song_position(TaskId(1)), None);
+    }
+
+    #[test]
+    fn only_the_owner_sees_its_song_position() {
+        let k = kernel();
+        k.audio_song_play(TaskId(1), 1, song(), 0, 0);
+        render(&k, 441);
+        assert!(k.audio_song_position(TaskId(1)).is_some());
+        assert_eq!(k.audio_song_position(TaskId(2)), None, "another app's song is not ours to follow");
     }
 
     #[test]

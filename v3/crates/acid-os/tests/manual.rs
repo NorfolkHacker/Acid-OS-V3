@@ -377,7 +377,7 @@ fn mentioned(text: &str) -> BTreeSet<String> {
                 e += 1;
             }
             let word = &line[s..e];
-            let file_name = line[e..].starts_with(".lua") || line[e..].starts_with(".wasm");
+            let file_name = [".lua", ".wasm", ".trk", ".snd", ".spr"].iter().any(|x| line[e..].starts_with(x));
             if before_ok && !file_name && word.len() > 5 && !NOT_CALLS.contains(&word) {
                 out.insert(word.to_string());
             }
@@ -493,7 +493,7 @@ fn the_manual_is_complete() {
     let want = [
         "README.md", "01-getting-started.md", "02-apps-and-manifests.md", "03-app-lifecycle.md",
         "04-graphics.md", "05-sound.md", "06-games.md", "07-system-apis.md", "08-cookbook.md",
-        "09-api-reference.md", "10-wasm-carts.md",
+        "09-api-reference.md", "10-wasm-carts.md", "11-music.md",
     ];
     let have: Vec<String> = chapters().into_iter().map(|(f, _)| f).collect();
     assert_eq!(have, { let mut w: Vec<String> = want.iter().map(|s| s.to_string()).collect(); w.sort(); w });

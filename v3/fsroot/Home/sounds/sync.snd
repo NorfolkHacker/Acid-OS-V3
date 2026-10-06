@@ -1,0 +1,15 @@
+# Plays the demo song and ticks a hi-hat on every beat, in time with it.
+# Runs until stopped: Terminal's `play` on its own stops it.
+sound main
+  song "Home/music/acid_groove.trk"
+  play
+  wave noise
+  adsr 0 20 0 10
+  pitch 80
+  loop
+    wait beat
+    gate on
+    wait 1
+    gate off
+  end
+end

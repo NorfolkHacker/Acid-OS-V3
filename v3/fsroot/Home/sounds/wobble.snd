@@ -1,0 +1,19 @@
+# A wobble pad: the filter cutoff swings up and down while the note holds.
+instrument wobble
+  wave saw
+  adsr 5 0 100 120
+  route on
+  gate on
+  let cut = 20
+  let step = 12
+  loop
+    filter lp cut res 10
+    cut = cut + step
+    if cut > 200 or cut < 20
+      step = 0 - step
+    end
+    wait 1
+  end
+on release
+  gate off
+end

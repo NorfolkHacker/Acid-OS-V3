@@ -1,5 +1,5 @@
 //! Every Phase 4 game, Phase 5a system app (About, Config, Network,
-//! System Monitor), Phase 5b app (Terminal, File Manager) and Phase 5c app (Editor) boots under the real kernel, from its manifest, and
+//! System Monitor), Phase 5b app (Terminal, File Manager), Phase 5c app (Editor) and Acid Tracker boots under the real kernel, from its manifest, and
 //! draws its first frame (the THEME_HARD bottom border) without a Lua error (an error ends the app, which
 //! removes its window).
 
@@ -57,6 +57,8 @@ fn acid_spin() { boots_and_draws("acid_spin"); }
 fn piano() { boots_and_draws("piano"); }
 #[test]
 fn sprite_paint() { boots_and_draws("sprite"); }
+#[test]
+fn acid_tracker() { boots_and_draws("tracker"); }
 #[test]
 fn about() { boots_and_draws("about"); }
 #[test]

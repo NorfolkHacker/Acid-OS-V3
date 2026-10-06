@@ -56,3 +56,4 @@ or touch any Rust.
 | **[8. Cookbook](08-cookbook.md)** | Recipes, conventions and the mistakes that bite. |
 | **[9. API reference](09-api-reference.md)** | Every `acid_*` function and every library module, alphabetically. |
 | **[10. WASM carts](10-wasm-carts.md)** | Writing an app as a WebAssembly module: the callback ABI, the import table, limits and error codes. |
+| **[11. Music](11-music.md)** | Acid Tracker, the `.trk` song format, the `.snd` audio language, and playing sounds and songs from your app. |

@@ -7,6 +7,10 @@ Acid OS has its own **8-voice synthesiser**, built into the kernel (the
 audio files and no codecs. Every sound in the OS comes from it, including the
 games' sound effects, the Piano app and the Terminal's easter eggs.
 
+This chapter is about playing the synthesiser note by note. For songs, and
+for scripted sound effects that run with exact timing inside the kernel,
+see [chapter 11](11-music.md).
+
 You control it with ten functions:
 
 - `acid_play_note` and `acid_stop_note`

@@ -266,6 +266,72 @@ end
 function acid_composited_frames() return FRAMES.composited end
 function acid_skipped_frames() return FRAMES.skipped end
 function acid_active_voice_count() return VOICES end
+-- Songs and sounds (acid-sound's calls). The kernel's parser is faked:
+-- every text parses unless SONG_PARSE_ERR is set, which fails the next
+-- parse only. Every call is recorded in SOUND_CALLS.
+SOUND_CALLS = {}
+SONGS = {}            -- handle -> text
+SONG_NEXT = 0
+SONG_PARSE_ERR = nil
+SONG_WARNINGS = {}    -- what every parse and update warns
+SONG_POS = nil        -- { order, row, tick } while "playing"
+SOUND_NEXT = 0
+SOUND_PLAY_ID = 1     -- what acid_sound_play answers (nil: no free voice)
+local function copy_list(t) local c = {} for i, v in ipairs(t) do c[i] = v end return c end
+function acid_song_parse(text)
+  if SONG_PARSE_ERR then
+    local e = SONG_PARSE_ERR
+    SONG_PARSE_ERR = nil
+    return nil, e
+  end
+  SONG_NEXT = SONG_NEXT + 1
+  SONGS[SONG_NEXT] = text
+  push(SOUND_CALLS, { "parse", SONG_NEXT })
+  return SONG_NEXT, copy_list(SONG_WARNINGS)
+end
+function acid_song_load(path)
+  local text = FS[path]
+  if type(text) ~= "string" then return nil, "not found" end
+  return acid_song_parse(text)
+end
+function acid_song_update(song, text)
+  if not SONGS[song] then return nil, "no such song" end
+  if SONG_PARSE_ERR then
+    local e = SONG_PARSE_ERR
+    SONG_PARSE_ERR = nil
+    return nil, e
+  end
+  SONGS[song] = text
+  push(SOUND_CALLS, { "update", song })
+  return copy_list(SONG_WARNINGS)
+end
+function acid_song_free(song) SONGS[song] = nil; push(SOUND_CALLS, { "free", song }) end
+function acid_song_play(song, order, row)
+  push(SOUND_CALLS, { "play", song, order or 0, row or 0 })
+  SONG_POS = { order or 0, row or 0, 0 }
+end
+function acid_song_stop() push(SOUND_CALLS, { "stop" }); SONG_POS = nil end
+function acid_song_position()
+  if SONG_POS then return SONG_POS[1], SONG_POS[2], SONG_POS[3] end
+end
+function acid_song_mute(ch, on) push(SOUND_CALLS, { "mute", ch, on }) end
+function acid_song_preview(song, ch, note, inst) push(SOUND_CALLS, { "preview", song, ch, note, inst }) end
+function acid_sound_load(src)
+  SOUND_NEXT = SOUND_NEXT + 1
+  push(SOUND_CALLS, { "sound_load", SOUND_NEXT })
+  return SOUND_NEXT
+end
+function acid_sound_load_file(path)
+  local text = FS[path]
+  if type(text) ~= "string" then return nil, "not found" end
+  return acid_sound_load(text)
+end
+function acid_sound_play(prog, name, note)
+  push(SOUND_CALLS, { "sound_play", prog, name or "", note or 40 })
+  return SOUND_PLAY_ID
+end
+function acid_sound_stop(id) push(SOUND_CALLS, { "sound_stop", id }) end
+function acid_sound_free(prog) push(SOUND_CALLS, { "sound_free", prog }) end
 
 -- A minimal AcidApp: just what the games use.
 AcidApp = {}

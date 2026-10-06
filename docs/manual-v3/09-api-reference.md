@@ -52,6 +52,8 @@ limits or errors, then what a cart gets (if that differs).
 
 **Audio** — [`acid_play_note`](#acid_play_note) · [`acid_stop_note`](#acid_stop_note) · [`acid_configure_voice`](#acid_configure_voice) · [`acid_configure_osc`](#acid_configure_osc) · [`acid_configure_filter`](#acid_configure_filter) · [`acid_set_ring_partner`](#acid_set_ring_partner) · [`acid_trigger_arp`](#acid_trigger_arp) · [`acid_set_volume`](#acid_set_volume) · [`acid_get_volume`](#acid_get_volume) · [`acid_active_voice_count`](#acid_active_voice_count)
 
+**Songs and sounds** — [`acid_sound_load`](#acid_sound_load) · [`acid_sound_load_file`](#acid_sound_load_file) · [`acid_sound_play`](#acid_sound_play) · [`acid_sound_stop`](#acid_sound_stop) · [`acid_sound_free`](#acid_sound_free) · [`acid_song_load`](#acid_song_load) · [`acid_song_parse`](#acid_song_parse) · [`acid_song_update`](#acid_song_update) · [`acid_song_free`](#acid_song_free) · [`acid_song_play`](#acid_song_play) · [`acid_song_stop`](#acid_song_stop) · [`acid_song_position`](#acid_song_position) · [`acid_song_mute`](#acid_song_mute) · [`acid_song_preview`](#acid_song_preview)
+
 **Windows** — [`acid_window_max`](#acid_window_max) · [`acid_screen_size`](#acid_screen_size) · [`acid_window_size`](#acid_window_size) · [`acid_font_size`](#acid_font_size) · [`acid_get_font_scale`](#acid_get_font_scale) · [`acid_set_font_scale`](#acid_set_font_scale) · [`acid_window_info`](#acid_window_info) · [`acid_activate_window`](#acid_activate_window) · [`acid_close_window`](#acid_close_window) · [`acid_send_self_to_back`](#acid_send_self_to_back) · [`acid_am_i_focused`](#acid_am_i_focused)
 
 **Launching** — [`acid_launcher_register`](#acid_launcher_register) · [`acid_launcher_count`](#acid_launcher_count) · [`acid_launcher_name`](#acid_launcher_name) · [`acid_launcher_path`](#acid_launcher_path) · [`acid_launcher_spawn`](#acid_launcher_spawn) · [`acid_spawn_app`](#acid_spawn_app) · [`acid_launch_arg`](#acid_launch_arg)
@@ -899,6 +901,126 @@ local n = acid_skipped_frames()
 ```
 
 How many frames the compositor skipped because nothing had changed.
+
+### `acid_song_free`
+
+```lua snippet
+acid_song_free(song)
+```
+
+Forgets a song handle. A song that's still playing keeps playing. See [§11.4](11-music.md).
+
+### `acid_song_load`
+
+```lua snippet
+local song, warnings = acid_song_load(path)
+```
+
+Reads and parses a `.trk` file, and loads its script instruments. Returns a handle and a table of
+warnings, one for each script instrument that didn't load, or `nil, "LINE: message"`. Up to 4 songs
+per app.
+
+### `acid_song_mute`
+
+```lua snippet
+acid_song_mute(ch, on)
+```
+
+Mutes or unmutes channel `ch` (1–4) of the playing song, if your app started it.
+
+### `acid_song_parse`
+
+```lua snippet
+local song, warnings = acid_song_parse(text)
+```
+
+As `acid_song_load`, but for `.trk` text you already have.
+
+### `acid_song_play`
+
+```lua snippet
+acid_song_play(song, order, row)
+```
+
+Plays a song from order position `order` and row `row` (both default to 0), replacing any song
+already playing.
+
+### `acid_song_position`
+
+```lua snippet
+local order, row, tick = acid_song_position()
+```
+
+Where your app's playing song is, by channel 1. Returns nothing when your app's song isn't playing.
+
+### `acid_song_preview`
+
+```lua snippet
+acid_song_preview(song, ch, note, inst)
+```
+
+Sounds one note (1–88) on channel `ch` with instrument `inst`. A `note` of 0 is a note-off. Acid
+Tracker uses it for the keys you play while editing.
+
+### `acid_song_stop`
+
+```lua snippet
+acid_song_stop()
+```
+
+Stops the playing song, if your app started it.
+
+### `acid_song_update`
+
+```lua snippet
+local warnings, err = acid_song_update(song, text)
+```
+
+Parses new text into an existing handle. If that song is playing, it carries on from the same place
+with the new notes.
+
+### `acid_sound_free`
+
+```lua snippet
+acid_sound_free(prog)
+```
+
+Forgets a compiled program. Up to 16 programs per app.
+
+### `acid_sound_load`
+
+```lua snippet
+local prog, err = acid_sound_load(src)
+```
+
+Compiles `.snd` source text. Any `song "PATH"` lines load their songs now. Returns a program, or
+`nil, "LINE:COL message"`. See [§11.3](11-music.md).
+
+### `acid_sound_load_file`
+
+```lua snippet
+local prog, err = acid_sound_load_file(path)
+```
+
+As `acid_sound_load`, reading the source from a file.
+
+### `acid_sound_play`
+
+```lua snippet
+local id = acid_sound_play(prog, name, note)
+```
+
+Starts the `sound` block called `name` (by default, the first), with `note` as the script's `note`
+(default 40, C-4). It takes a free voice, or the song's donor voice. Returns an id, or `nil` when no
+voice is free, the name isn't a `sound` block, or 16 sounds are already running.
+
+### `acid_sound_stop`
+
+```lua snippet
+acid_sound_stop(id)
+```
+
+Stops one of your sounds and releases its voices.
 
 ### `acid_spawn_app`
 

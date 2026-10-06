@@ -16,6 +16,8 @@ Out of the box you get:
 - a terminal, a file manager, a text editor, a system monitor, network and
   settings apps;
 - Sprite Paint, for pixel art and animated sprites;
+- Acid Tracker, a four-channel tracker for `.trk` songs, with its own audio
+  scripting language (`.snd`);
 - Tetris, Breakout, Acid Blaster, a little piano, and a spinning 3D demo.
 
 ## Getting started
@@ -78,7 +80,7 @@ minutes. Later runs start in seconds.
 Acid OS opens on a **screen-size picker**: 640×480 (the default), 640×360 or
 800×600. Pick one with the arrow keys and Enter or a click, or wait three
 seconds for the default. Then the desktop appears. Open apps from the **Menu**
-at the top left. Games, demos and Sprite Paint open from the **File Manager**:
+at the top left. Games, demos, Sprite Paint and Acid Tracker open from the **File Manager**:
 click their `.app.toml` in the `App` folder.
 
 ### Options
@@ -95,7 +97,7 @@ These are the app names you can use with `--app`:
 | Kind | Names |
 |---|---|
 | Games | `tetris`, `breakout`, `acid_blaster`, `acidstorm`, `acid_snake`, `acid_invaders`, `acid_rocks` |
-| Toys | `piano`, `acid_spin`, `sprite` (Sprite Paint), `hello_acid` |
+| Toys | `piano`, `acid_spin`, `sprite` (Sprite Paint), `tracker` (Acid Tracker), `hello_acid` |
 | Tools | `terminal`, `editor`, `file_manager`, `sysmon`, `network`, `config`, `about`, `cart` (Load Cart) |
 
 For example:

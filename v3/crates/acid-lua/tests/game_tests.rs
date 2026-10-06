@@ -133,6 +133,57 @@ fn sprite_app_commands() {
     sprite_app_suite("v3/tools/test_sprite_app_cmds.lua", 41);
 }
 
+/// The .trk files the Lua reader and writer must reproduce exactly:
+/// acid-sound's golden demo and every song shipped under Home/music, as
+/// long strings in a TRK table.
+fn trk_prelude() -> (String, usize) {
+    let mut files = vec![repo_root().join("v3/crates/acid-sound/tests/golden/demo.trk")];
+    if let Ok(dir) = std::fs::read_dir(repo_root().join("v3/fsroot/Home/music")) {
+        let mut music: Vec<PathBuf> = dir.map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "trk")).collect();
+        music.sort();
+        files.extend(music);
+    }
+    let mut prelude = String::from("TRK = {}\n");
+    for path in &files {
+        let text = std::fs::read_to_string(path).unwrap();
+        assert!(!text.contains("]==]"), "{} can't be quoted", path.display());
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        prelude.push_str(&format!("TRK[#TRK + 1] = {{ {name:?}, [==[\n{text}]==] }}\n"));
+    }
+    (prelude, files.len())
+}
+
+#[test]
+fn trk_song() {
+    let (prelude, files) = trk_prelude();
+    run_suite_with(&prelude, &["v3/tools/game_test_env.lua", "v3/apps/tracker/song.lua", "v3/tools/test_trk_song.lua"], 16 + 2 * files);
+}
+
+#[test]
+fn trk_edit() {
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/tracker/song.lua", "v3/apps/tracker/edit.lua", "v3/tools/test_trk_edit.lua"]), 36);
+}
+
+#[test]
+fn trk_layout_and_commands() {
+    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/tracker/layout.lua", "v3/apps/tracker/cmd.lua", "v3/tools/test_trk_layout_cmd.lua"], 15);
+}
+
+const TRACKER_APP: [&str; 6] = [
+    "v3/tools/game_test_env.lua",
+    "v3/apps/tracker/song.lua",
+    "v3/apps/tracker/edit.lua",
+    "v3/apps/tracker/layout.lua",
+    "v3/apps/tracker/cmd.lua",
+    "v3/apps/tracker.lua",
+];
+
+#[test]
+fn tracker_app() {
+    let files: Vec<&str> = TRACKER_APP.iter().copied().chain(["v3/tools/test_tracker_app.lua"]).collect();
+    run_suite_with("WIN_W, WIN_H = 480, 320", &with_libs(&files), 48);
+}
+
 #[test]
 fn breakout() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/breakout.lua", "v3/tools/test_breakout.lua"]), 11);
@@ -210,7 +261,7 @@ fn acid_eggs() {
 
 #[test]
 fn terminal() {
-    run_suite_with("WIN_W, WIN_H = 260, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/lib/acid_eggs.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/terminal.lua", "v3/tools/test_terminal.lua"]), 28);
+    run_suite_with("WIN_W, WIN_H = 260, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_sprite.lua", "v3/apps/lib/acid_eggs.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/terminal.lua", "v3/tools/test_terminal.lua"]), 33);
 }
 
 #[test]
@@ -220,7 +271,7 @@ fn terminal_large() {
 
 #[test]
 fn file_manager() {
-    run_suite_with("WIN_W, WIN_H = 220, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/file_manager.lua", "v3/tools/test_file_manager.lua"]), 34);
+    run_suite_with("WIN_W, WIN_H = 220, 160", &with_libs(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/file_manager.lua", "v3/tools/test_file_manager.lua"]), 36);
 }
 
 #[test]
