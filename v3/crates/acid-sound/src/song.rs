@@ -173,6 +173,16 @@ impl<'a> Cur<'a> {
         Ok(n)
     }
 
+    /// A number that must lie in `lo..=hi`; out of range is a load error, not a clamp.
+    fn ranged(&mut self, field: &str, lo: i32, hi: i32) -> Result<i32, String> {
+        let n = self.int(field)?;
+        if (lo..=hi).contains(&n) {
+            Ok(n)
+        } else {
+            Err(format!("{field} must be {lo} to {hi}"))
+        }
+    }
+
     fn next_is_int(&self) -> bool {
         self.f.get(self.i).is_some_and(|x| !x.quoted && x.text.parse::<i32>().is_ok())
     }
@@ -215,16 +225,16 @@ fn parse_instrument(f: &[Field]) -> Result<(u8, Instrument), String> {
             }
             "adsr" => {
                 for k in 0..4 {
-                    b.adsr[k] = c.int("adsr")?.clamp(0, 100_000);
+                    b.adsr[k] = c.ranged("adsr", 0, 100_000)?;
                 }
             }
-            "duty" => b.duty = c.int("duty")?.clamp(1, 99),
-            "pwm" => b.pwm = c.int("pwm")?.clamp(-50, 50),
-            "vib" => b.vib = (c.int("vib")?.clamp(0, 15), c.int("vib")?.clamp(0, 15)),
+            "duty" => b.duty = c.ranged("duty", 1, 99)?,
+            "pwm" => b.pwm = c.ranged("pwm", -50, 50)?,
+            "vib" => b.vib = (c.ranged("vib", 0, 15)?, c.ranged("vib", 0, 15)?),
             "arp" => {
                 b.arp.clear();
                 while b.arp.len() < 3 && c.next_is_int() {
-                    b.arp.push(c.int("arp")?.clamp(-48, 48));
+                    b.arp.push(c.ranged("arp", -48, 48)?);
                 }
                 if b.arp.is_empty() {
                     return Err("expected a number after 'arp'".into());
@@ -247,7 +257,7 @@ fn parse_instrument(f: &[Field]) -> Result<(u8, Instrument), String> {
             "voice2" => {
                 b.voice2 = match c.word().unwrap_or("") {
                     "off" => Voice2::Off,
-                    "detune" => Voice2::Detune(c.int("detune")?.clamp(-768, 768)),
+                    "detune" => Voice2::Detune(c.ranged("detune", -768, 768)?),
                     "octave" => Voice2::Octave,
                     "fifth" => Voice2::Fifth,
                     "ring" => Voice2::Ring,
@@ -637,19 +647,41 @@ A-0 03 9 20 ...
     }
 
     #[test]
-    fn instrument_numbers_are_clamped() {
+    fn out_of_range_instrument_numbers_are_errors() {
+        let cases = [
+            ("adsr -5 8 70 20", "5: adsr must be 0 to 100000"),
+            ("adsr 0 200000 70 20", "5: adsr must be 0 to 100000"),
+            ("adsr 0 8 70 2147483647", "5: adsr must be 0 to 100000"),
+            ("adsr 0 8 70 20  pwm 51", "5: pwm must be -50 to 50"),
+            ("adsr 0 8 70 20  pwm -2147483648", "5: pwm must be -50 to 50"),
+            ("adsr 0 8 70 20  vib 16 1", "5: vib must be 0 to 15"),
+            ("adsr 0 8 70 20  vib 1 -1", "5: vib must be 0 to 15"),
+            ("adsr 0 8 70 20  voice2 detune 769", "5: detune must be -768 to 768"),
+            ("adsr 0 8 70 20  voice2 detune -769", "5: detune must be -768 to 768"),
+            ("adsr 0 8 70 20  arp 4 49", "5: arp must be -48 to 48"),
+            ("adsr 0 8 70 20  arp -49", "5: arp must be -48 to 48"),
+            ("adsr 0 8 70 20  duty 0", "5: duty must be 1 to 99"),
+            ("adsr 0 8 70 20  duty 100", "5: duty must be 1 to 99"),
+        ];
+        for (fields, want) in cases {
+            assert_eq!(err(&MIN.replace("adsr 0 8 70 20  duty 50", fields)), want, "{fields}");
+        }
+    }
+
+    #[test]
+    fn instrument_numbers_at_their_limits_load() {
         let text = MIN.replace(
             "adsr 0 8 70 20  duty 50",
-            "adsr -5 200000 50 3  vib 99 -1  pwm 1000  arp 100 -100  voice2 detune 99999",
+            "adsr 0 100000 50 3  vib 15 0  pwm 50  arp 48 -48  voice2 detune 768  duty 99",
         );
         let s = parse(&text).unwrap();
         let Kind::BuiltIn(b) = &s.instruments[&1].kind else { panic!("built-in") };
         assert_eq!(b.adsr, [0, 100_000, 50, 3]);
-        assert_eq!((b.vib, b.pwm), ((15, 0), 50));
+        assert_eq!((b.vib, b.pwm, b.duty), ((15, 0), 50, 99));
         assert_eq!(b.arp, alloc::vec![48, -48]);
         assert_eq!(b.voice2, Voice2::Detune(768));
-        let low = MIN.replace("adsr 0 8 70 20  duty 50", "adsr 0 8 70 20  pwm -1000  voice2 detune -99999");
+        let low = MIN.replace("adsr 0 8 70 20  duty 50", "adsr 0 8 70 20  pwm -50  voice2 detune -768  duty 1");
         let Kind::BuiltIn(b) = &parse(&low).unwrap().instruments[&1].kind else { panic!("built-in") };
-        assert_eq!((b.pwm, b.voice2), (-50, Voice2::Detune(-768)));
+        assert_eq!((b.pwm, b.voice2, b.duty), (-50, Voice2::Detune(-768), 1));
     }
 }
