@@ -71,6 +71,12 @@ pub trait Fs: Send + Sync {
     fn rename(&self, from: &str, to: &str) -> Result<(), FsError>;
     /// Remove the file at path; a directory is an error.
     fn delete(&self, path: &str) -> Result<(), FsError>;
+    /// Whether `path` really lands under `dir` (both relative to the
+    /// root), wherever symlinks on the way point. The default only
+    /// compares spellings, so a fake file system with no links stays simple.
+    fn resolves_into(&self, path: &str, dir: &str) -> bool {
+        path == dir || path.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/'))
+    }
 }
 
 /// The OS's two file roots (spec §11.2, §13.2).

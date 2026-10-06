@@ -86,6 +86,11 @@ pub(crate) fn map_io(e: std::io::Error) -> FsError {
 }
 
 impl Fs for StdFs {
+    fn resolves_into(&self, path: &str, dir: &str) -> bool {
+        let (Some(real), Ok(target)) = (self.real_location(path), std::fs::canonicalize(self.root.join(dir))) else { return false };
+        real.starts_with(&target)
+    }
+
     fn read(&self, path: &str) -> Result<Vec<u8>, FsError> {
         std::fs::read(self.root.join(path)).map_err(map_io)
     }
@@ -195,6 +200,20 @@ mod fs_tests {
         assert_eq!(fs.rename("v3/fsroot/Home/new.txt", "v3/fsroot/Out/moved.txt"), bad, "rename out is refused");
         assert_eq!(fs.delete("v3/fsroot/Out/keep.txt"), bad, "delete through a link out is refused");
         assert!(root.join("outside/keep.txt").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_into_follows_links() {
+        let root = os_tree("resolves");
+        let fs = StdFs::new(&root);
+        std::fs::write(root.join("v3/apps/a.lua"), b"x").unwrap();
+        assert!(fs.resolves_into("v3/fsroot/App/a.lua", "v3/apps"), "a file through a link");
+        assert!(fs.resolves_into("v3/fsroot/App/new.lua", "v3/apps"), "a file not there yet");
+        assert!(fs.resolves_into("v3/apps/a.lua", "v3/apps"));
+        assert!(!fs.resolves_into("v3/fsroot/Home/a.lua", "v3/apps"), "outside it");
+        assert!(!fs.resolves_into("v3/fsroot/Out/a.lua", "v3/apps"), "a link elsewhere");
         std::fs::remove_dir_all(&root).unwrap();
     }
 

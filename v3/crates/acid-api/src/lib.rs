@@ -358,7 +358,8 @@ impl KernelApi {
     /// Whether the caller may change `path`: carts only under Home, and
     /// nobody touches system source while Developer Mode is off.
     fn may_change(&self, path: &str) -> bool {
-        self.cart_may_change(path) && (!is_system_source(path) || self.ctx.kernel.dev_mode())
+        let source = is_system_source(path) || self.ctx.kernel.platform().fs().resolves_into(path, "v3/apps");
+        self.cart_may_change(path) && (!source || self.ctx.kernel.dev_mode())
     }
 
     /// Reads a file named inside a .trk or .snd: paths there are fsroot-relative.
@@ -1097,6 +1098,29 @@ mod tests {
         let _c2 = Cleanup(FakePlatform::repo_root().join(&tmp));
         assert_eq!(api.fs_write(&tmp, b"x"), Ok(()), "outside source nothing changes");
         assert_eq!(api.fs_delete(&tmp), Ok(()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_into_the_source_is_locked_too() {
+        let (_k, api) = spawn_on(FakePlatform::new(FakePlatform::repo_root()), 10, 10);
+        let link_rel = format!("v3/fsroot/Tmp/lock-link-{}", std::process::id());
+        let link = FakePlatform::repo_root().join(&link_rel);
+        struct Unlink(std::path::PathBuf);
+        impl Drop for Unlink {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink("../../apps", &link).unwrap();
+        let _unlink = Unlink(link);
+        let ro = Err(String::from("read only"));
+        assert_eq!(api.fs_write(&format!("{link_rel}/x.txt"), b"x"), ro);
+        assert_eq!(api.fs_delete(&format!("{link_rel}/hello_acid.lua")), ro);
+        assert_eq!(api.fs_rename(&link_rel, "v3/fsroot/Tmp/y"), ro, "link as source");
+        assert_eq!(api.fs_rename("v3/fsroot/Home/notes.txt", &link_rel), ro, "link as target");
+        assert!(FakePlatform::repo_root().join("v3/apps/hello_acid.lua").exists());
     }
 
     #[test]
