@@ -536,10 +536,9 @@ What this means in practice:
 - Reads follow symlinks freely, so `acid_fs_list("v3/fsroot/Source")` lists the
   apps.
 
-So a built-in app can write anywhere under the two roots, `v3/apps` only when
-Developer Mode is on or Load Cart is filling a cart slot. Please don't write
-there otherwise. Keep your own data under **`v3/fsroot/Home`**. A cart can't
-write anywhere else anyway.
+So a built-in app can write anywhere under the two roots, but `v3/apps` only
+while Developer Mode is on (or when Load Cart fills a cart slot). Keep your own
+data under **`v3/fsroot/Home`**. A cart can't write anywhere else anyway.
 
 ### The layout
 
@@ -635,8 +634,8 @@ local on = acid_get_dev_mode()        -- true / false
 local ok = acid_set_dev_mode(on)      -- returns true for a built-in app, false for a cart
 ```
 
-For a cart, `acid_set_dev_mode` returns `false` and does nothing. Like
-`acid_restart`, it does nothing for a cart and returns false.
+Like `acid_restart`, `acid_set_dev_mode` does nothing for a cart and returns
+`false`.
 
 ## 7.10 The clock
 
