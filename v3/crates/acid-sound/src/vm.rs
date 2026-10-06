@@ -109,6 +109,8 @@ impl Instance {
     /// Both voices start at `note`; `note2` is what the script's `note2` reads.
     pub fn new(block: usize, voices: [Option<u8>; 2], note: i32, note2: i32, seed: u32) -> Self {
         let note = note.clamp(pitch::ONA_MIN, pitch::ONA_MAX);
+        // Out-of-range ids would panic voice_mut later, so drop them here.
+        let voices = voices.map(|v| v.filter(|&v| (v as usize) < acid_synth::NUM_VOICES));
         Self {
             block,
             voices,
@@ -131,7 +133,11 @@ impl Instance {
     }
 
     /// Points the voices at the start note, so `gate on` sounds without a `pitch`.
+    /// A new owner clears any arp the previous one left running.
     pub fn start(&mut self, synth: &mut Synth) {
+        for v in self.voices.iter().flatten() {
+            synth.voice_mut(*v as usize).arp_active = false;
+        }
         for s in 0..2 {
             self.apply_pitch(synth, s);
         }
@@ -717,5 +723,21 @@ mod tests {
         r.inst.drop_voice(0);
         r.tick(1);
         assert_eq!(r.synth.voice(0).waveform, Waveform::Pulse);
+    }
+
+    #[test]
+    fn a_new_instance_clears_a_stale_arp() {
+        let mut r = rig("pitch 40\narp 4 7\nwait 5", ONE);
+        r.tick(1);
+        assert!(r.synth.voice(0).arp_active);
+        let mut b = Instance::new(0, [Some(0), None], 52, 0, 1);
+        b.start(&mut r.synth);
+        assert!(!r.synth.voice(0).arp_active);
+        assert_eq!(r.synth.voice(0).phase_increment, ONA_PHASE_INCREMENT[51]);
+    }
+
+    #[test]
+    fn out_of_range_voices_are_ignored() {
+        assert_eq!(Instance::new(0, [Some(9), Some(1)], 40, 0, 1).voices, [None, Some(1)]);
     }
 }
