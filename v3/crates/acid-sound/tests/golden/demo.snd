@@ -1,0 +1,34 @@
+# The golden demo's script instruments and its sound effect.
+instrument bass
+  wave saw
+  v2 wave pulse; v2 duty 30; v2 fine +6
+  both adsr 2 120 60 80
+  filter lp 60 res 6
+  both route on
+  both gate on
+  loop
+    v2 duty +2
+    wait 1
+  end
+on release
+  both gate off
+end
+
+instrument pluck
+  wave tri
+  adsr 0 30 0 40
+  arp 12 7
+  gate on
+end
+
+sound zap
+  wave saw
+  adsr 0 40 100 80
+  pitch 70
+  gate on
+  repeat 12
+    pitch -3
+    wait 1
+  end
+  gate off
+end

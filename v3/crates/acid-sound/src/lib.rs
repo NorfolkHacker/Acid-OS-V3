@@ -22,3 +22,4 @@ pub mod vm;
 pub mod song;
 pub mod player;
 pub mod engine;
+pub mod load;
