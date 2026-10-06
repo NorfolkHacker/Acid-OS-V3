@@ -2,6 +2,7 @@
 //! their arguments. Jump targets are indexes into a block's `code`.
 
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 /// Variables per block, including the hidden counters `repeat` uses.
@@ -134,6 +135,9 @@ pub struct Program {
     pub blocks: Vec<Block>,
     /// Distinct `song` paths in first-use order; Cmd::SongSelect indexes this.
     pub song_paths: Vec<SongRef>,
+    /// Loaded songs, parallel to `song_paths`; filled by `load::load_program`.
+    /// None (or missing) means `play` on that song does nothing.
+    pub songs: Vec<Option<Arc<crate::player::LoadedSong>>>,
 }
 
 impl Program {

@@ -21,3 +21,4 @@ pub use compile::compile;
 pub mod vm;
 pub mod song;
 pub mod player;
+pub mod engine;
