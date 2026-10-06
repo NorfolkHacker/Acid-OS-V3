@@ -415,13 +415,13 @@ pub fn parse(text: &str) -> Result<Song, SongError> {
         }
     }
     let last = lines.len().max(1);
-    for ch in 0..CHANNELS {
-        if order_line[ch] == 0 {
+    for (ch, &line_no) in order_line.iter().enumerate().take(CHANNELS) {
+        if line_no == 0 {
             return Err(SongError::new(last, format!("no order for channel {}", ch + 1)));
         }
         for e in &song.orders[ch].entries {
             if !song.patterns.contains_key(&e.pattern) {
-                return Err(SongError::new(order_line[ch], format!("order {} uses missing pattern {:02X}", ch + 1, e.pattern)));
+                return Err(SongError::new(line_no, format!("order {} uses missing pattern {:02X}", ch + 1, e.pattern)));
             }
         }
     }

@@ -312,10 +312,10 @@ impl Engine {
         if self.song_owner() == Some(owner) {
             self.stop_song(synth);
         }
-        if self.preview.as_ref().is_some_and(|p| p.owner == owner) {
-            if let Some(mut p) = self.preview.take() {
-                p.player.stop(synth);
-            }
+        if self.preview.as_ref().is_some_and(|p| p.owner == owner)
+            && let Some(mut p) = self.preview.take()
+        {
+            p.player.stop(synth);
         }
     }
 }
