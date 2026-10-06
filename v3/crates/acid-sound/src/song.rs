@@ -8,7 +8,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::pitch::parse_note;
+use crate::pitch::{note_name, parse_note};
 
 pub const CHANNELS: usize = 4;
 pub const MAX_ROWS: usize = 64;
@@ -215,16 +215,16 @@ fn parse_instrument(f: &[Field]) -> Result<(u8, Instrument), String> {
             }
             "adsr" => {
                 for k in 0..4 {
-                    b.adsr[k] = c.int("adsr")?;
+                    b.adsr[k] = c.int("adsr")?.clamp(0, 100_000);
                 }
             }
             "duty" => b.duty = c.int("duty")?.clamp(1, 99),
-            "pwm" => b.pwm = c.int("pwm")?,
-            "vib" => b.vib = (c.int("vib")?, c.int("vib")?),
+            "pwm" => b.pwm = c.int("pwm")?.clamp(-50, 50),
+            "vib" => b.vib = (c.int("vib")?.clamp(0, 15), c.int("vib")?.clamp(0, 15)),
             "arp" => {
                 b.arp.clear();
                 while b.arp.len() < 3 && c.next_is_int() {
-                    b.arp.push(c.int("arp")?);
+                    b.arp.push(c.int("arp")?.clamp(-48, 48));
                 }
                 if b.arp.is_empty() {
                     return Err("expected a number after 'arp'".into());
@@ -247,7 +247,7 @@ fn parse_instrument(f: &[Field]) -> Result<(u8, Instrument), String> {
             "voice2" => {
                 b.voice2 = match c.word().unwrap_or("") {
                     "off" => Voice2::Off,
-                    "detune" => Voice2::Detune(c.int("detune")?),
+                    "detune" => Voice2::Detune(c.int("detune")?.clamp(-768, 768)),
                     "octave" => Voice2::Octave,
                     "fifth" => Voice2::Fifth,
                     "ring" => Voice2::Ring,
@@ -363,9 +363,13 @@ pub fn parse(text: &str) -> Result<Song, SongError> {
             continue;
         }
         let err = |m: String| SongError::new(n, m);
+        // A title is free text, so it is taken before `fields` can reject its quotes.
+        if line.split_whitespace().next() == Some("title") {
+            song.title = line["title".len()..].trim().to_string();
+            continue;
+        }
         let f = fields(line).map_err(err)?;
         match f[0].text.as_str() {
-            "title" => song.title = line["title".len()..].trim().to_string(),
             "speed" => song.speed = last_int(&f, 1, 1, 31).ok_or_else(|| err("speed must be 1 to 31".into()))? as u8,
             "sfx-donor" => song.sfx_donor = last_int(&f, 1, 1, 4).ok_or_else(|| err("sfx-donor must be 1 to 4".into()))? as u8,
             "instrument" => {
@@ -423,6 +427,87 @@ pub fn parse(text: &str) -> Result<Song, SongError> {
     }
     Ok(song)
 }
+/// One row as the file writes it, e.g. "C-4 01 4 22 E-4".
+pub fn row_text(r: &Row) -> String {
+    let note = |n: u8| match n {
+        NOTE_NONE => String::from("..."),
+        NOTE_OFF => String::from("==="),
+        n => note_name(n as i32),
+    };
+    let inst = if r.inst == 0 { String::from("..") } else { format!("{:02X}", r.inst) };
+    let cmd = if r.cmd == 0 { '.' } else { r.cmd as char };
+    let param = if r.cmd == 0 && r.param == 0 { String::from("..") } else { format!("{:02X}", r.param) };
+    format!("{} {} {} {} {}", note(r.note), inst, cmd, param, note(r.note2))
+}
+
+/// The canonical text: parse(write(s)) == s, and write(parse(t)) == t
+/// for any canonical t.
+pub fn write(song: &Song) -> String {
+    let mut s = String::new();
+    s += "acid-track 1\n";
+    s += &format!("title {}\n", song.title);
+    s += &format!("speed {}\n", song.speed);
+    s += &format!("sfx-donor {}\n", song.sfx_donor);
+    for (num, inst) in &song.instruments {
+        s += &format!("instrument {num:02X} \"{}\"", inst.name.replace('"', "'"));
+        match &inst.kind {
+            Kind::Script { path, block } => s += &format!("  script \"{path}\" {block}"),
+            Kind::BuiltIn(b) => {
+                s += &format!(
+                    "  wave {}  adsr {} {} {} {}  duty {}",
+                    WAVES[b.wave.clamp(0, 3) as usize], b.adsr[0], b.adsr[1], b.adsr[2], b.adsr[3], b.duty
+                );
+                if b.pwm != 0 {
+                    s += &format!("  pwm {}", b.pwm);
+                }
+                if b.vib != (0, 0) {
+                    s += &format!("  vib {} {}", b.vib.0, b.vib.1);
+                }
+                if !b.arp.is_empty() {
+                    s += "  arp";
+                    for a in &b.arp {
+                        s += &format!(" {a}");
+                    }
+                }
+                if let Some((m, c, r)) = b.filter {
+                    let mode = match m {
+                        2 => "bp",
+                        4 => "hp",
+                        _ => "lp",
+                    };
+                    s += &format!("  filter {mode} {c} {r}");
+                }
+                match b.voice2 {
+                    Voice2::Off => {}
+                    Voice2::Detune(n) => s += &format!("  voice2 detune {n}"),
+                    Voice2::Octave => s += "  voice2 octave",
+                    Voice2::Fifth => s += "  voice2 fifth",
+                    Voice2::Ring => s += "  voice2 ring",
+                }
+            }
+        }
+        s.push('\n');
+    }
+    for (ch, o) in song.orders.iter().enumerate() {
+        s += &format!("order {} ", ch + 1);
+        for e in &o.entries {
+            s += &format!(" {:02X}", e.pattern);
+            if e.transpose != 0 {
+                s += &format!("{:+}", e.transpose);
+            }
+        }
+        s += &format!(" loop {}\n", o.loop_to);
+    }
+    for (num, rows) in &song.patterns {
+        s += &format!("\npattern {num:02X} {}\n", rows.len());
+        for r in rows {
+            s += &row_text(r);
+            s.push('\n');
+        }
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -494,5 +579,70 @@ mod tests {
         assert_eq!(err(&MIN.replace("=== .. 4", "=== .. S")), "13: command S is reserved");
         assert_eq!(err(&MIN.replace("22 E-4", "22 ===")), "13: bad note '==='");
         assert_eq!(err(&alloc::format!("{MIN}tempo 4\n")), "14: unknown line 'tempo'");
+    }
+
+    const ROUND: &str = "acid-track 1
+title Round Trip
+speed 6
+sfx-donor 4
+instrument 01 \"Lead\"  wave saw  adsr 0 8 70 20  duty 50  pwm 2  vib 4 2  arp 4 7  filter lp 120 4  voice2 detune 6
+instrument 02 \"Bass\"  script \"Home/sounds/demo.snd\" bass
+instrument 03 \"Hat\"  wave noise  adsr 0 2 0 2  duty 50  voice2 octave
+order 1  00 00+12 loop 1
+order 2  01 01-5 loop 0
+order 3  01 loop 0
+order 4  01 loop 0
+
+pattern 00 4
+C-4 01 . .. ...
+... .. 4 22 ...
+=== .. . .. ...
+D#3 02 F 03 G-3
+
+pattern 01 2
+A-0 03 9 20 ...
+... .. A FF ...
+";
+
+    #[test]
+    fn canonical_text_round_trips_byte_for_byte() {
+        assert_eq!(write(&parse(ROUND).unwrap()), ROUND);
+        assert_eq!(write(&parse(MIN).unwrap()), MIN);
+    }
+
+    #[test]
+    fn a_written_song_parses_back_the_same() {
+        let mut s = parse(ROUND).unwrap();
+        s.title = "Edited".into();
+        s.patterns.get_mut(&1).unwrap()[1] = Row { note: 88, inst: 1, cmd: b'1', param: 0, note2: 1 };
+        assert_eq!(parse(&write(&s)).unwrap(), s);
+        s.title = "a \"quoted\" one".into();
+        assert_eq!(parse(&write(&s)).unwrap(), s);
+    }
+
+    #[test]
+    fn row_text_shows_empty_fields_as_dots() {
+        assert_eq!(row_text(&Row::default()), "... .. . .. ...");
+        assert_eq!(row_text(&Row { note: 40, inst: 0x1F, cmd: b'A', param: 0, note2: 52 }), "C-4 1F A 00 C-5");
+    }
+
+    #[test]
+    fn a_title_is_free_text() {
+        assert_eq!(parse(&MIN.replace("title t", "title a \"quoted\" one")).unwrap().title, "a \"quoted\" one");
+        assert_eq!(parse(&MIN.replace("title t", "title")).unwrap().title, "");
+    }
+
+    #[test]
+    fn instrument_numbers_are_clamped() {
+        let text = MIN.replace(
+            "adsr 0 8 70 20  duty 50",
+            "adsr -5 200000 50 3  vib 99 -1  pwm 1000  arp 100 -100  voice2 detune 99999",
+        );
+        let s = parse(&text).unwrap();
+        let Kind::BuiltIn(b) = &s.instruments[&1].kind else { panic!("built-in") };
+        assert_eq!(b.adsr, [0, 100_000, 50, 3]);
+        assert_eq!((b.vib, b.pwm), ((15, 0), 50));
+        assert_eq!(b.arp, alloc::vec![48, -48]);
+        assert_eq!(b.voice2, Voice2::Detune(768));
     }
 }
