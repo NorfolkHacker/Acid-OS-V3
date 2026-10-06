@@ -18,6 +18,9 @@ const RESERVED: &[&str] = &[
     "duty", "adsr", "gate", "pitch", "fine", "ring", "arp", "arprate", "route",
 ];
 
+/// Commands that act on a voice, so may take a v1/v2/both prefix.
+const VOICE_CMDS: &[&str] = &["wave", "duty", "adsr", "gate", "pitch", "fine", "ring", "arp", "arprate", "route"];
+
 pub fn compile(src: &str) -> Result<Program, CompileError> {
     let toks = lex(src)?;
     let mut p = Parser { toks, pos: 0, prog: Program::default(), depth: 0 };
@@ -333,7 +336,82 @@ impl Parser {
                 }
             }
             "stop" => {
-                cx.emit(Op::Stop);
+                if self.eat_word("song") {
+                    cx.emit(Op::Cmd(Cmd::SongStop, Target::V1));
+                } else {
+                    cx.emit(Op::Stop);
+                }
+            }
+            "v1" | "v2" | "both" => {
+                let target = match word.as_str() {
+                    "v1" => Target::V1,
+                    "v2" => Target::V2,
+                    _ => Target::Both,
+                };
+                let (cl, cc) = self.here();
+                let name = self.ident("a command after the voice")?;
+                if !VOICE_CMDS.contains(&name.as_str()) {
+                    return Err(CompileError::new(cl, cc, format!("'{word}' can't go before '{name}'")));
+                }
+                if target != Target::V1 {
+                    cx.uses_v2 = true;
+                }
+                self.voice_cmd(cx, &name, target)?;
+            }
+            w if VOICE_CMDS.contains(&w) => self.voice_cmd(cx, w, Target::V1)?,
+            "filter" => {
+                let (ml, mc) = self.here();
+                let m = self.ident("lp, bp or hp")?;
+                let mode = match m.as_str() {
+                    "lp" => 1,
+                    "bp" => 2,
+                    "hp" => 4,
+                    _ => return Err(CompileError::new(ml, mc, format!("unknown filter mode '{m}'"))),
+                };
+                self.unary(cx)?;
+                if !self.eat_word("res") {
+                    return self.err_here("expected 'res'");
+                }
+                self.unary(cx)?;
+                cx.emit(Op::Cmd(Cmd::Filter(mode), Target::V1));
+            }
+            "song" => {
+                let (pl, pc) = self.here();
+                let Tok::Str(path) = self.peek().clone() else {
+                    return self.err_here("expected a song path in quotes");
+                };
+                self.bump();
+                let idx = match self.prog.song_paths.iter().position(|s| s.path == path) {
+                    Some(i) => i,
+                    None => {
+                        self.prog.song_paths.push(SongRef { path, line: pl, col: pc });
+                        self.prog.song_paths.len() - 1
+                    }
+                };
+                if idx > u8::MAX as usize {
+                    return Err(CompileError::new(pl, pc, "too many songs"));
+                }
+                cx.emit(Op::Cmd(Cmd::SongSelect(idx as u8), Target::V1));
+            }
+            "play" => {
+                if self.at_line_end() {
+                    cx.emit(Op::Push(0));
+                } else {
+                    self.expr(cx)?;
+                }
+                cx.emit(Op::Cmd(Cmd::SongPlay, Target::V1));
+            }
+            "tempo" => {
+                self.expr(cx)?;
+                cx.emit(Op::Cmd(Cmd::Tempo, Target::V1));
+            }
+            "mute" | "unmute" => {
+                self.expr(cx)?;
+                cx.emit(Op::Cmd(Cmd::Mute(word == "mute"), Target::V1));
+            }
+            "jump" => {
+                self.expr(cx)?;
+                cx.emit(Op::Cmd(Cmd::Jump, Target::V1));
             }
             "end" | "else" | "on" => return Err(CompileError::new(l, c, format!("unexpected '{word}'"))),
             _ => {
@@ -351,6 +429,85 @@ impl Parser {
             }
         }
         self.end_of_statement()
+    }
+
+    fn voice_cmd(&mut self, cx: &mut Cx, name: &str, t: Target) -> Result<(), CompileError> {
+        let c = match name {
+            "wave" => {
+                let (l, c) = self.here();
+                let w = self.ident("a waveform")?;
+                Cmd::Wave(match w.as_str() {
+                    "pulse" => 0,
+                    "saw" => 1,
+                    "tri" => 2,
+                    "noise" => 3,
+                    _ => return Err(CompileError::new(l, c, format!("unknown waveform '{w}'"))),
+                })
+            }
+            "duty" => Cmd::Duty { rel: self.maybe_relative(cx)? },
+            "pitch" => Cmd::Pitch { rel: self.maybe_relative(cx)? },
+            "fine" => Cmd::Fine { rel: self.maybe_relative(cx)? },
+            "adsr" => {
+                for _ in 0..4 {
+                    self.unary(cx)?;
+                }
+                Cmd::Adsr
+            }
+            "gate" => Cmd::Gate(self.on_off()?),
+            "ring" => Cmd::Ring(self.on_off()?),
+            "route" => Cmd::Route(self.on_off()?),
+            "arp" => {
+                if self.eat_word("off") {
+                    Cmd::ArpOff
+                } else {
+                    let (l, c) = self.here();
+                    let mut n = 0u8;
+                    while !self.at_line_end() {
+                        if n == 3 {
+                            return self.err_here("arp takes at most 3 notes");
+                        }
+                        self.unary(cx)?;
+                        n += 1;
+                    }
+                    if n == 0 {
+                        return Err(CompileError::new(l, c, "arp needs 1 to 3 notes"));
+                    }
+                    Cmd::Arp(n)
+                }
+            }
+            "arprate" => {
+                self.expr(cx)?;
+                Cmd::ArpRate
+            }
+            _ => unreachable!("VOICE_CMDS and voice_cmd disagree on '{name}'"),
+        };
+        cx.emit(Op::Cmd(c, t));
+        Ok(())
+    }
+
+    /// A leading + or - makes the value relative to the current one.
+    fn maybe_relative(&mut self, cx: &mut Cx) -> Result<bool, CompileError> {
+        if self.eat_sym("+") {
+            self.expr(cx)?;
+            Ok(true)
+        } else if self.eat_sym("-") {
+            self.expr(cx)?;
+            cx.emit(Op::Neg);
+            Ok(true)
+        } else {
+            self.expr(cx)?;
+            Ok(false)
+        }
+    }
+
+    fn on_off(&mut self) -> Result<bool, CompileError> {
+        if self.eat_word("on") {
+            Ok(true)
+        } else if self.eat_word("off") {
+            Ok(false)
+        } else {
+            self.err_here("expected 'on' or 'off'")
+        }
     }
 
     fn if_stmt(&mut self, cx: &mut Cx, l: u32, c: u32) -> Result<(), CompileError> {
@@ -629,5 +786,65 @@ mod tests {
     fn at_most_64_variables() {
         let src: String = (0..65).map(|i| alloc::format!("let x{i} = 0\n")).collect();
         assert_eq!(err(&src), "65:5 too many variables (64 max)");
+    }
+
+    fn cmd(c: Cmd) -> Op {
+        Op::Cmd(c, Target::V1)
+    }
+
+    #[test]
+    fn voice_commands() {
+        assert_eq!(code("wave saw"), vec![cmd(Cmd::Wave(1)), Op::End]);
+        assert_eq!(code("gate on\nring off\nroute on"), vec![cmd(Cmd::Gate(true)), cmd(Cmd::Ring(false)), cmd(Cmd::Route(true)), Op::End]);
+        assert_eq!(code("pitch -4"), vec![Op::Push(4), Op::Neg, cmd(Cmd::Pitch { rel: true }), Op::End]);
+        assert_eq!(
+            code("pitch note + 12"),
+            vec![Op::Get(Builtin::Note), Op::Push(12), Op::Bin(BinOp::Add), cmd(Cmd::Pitch { rel: false }), Op::End]
+        );
+        assert_eq!(code("fine +6"), vec![Op::Push(6), cmd(Cmd::Fine { rel: true }), Op::End]);
+        assert_eq!(code("arp 0 4 7"), vec![Op::Push(0), Op::Push(4), Op::Push(7), cmd(Cmd::Arp(3)), Op::End]);
+        assert_eq!(code("arp off\narprate 30"), vec![cmd(Cmd::ArpOff), Op::Push(30), cmd(Cmd::ArpRate), Op::End]);
+    }
+
+    #[test]
+    fn voice_prefixes() {
+        let p = compile("v2 duty +8").unwrap();
+        assert_eq!(p.blocks[0].code, vec![Op::Push(8), Op::Cmd(Cmd::Duty { rel: true }, Target::V2), Op::End]);
+        assert!(p.blocks[0].uses_v2);
+        assert!(!compile("v1 wave saw").unwrap().blocks[0].uses_v2);
+        assert_eq!(
+            code("both adsr 2 120 -1 80"),
+            vec![Op::Push(2), Op::Push(120), Op::Push(1), Op::Neg, Op::Push(80), Op::Cmd(Cmd::Adsr, Target::Both), Op::End]
+        );
+    }
+
+    #[test]
+    fn filter_and_song_commands() {
+        assert_eq!(code("filter lp 40 res 6"), vec![Op::Push(40), Op::Push(6), cmd(Cmd::Filter(1)), Op::End]);
+        let p = compile("song \"a.trk\"\nplay\nsong \"b.trk\"\nsong \"a.trk\"\nplay 2\ntempo 3\nmute 2\nunmute 2\njump 1\nstop song\nstop").unwrap();
+        let paths: Vec<&str> = p.song_paths.iter().map(|s| s.path.as_str()).collect();
+        assert_eq!(paths, ["a.trk", "b.trk"]);
+        assert_eq!((p.song_paths[1].line, p.song_paths[1].col), (3, 6));
+        assert_eq!(
+            p.blocks[0].code,
+            vec![
+                cmd(Cmd::SongSelect(0)), Op::Push(0), cmd(Cmd::SongPlay),
+                cmd(Cmd::SongSelect(1)), cmd(Cmd::SongSelect(0)), Op::Push(2), cmd(Cmd::SongPlay),
+                Op::Push(3), cmd(Cmd::Tempo), Op::Push(2), cmd(Cmd::Mute(true)), Op::Push(2), cmd(Cmd::Mute(false)),
+                Op::Push(1), cmd(Cmd::Jump), cmd(Cmd::SongStop), Op::Stop, Op::End,
+            ]
+        );
+    }
+
+    #[test]
+    fn command_errors() {
+        assert_eq!(err("arp"), "1:4 arp needs 1 to 3 notes");
+        assert_eq!(err("arp 1 2 3 4"), "1:11 arp takes at most 3 notes");
+        assert_eq!(err("gate maybe"), "1:6 expected 'on' or 'off'");
+        assert_eq!(err("wave square"), "1:6 unknown waveform 'square'");
+        assert_eq!(err("v2 filter lp 1 res 1"), "1:4 'v2' can't go before 'filter'");
+        assert_eq!(err("filter xx 1 res 1"), "1:8 unknown filter mode 'xx'");
+        assert_eq!(err("filter lp 1 2"), "1:13 expected 'res'");
+        assert_eq!(err("song a"), "1:6 expected a song path in quotes");
     }
 }
