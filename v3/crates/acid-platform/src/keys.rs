@@ -11,6 +11,18 @@ pub const KEY_UP: i32 = 262;
 pub const KEY_DOWN: i32 = 263;
 pub const KEY_LEFT: i32 = 264;
 pub const KEY_RIGHT: i32 = 265;
+pub const KEY_F1: i32 = 266;
+pub const KEY_F2: i32 = 267;
+pub const KEY_F3: i32 = 268;
+pub const KEY_F4: i32 = 269;
+pub const KEY_F5: i32 = 270;
+pub const KEY_F6: i32 = 271;
+pub const KEY_F7: i32 = 272;
+pub const KEY_F8: i32 = 273;
+pub const KEY_F9: i32 = 274;
+pub const KEY_F10: i32 = 275;
+pub const KEY_F11: i32 = 276;
+pub const KEY_F12: i32 = 277;
 
 #[cfg(test)]
 mod tests {
@@ -22,5 +34,10 @@ mod tests {
             [KEY_ENTER, KEY_BACKSPACE, KEY_ESCAPE, KEY_TAB, KEY_DELETE, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT],
             [257, 258, 259, 260, 261, 262, 263, 264, 265]
         );
+    }
+
+    #[test]
+    fn function_keys_follow_the_named_keys() {
+        assert_eq!([KEY_F1, KEY_F2, KEY_F12], [266, 267, 277]);
     }
 }

@@ -25,6 +25,7 @@ dependencies = [
  "acid-gfx",
  "acid-kernel",
  "acid-platform",
+ "acid-sound",
  "acid-synth",
  "acid-testkit",
 ]
@@ -52,6 +53,7 @@ version = "0.1.0"
 dependencies = [
  "acid-gfx",
  "acid-platform",
+ "acid-sound",
  "acid-synth",
  "acid-testkit",
 ]
@@ -92,6 +94,13 @@ dependencies = [
  "libc",
  "parking_lot",
  "spin",
+]
+
+[[package]]
+name = "acid-sound"
+version = "0.1.0"
+dependencies = [
+ "acid-synth",
 ]
 
 [[package]]

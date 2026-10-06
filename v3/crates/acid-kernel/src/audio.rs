@@ -6,7 +6,12 @@
 
 use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 
+use alloc::sync::Arc;
+
 use acid_platform::sync::Mutex;
+use acid_sound::engine::Engine;
+use acid_sound::player::LoadedSong;
+use acid_sound::program::Program;
 use acid_synth::{ENV_FULL, EnvStage, NUM_VOICES, Synth};
 
 use crate::TaskId;
@@ -16,6 +21,8 @@ pub struct AudioState {
     pub(crate) synth: Synth,
     /// Which app last started each voice.
     pub(crate) owners: [Option<TaskId>; NUM_VOICES],
+    /// Songs and .snd sounds, ticked from render_audio.
+    pub(crate) engine: Engine,
 }
 
 pub struct AudioRuntime {
@@ -33,7 +40,7 @@ impl Default for AudioRuntime {
 impl AudioRuntime {
     pub fn new() -> Self {
         Self {
-            state: Mutex::new(AudioState { synth: Synth::new(), owners: [None; NUM_VOICES] }),
+            state: Mutex::new(AudioState { synth: Synth::new(), owners: [None; NUM_VOICES], engine: Engine::new() }),
             master_volume: AtomicI32::new(100),
             active_voice_mask: AtomicU32::new(0),
         }
@@ -44,6 +51,13 @@ impl AudioRuntime {
 /// ring commands included.
 fn voice_index(voice: i32) -> Option<usize> {
     usize::try_from(voice).ok().filter(|&v| v < NUM_VOICES)
+}
+
+/// Voices apps are playing directly (acid_play_note), which sounds avoid.
+fn busy_voices(a: &AudioState) -> u8 {
+    (0..NUM_VOICES)
+        .filter(|&v| a.owners[v].is_some() && a.synth.voice(v).envelope_stage != EnvStage::Off)
+        .fold(0u8, |m, v| m | 1 << v)
 }
 
 impl Kernel {
@@ -127,6 +141,63 @@ impl Kernel {
                 a.owners[v] = None;
             }
         }
+        let st = &mut *a;
+        st.engine.release_owner(&mut st.synth, task.0);
+    }
+
+    /// Starts a .snd `sound` block on free voices; None when there are none.
+    pub fn audio_sound_play(&self, task: TaskId, prog: Arc<Program>, block: usize, note: i32) -> Option<u32> {
+        let mut a = self.audio.state.lock();
+        let busy = busy_voices(&a);
+        let st = &mut *a;
+        st.engine.play_sound(&mut st.synth, task.0, prog, block, note, busy)
+    }
+
+    /// Stops one of `task`'s own sounds.
+    pub fn audio_sound_stop(&self, task: TaskId, id: u32) {
+        let mut a = self.audio.state.lock();
+        let st = &mut *a;
+        st.engine.stop_sound(&mut st.synth, task.0, id);
+    }
+
+    /// Plays `song` (replacing any song) from `order`/`row`. The i32 values
+    /// go straight to the engine, which clamps them.
+    pub fn audio_song_play(&self, task: TaskId, handle: u32, song: Arc<LoadedSong>, order: i32, row: i32) {
+        let mut a = self.audio.state.lock();
+        let st = &mut *a;
+        st.engine.play_song(&mut st.synth, task.0, handle, song, order, row);
+    }
+
+    /// Stops the song, if `task` started it.
+    pub fn audio_song_stop(&self, task: TaskId) {
+        let mut a = self.audio.state.lock();
+        let st = &mut *a;
+        if st.engine.song_owner() == Some(task.0) {
+            st.engine.stop_song(&mut st.synth);
+        }
+    }
+
+    pub fn audio_song_update(&self, task: TaskId, handle: u32, song: Arc<LoadedSong>) {
+        self.audio.state.lock().engine.update_song(task.0, handle, song);
+    }
+
+    pub fn audio_song_position(&self) -> Option<(i32, i32, i32)> {
+        self.audio.state.lock().engine.song_position()
+    }
+
+    /// Mutes channel `ch` (1-based) of the song, if `task` started it.
+    pub fn audio_song_mute(&self, task: TaskId, ch: i32, on: bool) {
+        let mut a = self.audio.state.lock();
+        let st = &mut *a;
+        if st.engine.song_owner() == Some(task.0) {
+            st.engine.mute(&mut st.synth, ch, on);
+        }
+    }
+
+    pub fn audio_song_preview(&self, task: TaskId, song: Arc<LoadedSong>, ch: i32, note: i32, inst: i32) {
+        let mut a = self.audio.state.lock();
+        let st = &mut *a;
+        st.engine.preview(&mut st.synth, task.0, song, ch, note, inst);
     }
 
     /// The platform's audio pull: 22050 Hz unsigned 8-bit mono. Master
@@ -135,9 +206,10 @@ impl Kernel {
     pub fn render_audio(&self, buf: &mut [u8]) {
         let mask = {
             let mut a = self.audio.state.lock();
-            a.synth.render(buf);
+            let st = &mut *a;
+            st.engine.render(&mut st.synth, buf);
             (0..NUM_VOICES)
-                .filter(|&v| a.synth.voice(v).envelope_stage != EnvStage::Off)
+                .filter(|&v| st.synth.voice(v).envelope_stage != EnvStage::Off)
                 .fold(0u32, |m, v| m | (1 << v))
         };
         let volume = self.audio.master_volume.load(Ordering::Relaxed);
@@ -148,6 +220,12 @@ impl Kernel {
             }
         }
         self.audio.active_voice_mask.store(mask, Ordering::Relaxed);
+    }
+
+    /// A voice's oscillator step: which pitch it plays, for tests that
+    /// check what a song or sound did. None for a voice that doesn't exist.
+    pub fn audio_voice_increment(&self, voice: usize) -> Option<u32> {
+        (voice < NUM_VOICES).then(|| self.audio.state.lock().synth.voice(voice).phase_increment)
     }
 
     pub fn set_master_volume(&self, percent: i32) {
@@ -387,5 +465,86 @@ mod tests {
         play_and_arp(&mut s);
         chunk(&mut s, 1500);
         assert_eq!(got, want);
+    }
+
+    const FOUR: &str = "acid-track 1\ntitle t\nspeed 2\nsfx-donor 4\ninstrument 01 \"Lead\"  wave saw  adsr 0 0 100 0  duty 50  voice2 detune 6\norder 1  00 loop 0\norder 2  00 loop 0\norder 3  00 loop 0\norder 4  00 loop 0\n\npattern 00 2\nC-4 01 . .. ...\n=== .. . .. ...\n";
+
+    fn song() -> Arc<acid_sound::player::LoadedSong> {
+        Arc::new(acid_sound::player::LoadedSong::plain(acid_sound::song::parse(FOUR).unwrap()))
+    }
+
+    #[test]
+    fn a_song_sounds_the_same_whatever_the_buffer_size() {
+        let (a, b) = (kernel(), kernel());
+        a.audio_song_play(TaskId(1), 1, song(), 0, 0);
+        b.audio_song_play(TaskId(1), 1, song(), 0, 0);
+        let whole = render(&a, 1900);
+        let mut parts = Vec::new();
+        for _ in 0..9 {
+            parts.extend(render(&b, 100));
+        }
+        parts.extend(render(&b, 1000));
+        assert!(whole.iter().any(|&s| s != 128), "the song must be audible");
+        assert_eq!(whole, parts);
+    }
+
+    #[test]
+    fn an_exiting_app_stops_its_song_and_sounds() {
+        let k = kernel();
+        k.audio_song_play(TaskId(1), 1, song(), 0, 0);
+        let prog = Arc::new(acid_sound::compile("gate on\nwait 100").unwrap());
+        k.audio_sound_play(TaskId(1), prog, 0, 40).unwrap();
+        render(&k, 441);
+        k.audio_release_owner(TaskId(1));
+        assert_eq!(k.audio_song_position(), None);
+        assert_eq!(k.audio.state.lock().engine.sound_count(), 0);
+    }
+
+    #[test]
+    fn only_the_owner_stops_or_mutes_its_song() {
+        let k = kernel();
+        k.audio_song_play(TaskId(1), 1, song(), 0, 0);
+        render(&k, 441);
+        k.audio_song_mute(TaskId(2), 1, true);
+        k.audio_song_stop(TaskId(2));
+        assert!(k.audio_song_position().is_some());
+        assert!(!k.audio.state.lock().engine.song_player().unwrap().muted(0));
+        k.audio_song_stop(TaskId(1));
+        assert_eq!(k.audio_song_position(), None);
+    }
+
+    #[test]
+    fn sounds_avoid_voices_apps_are_playing() {
+        let k = kernel();
+        // The default envelope is instant, so use a 2 s attack to keep the
+        // voices in Attack after one tick of samples.
+        for v in 0..NUM_VOICES as i32 {
+            k.audio_configure_voice(v, 0, 2000, 0, 100, 0);
+        }
+        k.audio_note_on(TaskId(1), 7, 40, 80);
+        let prog = Arc::new(acid_sound::compile("gate on\nwait 100").unwrap());
+        k.audio_sound_play(TaskId(2), prog, 0, 52).unwrap();
+        render(&k, 441);
+        let st = k.audio.state.lock();
+        assert_eq!(st.synth.voice(6).envelope_stage, EnvStage::Attack);
+        assert_eq!(st.synth.voice(6).phase_increment, acid_synth::ONA_PHASE_INCREMENT[51]);
+    }
+
+    #[test]
+    fn preview_plays_through_the_kernel() {
+        let k = kernel();
+        k.audio_song_preview(TaskId(1), song(), 2, 40, 1);
+        assert_eq!(k.audio.state.lock().synth.voice(2).envelope_stage, EnvStage::Attack);
+    }
+
+    #[test]
+    fn extreme_song_values_are_safe() {
+        let k = kernel();
+        let prog = Arc::new(acid_sound::compile("gate on\nwait 100").unwrap());
+        k.audio_song_play(TaskId(1), 1, song(), i32::MIN, i32::MAX);
+        k.audio_song_mute(TaskId(1), i32::MIN, true);
+        k.audio_song_preview(TaskId(1), song(), i32::MAX, i32::MIN, i32::MAX);
+        let _ = k.audio_sound_play(TaskId(1), prog, 0, i32::MAX);
+        render(&k, 441);
     }
 }

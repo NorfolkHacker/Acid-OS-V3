@@ -1,0 +1,7 @@
+[package]
+name = "acid-sound"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+acid-synth = { workspace = true }

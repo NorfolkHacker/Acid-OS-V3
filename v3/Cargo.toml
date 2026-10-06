@@ -13,6 +13,7 @@ acid-gfx = { path = "crates/acid-gfx" }
 acid-kernel = { path = "crates/acid-kernel" }
 acid-api = { path = "crates/acid-api" }
 acid-synth = { path = "crates/acid-synth" }
+acid-sound = { path = "crates/acid-sound" }
 acid-lua = { path = "crates/acid-lua" }
 acid-hosted = { path = "crates/acid-hosted" }
 acid-wasm = { path = "crates/acid-wasm" }

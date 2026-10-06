@@ -33,6 +33,7 @@ pattern and order-list model, the command set and the keyboard layout.
 | What voice 2 is for | Both. Each row has an optional second note column. If it holds a note, voice 2 plays it. If it's empty, the instrument may use voice 2 (detune, octave, ring and so on). |
 | Sound effects during a song | They take a free voice. If none is free, they borrow the donor channel's voice 2 (channel 4 by default, set with `sfx-donor`) and hand it back when they end. |
 | Existing audio calls | They don't change. `acid_play_note` and the others write straight to voices, and last write wins. |
+| Mixer headroom | `acid-synth` gains optional mixer headroom, `set_mix_shift` (default 0). The engine sets it to 2 while a song plays, because a song sums many full-scale voices. Apps' direct `acid_play_note` voices are about 12 dB quieter during a song. |
 | Song file format | A versioned text format in the `.spr` house style |
 | Window | 480×320, resizable, minimum 420×240. It doesn't opt into Large font. |
 | Keys | GoatTracker-like piano keys, F1–F8 for transport and mutes (needs a platform change), an Esc command bar like the Editor's for file and song commands |
@@ -46,8 +47,9 @@ pattern and order-list model, the command set and the keyboard layout.
 - More than one song playing at once.
 - WASM carts calling the song and sound API. Only Lua apps get it first. The
   calls live in `acid-api`, so they can be wired into `acid-wasm` later.
-- Changing `acid-synth`'s DSP. Sub-semitone pitch writes the existing public
-  `phase_increment` field.
+- Changing `acid-synth`'s DSP, apart from the optional mixer headroom
+  (`set_mix_shift`, default 0; see Decisions). Sub-semitone pitch writes the
+  existing public `phase_increment` field.
 
 ## 1. Architecture
 
@@ -62,7 +64,7 @@ Acid Tracker (Lua UI)      games / Terminal / any Lua app
                         │  tick() every 441 samples
                    acid-kernel audio (AudioState)
                         │
-                   acid-synth (8 voices + filter, unchanged)
+                   acid-synth (8 voices + filter; adds mixer headroom)
 ```
 
 - **`acid-sound`** is a new workspace crate. It depends on `acid-synth` and
@@ -94,8 +96,8 @@ instruction budget.
 - **Instruction budget.** 256 instructions per instance per tick. Using up
   the budget acts like `wait 1`, so a loop with no `wait` keeps going on the
   next tick but can't stall the audio thread.
-- **Variables.** At most 64 per program. Every value is an `i32`, and
-  arithmetic saturates.
+- **Variables.** At most 64 variables per block, and `repeat` counters count
+  toward them. Every value is an `i32`, and arithmetic saturates.
 - **Runtime errors don't exist.** Division or modulo by zero gives 0, and
   out-of-range arguments are clamped the way the synth setters already
   clamp.
@@ -132,10 +134,10 @@ prefix (`v1`, `v2`, `both`) applies to one sound command, and no prefix means
 | `duty N` / `duty +N` | Pulse width in percent, absolute or relative |
 | `adsr A D S R` | Attack, decay and release in ms, sustain in percent |
 | `gate on\|off` | Start the envelope or release it |
-| `pitch N` / `pitch +N` / `pitch note` | Semitone pitch on the synth's 88-key `ona` scale (0..87), absolute, relative, or the tracker's note |
+| `pitch N` / `pitch +N` / `pitch note` | Semitone pitch on the synth's 88-key `ona` scale (1..88), absolute, relative, or the tracker's note |
 | `fine N` / `fine +N` | Fine pitch offset in 1/64 semitone. Lets you write vibrato and slides. |
 | `ring on\|off` | Ring-modulate with the other voice in the channel |
-| `arp A B C` / `arp off` / `arprate MS` | Synth arpeggio, semitone offsets from the current pitch, up to 4 |
+| `arp A B C` / `arp off` / `arprate MS` | Synth arpeggio, semitone offsets from the current pitch, up to 3 offsets after the base note |
 | `filter lp\|bp\|hp CUTOFF res RES` | Shared filter (cutoff 0..255, resonance 0..15) |
 | `route on\|off` | Send this voice through the filter |
 | `let X = EXPR` / `X = EXPR` | Integer variables |
@@ -145,6 +147,12 @@ prefix (`v1`, `v2`, `both`) applies to one sound command, and no prefix means
 | `stop` | End this instance and gate off its voices |
 | `song "PATH"` / `play [ORDER]` / `stop song` | Load (compiled when the script loads) and drive the song |
 | `tempo N` / `mute CH` / `unmute CH` / `jump ORDER` | Song control |
+
+**Song commands and ownership.** `stop song`, `tempo`, `mute`, `unmute`,
+`jump` and `play` with no song act only on a song the same app started.
+`play` of a song the script loaded replaces any playing song, as
+`acid_song_play` does. A song's own script instruments share the song's
+owner, so these commands work from them too, but they can't start a song.
 
 **Expressions:** integers, variables, `+ - * / %`, `== != < <= > >=`,
 `and`, `or`, `not`, parentheses, and `rand N` (0..N-1, from a per-instance
@@ -198,7 +206,7 @@ C-3 02 3 20 E-3
   - `duty` and `pwm SPEED` (pulse sweep)
   - `vib DEPTH SPEED`
   - `arp A B C` (up to 3 offsets, plus the base note)
-  - `filter` (lp/bp/hp, cutoff and resonance; applied when the note starts)
+  - `filter lp|bp|hp CUTOFF RES` (applied when the note starts)
   - `voice2` mode: `off`, `detune N`, `octave`, `fifth`, `ring`
 - **Script instruments.** `script "PATH" NAME`. The path is relative to
   fsroot.
@@ -217,7 +225,7 @@ C-3 02 3 20 E-3
   | Instrument | `..` or a hex number | Instrument |
   | Command | `.` or `1`/`2`/`3`/`4`/`8`/`9`/`A`/`F` | Command, `S` is reserved |
   | Parameter | `..` or hex | Command parameter |
-  | Note 2 | `...` or a note | Second-voice note |
+  | Note 2 | `...` or a note (no note-off) | Second-voice note |
 
 - **Pattern commands:**
 
@@ -234,7 +242,8 @@ C-3 02 3 20 E-3
 
 - **Loading is strict.** It checks the version and fails with
   `LINE: message` on malformed lines, an unknown version, missing patterns,
-  or out-of-range numbers. A script instrument whose file is missing or fails
+  or out-of-range numbers. Out-of-range numbers are load errors, never
+  silent clamps; for example `5: pwm must be -50 to 50`. A script instrument whose file is missing or fails
   to compile **doesn't** fail the load. The instrument plays silence, and the
   load returns the song plus a list of warnings.
 - **Saving** writes the canonical form, so a file saved twice is identical
@@ -243,13 +252,17 @@ C-3 02 3 20 E-3
 ## 4. The player
 
 - Each tick:
-  1. Every channel advances its effects (slides, glides, vibrato, PWM and
-     arp).
-  2. Script instances run.
-  3. On a row boundary (when the row tick counter reaches `speed`), each
-     channel reads its next row.
-- **When a row has a note**, the channel's instrument (from the row, or the
-  last one used on the channel) starts. A built-in instrument sets the
+  1. On the first tick of a row, every channel reads its row and starts new
+     notes.
+  2. Every channel advances its effects.
+  3. Script instances run.
+  4. The row tick counter moves on. After `speed` ticks, every channel steps
+     to its next row.
+- Pattern commands `1`–`4` (slides, glide, vibrato) act on built-in
+  instruments. A script instrument controls its own pitch.
+- **When a row has a note**, the channel's previous note is silenced first
+  (its gates off, its ring links cleared), then the channel's instrument (from
+  the row, or the last one used on the channel) starts. A built-in instrument sets the
   oscillators, ADSR and filter and gates on. A script instrument starts its
   instance or instances (§2.4), and stops any instance already playing on
   that channel. Note 2 behaves as described in §2.4.
@@ -258,7 +271,9 @@ C-3 02 3 20 E-3
 - **When a pattern ends**, the channel moves to its next order entry and
   wraps at `loop`.
 - **Mutes** stop a channel from changing its voices and gate them off. The
-  song keeps its position.
+  song keeps its position. A muted channel still takes its instrument column
+  and still applies `F` (speed), `A` (filter cutoff) and `3`'s glide speed,
+  so it rejoins in step when unmuted.
 - **The filter** belongs to the song while it plays. Sounds that use
   `filter` during a song do change it, and the song's next filter change
   overrides theirs.
@@ -269,21 +284,19 @@ C-3 02 3 20 E-3
 
 | Call | Returns | Notes |
 |---|---|---|
-| `acid_sound_load(src)` | `prog` or `nil, err` | Compile source text |
-| `acid_sound_load_file(path)` | `prog` or `nil, err` | Same, from a file (sandbox rules apply) |
-| `acid_sound_play(prog[, name[, note]])` | `id` or `nil` | Start a `sound` block (default: first or `main`) |
-| `acid_sound_stop(id)` | — | Stop one running sound |
-| `acid_song_load(path)` / `acid_song_parse(text)` | `song, warnings` or `nil, err` | `parse` is for the tracker's unsaved buffer |
-| `acid_song_play(song[, order[, row]])` | — | Replaces any song already playing |
-| `acid_song_stop()` | — | |
-| `acid_song_update(song)` | — | Swap in edited song data. The position is kept, and is clamped if it's now out of range. |
-| `acid_song_position()` | `order, row, tick` or `nil` | |
-| `acid_song_mute(ch, on)` | — | |
-| `acid_song_preview(ch, note, inst)` | — | Sound one note on a channel, for editing while stopped. Note-off follows on the next `acid_song_preview(ch, 0, 0)`. |
+| `acid_sound_load(src)` / `acid_sound_load_file(path)` | `prog` or `nil, err` | Compile; `song "PATH"` files load now, so a missing song is an error here |
+| `acid_sound_free(prog)` | — | Up to 16 programs per task |
+| `acid_sound_play(prog[, name[, note]])` | `id` or `nil` | Start a `sound` block (default: the first); `note` defaults to 40 |
+| `acid_sound_stop(id)` | — | Only the caller's own sounds |
+| `acid_song_load(path)` / `acid_song_parse(text)` | `song, warnings` or `nil, err` | Up to 4 songs per task |
+| `acid_song_update(song, text)` | `warnings` or `nil, err` | Re-parse into the same handle; a playing copy swaps in, keeping its position |
+| `acid_song_free(song)` | — | |
+| `acid_song_play(song[, order[, row]])` | — | Replaces any song already playing (0-based order and row) |
+| `acid_song_stop()` / `acid_song_mute(ch, on)` | — | Only affect a song the caller started |
+| `acid_song_position()` | `order, row, tick` or nothing | |
+| `acid_song_preview(song, ch, note, inst)` | — | Sound one note on channel `ch` (1..4); `note` 0 is note-off |
 
-Handles are small integers that belong to the calling task, and are freed
-when it exits. There's a cap of 16 programs and 1 song per task. Going over
-the cap returns `nil, "too many"`.
+Paths given to Lua calls are full paths, as with `acid_fs_read`. Paths inside files (`script "PATH"` in a `.trk`, `song "PATH"` in a `.snd`) are relative to fsroot.
 
 ## 6. Platform change: function keys
 
@@ -385,8 +398,9 @@ the key sends note-off. This uses the existing key-release events.
   sample song. Every malformed-input case returns its `LINE: message`.
 - **Golden audio.** `acid-sound/tests/golden.rs` renders the sample song for
   a fixed number of samples and checks it byte for byte against a committed
-  recording, the same pattern `acid-synth` uses. A second golden covers a
-  sound effect borrowing the donor voice mid-song.
+  recording, the same pattern `acid-synth` uses. The single demo golden also
+  covers a sound effect borrowing the donor voice mid-song, and a test checks
+  that the effect is audible in it.
 - **Kernel tests.**
   - The tick boundary stays exact across odd buffer sizes, for example
     100-sample and 1000-sample renders giving the same output.
