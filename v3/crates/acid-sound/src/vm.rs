@@ -133,10 +133,11 @@ impl Instance {
     }
 
     /// Points the voices at the start note, so `gate on` sounds without a `pitch`.
-    /// A new owner clears any arp the previous one left running.
+    /// A new owner clears any arp or ring modulation the previous one left.
     pub fn start(&mut self, synth: &mut Synth) {
         for v in self.voices.iter().flatten() {
             synth.voice_mut(*v as usize).arp_active = false;
+            synth.clear_ring_partner(*v as i32);
         }
         for s in 0..2 {
             self.apply_pitch(synth, s);
@@ -740,4 +741,14 @@ mod tests {
     fn out_of_range_voices_are_ignored() {
         assert_eq!(Instance::new(0, [Some(9), Some(1)], 40, 0, 1).voices, [None, Some(1)]);
     }
+
+    #[test]
+    fn a_new_instance_clears_a_stale_ring_partner() {
+        let mut r = rig("wait 5", ONE);
+        r.synth.set_ring_partner(0, 3);
+        let mut b = Instance::new(0, [Some(0), None], 40, 0, 1);
+        b.start(&mut r.synth);
+        assert_eq!(r.synth.voice(0).ring_partner, -1);
+    }
 }
+

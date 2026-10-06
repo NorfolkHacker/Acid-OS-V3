@@ -189,6 +189,21 @@ impl Engine {
         m
     }
 
+    /// Voices in `lent` now belong to sounds, so no other voice may stay
+    /// ring-modulated by them. Ring links among the lent voices are the
+    /// sounds' own and stay.
+    fn cut_rings_into(synth: &mut Synth, lent: u8) {
+        for w in 0..NUM_VOICES {
+            if lent & (1 << w) != 0 {
+                continue;
+            }
+            let p = synth.voice(w).ring_partner;
+            if (0..NUM_VOICES as i32).contains(&p) && lent & (1 << p) != 0 {
+                synth.clear_ring_partner(w as i32);
+            }
+        }
+    }
+
     fn give_back(&mut self, s: &Sound) {
         for v in s.inst.voices.iter().flatten() {
             for slot in [self.song.as_mut(), self.preview.as_mut()].into_iter().flatten() {
@@ -211,11 +226,14 @@ impl Engine {
         let mut free = (0..NUM_VOICES as u8).rev().filter(|v| taken & (1 << v) == 0);
         let v1 = free.next()?;
         let v2 = if b.uses_v2 { free.next() } else { None };
+        let mut lent = 0u8;
         for v in [Some(v1), v2].into_iter().flatten() {
+            lent |= 1 << v;
             for slot in [self.song.as_mut(), self.preview.as_mut()].into_iter().flatten() {
                 slot.player.lend(v);
             }
         }
+        Self::cut_rings_into(synth, lent);
         let id = self.next_id;
         // Ids stay in 1..=i32::MAX so Lua always sees a positive id it can stop.
         self.next_id = if self.next_id >= i32::MAX as u32 { 1 } else { self.next_id + 1 };
@@ -248,6 +266,7 @@ impl Engine {
                 player.lend(v);
             }
         }
+        Self::cut_rings_into(synth, held);
         self.song = Some(SongSlot { owner, handle, player });
         synth.set_mix_shift(SONG_MIX_SHIFT);
     }
@@ -292,6 +311,7 @@ impl Engine {
                     player.lend(v);
                 }
             }
+            Self::cut_rings_into(synth, held);
             self.preview = Some(SongSlot { owner, handle: 0, player });
         }
         let Some(p) = self.preview.as_mut() else { return };
@@ -615,4 +635,43 @@ mod tests {
         assert_eq!(ids, vec![i32::MAX as u32 - 1, i32::MAX as u32, 1]);
         assert!(ids.iter().all(|&id| i32::try_from(id).is_ok_and(|i| i > 0)));
     }
+
+    fn ring_song() -> Arc<LoadedSong> {
+        Arc::new(LoadedSong::plain(parse(&four(4).replace("voice2 detune 6", "voice2 ring")).unwrap()))
+    }
+
+    #[test]
+    fn a_lent_voice_stops_ring_modulating_the_song() {
+        let (mut e, mut s) = (Engine::new(), Synth::new());
+        e.play_song(&mut s, 1, 1, ring_song(), 0, 0);
+        render(&mut e, &mut s, T);
+        assert_eq!(s.voice(6).ring_partner, 7, "channel 4 rings voice 6 with 7");
+        e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
+        assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
+        assert_eq!(s.voice(6).ring_partner, -1, "the song's voice isn't modulated by the sound");
+        assert_eq!(s.voice(7).ring_partner, -1);
+    }
+
+    #[test]
+    fn a_song_started_during_a_sound_is_not_ringed_by_it() {
+        let (mut e, mut s) = (Engine::new(), Synth::new());
+        e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
+        s.set_ring_partner(6, 7);
+        e.play_song(&mut s, 1, 1, ring_song(), 0, 0);
+        assert_eq!(s.voice(6).ring_partner, -1);
+        s.set_ring_partner(6, 7);
+        e.preview(&mut s, 1, ring_song(), 1, 0, 0);
+        assert_eq!(s.voice(6).ring_partner, -1, "the same for a new preview");
+    }
+
+    #[test]
+    fn a_sounds_own_ring_survives_a_song_starting() {
+        let (mut e, mut s) = (Engine::new(), Synth::new());
+        e.play_sound(&mut s, 2, prog("both gate on\nv2 ring on\nwait 50"), 0, 40, 0).unwrap();
+        render(&mut e, &mut s, T);
+        assert_eq!(s.voice(6).ring_partner, 7);
+        e.play_song(&mut s, 1, 1, ring_song(), 0, 0);
+        assert_eq!(s.voice(6).ring_partner, 7);
+    }
 }
+
