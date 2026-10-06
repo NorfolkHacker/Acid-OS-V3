@@ -744,6 +744,72 @@ fn register_api(lua: &Lua, api: Arc<dyn AcidApi>, last_poll: Arc<AtomicU64>) -> 
     g.set("acid_active_voice_count", lua.create_function(move |_, ()| Ok(a.active_voice_count()))?)?;
 
     let a = api.clone();
+    g.set("acid_sound_load", lua.create_function(move |lua, src: mlua::String| {
+        match a.sound_load(&src.to_string_lossy()) {
+            Ok(id) => id.into_lua_multi(lua),
+            Err(e) => (Value::Nil, e).into_lua_multi(lua),
+        }
+    })?)?;
+    let a = api.clone();
+    g.set("acid_sound_load_file", lua.create_function(move |lua, path: mlua::String| {
+        match a.sound_load_file(&path.to_string_lossy()) {
+            Ok(id) => id.into_lua_multi(lua),
+            Err(e) => (Value::Nil, e).into_lua_multi(lua),
+        }
+    })?)?;
+    let a = api.clone();
+    g.set("acid_sound_free", lua.create_function(move |_, p: i32| { a.sound_free(p); Ok(()) })?)?;
+    let a = api.clone();
+    g.set("acid_sound_play", lua.create_function(
+        move |_, (p, name, note): (i32, Option<mlua::String>, Option<i32>)| {
+            Ok(a.sound_play(p, &opt_str(name), note.unwrap_or(40)))
+        },
+    )?)?;
+    let a = api.clone();
+    g.set("acid_sound_stop", lua.create_function(move |_, id: i32| { a.sound_stop(id); Ok(()) })?)?;
+    let a = api.clone();
+    g.set("acid_song_load", lua.create_function(move |lua, path: mlua::String| {
+        match a.song_load(&path.to_string_lossy()) {
+            Ok((id, w)) => (id, lua.create_sequence_from(w)?).into_lua_multi(lua),
+            Err(e) => (Value::Nil, e).into_lua_multi(lua),
+        }
+    })?)?;
+    let a = api.clone();
+    g.set("acid_song_parse", lua.create_function(move |lua, text: mlua::String| {
+        match a.song_parse(&text.to_string_lossy()) {
+            Ok((id, w)) => (id, lua.create_sequence_from(w)?).into_lua_multi(lua),
+            Err(e) => (Value::Nil, e).into_lua_multi(lua),
+        }
+    })?)?;
+    let a = api.clone();
+    g.set("acid_song_update", lua.create_function(move |lua, (s, text): (i32, mlua::String)| {
+        match a.song_update(s, &text.to_string_lossy()) {
+            Ok(w) => lua.create_sequence_from(w)?.into_lua_multi(lua),
+            Err(e) => (Value::Nil, e).into_lua_multi(lua),
+        }
+    })?)?;
+    let a = api.clone();
+    g.set("acid_song_free", lua.create_function(move |_, s: i32| { a.song_free(s); Ok(()) })?)?;
+    let a = api.clone();
+    g.set("acid_song_play", lua.create_function(move |_, (s, o, r): (i32, Option<i32>, Option<i32>)| {
+        a.song_play(s, o.unwrap_or(0), r.unwrap_or(0));
+        Ok(())
+    })?)?;
+    let a = api.clone();
+    g.set("acid_song_stop", lua.create_function(move |_, ()| { a.song_stop(); Ok(()) })?)?;
+    let a = api.clone();
+    g.set("acid_song_position", lua.create_function(move |lua, ()| match a.song_position() {
+        Some(pos) => pos.into_lua_multi(lua),
+        None => Ok(MultiValue::new()),
+    })?)?;
+    let a = api.clone();
+    g.set("acid_song_mute", lua.create_function(move |_, (ch, on): (i32, bool)| { a.song_mute(ch, on); Ok(()) })?)?;
+    let a = api.clone();
+    g.set("acid_song_preview", lua.create_function(move |_, (s, ch, n, i): (i32, i32, i32, i32)| {
+        a.song_preview(s, ch, n, i);
+        Ok(())
+    })?)?;
+    let a = api.clone();
     g.set("acid_now_ms", lua.create_function(move |_, ()| Ok(a.now_ms()))?)?;
 
     let a = api;

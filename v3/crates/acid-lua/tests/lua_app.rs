@@ -39,6 +39,23 @@ impl FakeApi {
 }
 
 impl AcidApi for FakeApi {
+    fn sound_load(&self, src: &str) -> Result<i32, String> {
+        if src == "bad" { Err("1:1 unknown command 'bad'".into()) } else { Ok(3) }
+    }
+    fn sound_play(&self, prog: i32, name: &str, note: i32) -> Option<i32> {
+        self.log(format!("sound_play {prog} {name} {note}"));
+        Some(9)
+    }
+    fn song_parse(&self, _text: &str) -> Result<(i32, Vec<String>), String> {
+        Ok((2, vec!["instrument 01: x: not found".into()]))
+    }
+    fn song_play(&self, song: i32, order: i32, row: i32) {
+        self.log(format!("song_play {song} {order} {row}"));
+    }
+    fn song_position(&self) -> Option<(i32, i32, i32)> {
+        Some((1, 2, 3))
+    }
+
     fn is_cart(&self) -> bool { false }
     fn restart(&self) -> bool { self.log("restart".into()); true }
     fn local_time(&self) -> LocalTime { LocalTime { year: 2026, month: 10, day: 2, hour: 9, min: 5, sec: 7 } }
@@ -745,4 +762,28 @@ fn mesh_new_caps_lengths_before_building_vecs() {
         acid_draw_text(tostring(b ~= nil) .. " " .. tostring(d ~= nil), 0, 0, 0, 0)
     "#);
     assert_eq!(t, ["nil:too big nil:too big", "true true"]);
+}
+
+#[test]
+fn sound_and_song_calls_reach_lua() {
+    let api = FakeApi::with_events(vec![]);
+    let lua = state(api.clone());
+    run(&lua, r#"
+        local id, err = acid_sound_load("bad")
+        acid_draw_text(tostring(id) .. " " .. err, 0, 0, 0, 0)
+        local p = acid_sound_load("gate on")
+        acid_draw_text(tostring(acid_sound_play(p)), 0, 0, 0, 0)
+        acid_sound_play(p, "zap", 52)
+        local s, w = acid_song_parse("x")
+        acid_draw_text(s .. " " .. #w .. " " .. w[1], 0, 0, 0, 0)
+        acid_song_play(s)
+        acid_song_play(s, 4, 8)
+        local o, r, t = acid_song_position()
+        acid_draw_text(o .. r .. t, 0, 0, 0, 0)
+    "#);
+    assert_eq!(api.texts(), ["nil 1:1 unknown command 'bad'", "9", "2 1 instrument 01: x: not found", "123"]);
+    let calls = api.calls();
+    for want in ["sound_play 3  40", "sound_play 3 zap 52", "song_play 2 0 0", "song_play 2 4 8"] {
+        assert!(calls.contains(&want.to_string()), "missing {want:?} in {calls:?}");
+    }
 }

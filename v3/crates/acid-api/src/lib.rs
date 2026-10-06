@@ -8,7 +8,9 @@ extern crate alloc;
 mod chrome;
 
 use alloc::collections::BTreeMap;
-use alloc::string::String;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI32, Ordering};
 
@@ -23,6 +25,34 @@ pub use acid_platform::{LocalTime, NetworkInfo};
 use acid_platform::FsError;
 use acid_platform::sync::Mutex;
 use acid_gfx::three_d::{self, Mesh, MeshError};
+use acid_sound::load::{load_program, load_song};
+use acid_sound::player::LoadedSong;
+use acid_sound::program::{BlockKind, Program};
+
+/// .snd programs alive per app.
+pub const SOUND_PROGRAM_MAX: usize = 16;
+/// Songs alive per app.
+pub const SONG_MAX: usize = 4;
+
+/// One app's compiled programs and loaded songs. Ids start at 1, are
+/// shared between the two maps, and are never reused.
+struct SoundStore {
+    progs: BTreeMap<i32, Arc<Program>>,
+    songs: BTreeMap<i32, Arc<LoadedSong>>,
+    next_id: i32,
+}
+
+impl SoundStore {
+    fn new() -> Self {
+        Self { progs: BTreeMap::new(), songs: BTreeMap::new(), next_id: 1 }
+    }
+
+    fn take_id(&mut self) -> Result<i32, String> {
+        let id = self.next_id;
+        self.next_id = id.checked_add(1).ok_or_else(|| String::from("too many"))?;
+        Ok(id)
+    }
+}
 
 /// Meshes alive per app. The per-mesh limits (`MESH_POINTS_MAX`,
 /// `MESH_FACES_MAX`) live in `acid_gfx::three_d`; the per-app ones live here.
@@ -127,6 +157,26 @@ pub trait AcidApi: Send + Sync {
     fn trigger_arp(&self, voice: i32, notes: [i32; 4], count: i32, rate_ms: i32);
     /// Waveform and pulse duty for a voice.
     fn configure_osc(&self, voice: i32, waveform: i32, duty_percent: i32);
+    /// Compiles .snd source; `song "PATH"` files load now (spec §5).
+    fn sound_load(&self, _src: &str) -> Result<i32, String> { Err(String::from("unsupported")) }
+    fn sound_load_file(&self, _path: &str) -> Result<i32, String> { Err(String::from("unsupported")) }
+    fn sound_free(&self, _prog: i32) {}
+    /// Starts a `sound` block ("" = the first); None when no voice is free.
+    fn sound_play(&self, _prog: i32, _name: &str, _note: i32) -> Option<i32> { None }
+    fn sound_stop(&self, _id: i32) {}
+    /// A song handle plus one warning per script instrument that didn't load.
+    fn song_load(&self, _path: &str) -> Result<(i32, Vec<String>), String> { Err(String::from("unsupported")) }
+    fn song_parse(&self, _text: &str) -> Result<(i32, Vec<String>), String> { Err(String::from("unsupported")) }
+    /// Re-parses into the same handle; a playing copy keeps its place.
+    fn song_update(&self, _song: i32, _text: &str) -> Result<Vec<String>, String> { Err(String::from("unsupported")) }
+    fn song_free(&self, _song: i32) {}
+    fn song_play(&self, _song: i32, _order: i32, _row: i32) {}
+    fn song_stop(&self) {}
+    fn song_position(&self) -> Option<(i32, i32, i32)> { None }
+    /// `ch` is 1-based.
+    fn song_mute(&self, _ch: i32, _on: bool) {}
+    /// Sounds `note` on channel `ch` (1-based); note 0 is note-off.
+    fn song_preview(&self, _song: i32, _ch: i32, _note: i32, _inst: i32) {}
     /// Ring-modulate a voice with another (-1 clears).
     fn set_ring_partner(&self, voice: i32, partner: i32);
     /// Set the master volume, percent.
@@ -264,6 +314,8 @@ pub struct KernelApi {
     /// The back buffer while a frame is open (begin_frame..end_frame).
     /// Lock order: the mesh store, then this, then the canvas.
     frame: Mutex<Option<acid_gfx::Canvas>>,
+    /// This app's .snd programs and songs.
+    sound: Mutex<SoundStore>,
 }
 
 impl KernelApi {
@@ -282,12 +334,37 @@ impl KernelApi {
             window_y: AtomicI32::new(y),
             meshes: Mutex::new(MeshStore::new()),
             frame: Mutex::new(None),
+            sound: Mutex::new(SoundStore::new()),
         }
     }
 
     /// Spec §14.2: cart-level apps change files only under Home.
     fn cart_may_change(&self, path: &str) -> bool {
         !self.ctx.cart || path.starts_with("v3/fsroot/Home/")
+    }
+
+    /// Reads a file named inside a .trk or .snd: paths there are fsroot-relative.
+    fn read_fsroot(&self, path: &str) -> Result<String, String> {
+        self.read_text(&format!("v3/fsroot/{path}"))
+    }
+
+    fn read_text(&self, path: &str) -> Result<String, String> {
+        String::from_utf8(self.fs_read(path)?).map_err(|_| String::from("not text"))
+    }
+
+    /// Parses and loads a song's scripts, then stores it under a new handle.
+    fn store_song(&self, text: &str) -> Result<(i32, Vec<String>), String> {
+        if self.sound.lock().songs.len() >= SONG_MAX {
+            return Err(String::from("too many"));
+        }
+        let (song, warnings) = load_song(text, &|p| self.read_fsroot(p)).map_err(|e| e.to_string())?;
+        let mut st = self.sound.lock();
+        if st.songs.len() >= SONG_MAX {
+            return Err(String::from("too many"));
+        }
+        let id = st.take_id()?;
+        st.songs.insert(id, Arc::new(song));
+        Ok((id, warnings))
     }
 
     /// Spec §14.2: host cart folders are for built-in apps only.
@@ -479,6 +556,90 @@ impl AcidApi for KernelApi {
     }
     fn configure_osc(&self, voice: i32, waveform: i32, duty_percent: i32) {
         self.ctx.kernel.audio_configure_osc(voice, waveform, duty_percent)
+    }
+    fn sound_load(&self, src: &str) -> Result<i32, String> {
+        if self.sound.lock().progs.len() >= SOUND_PROGRAM_MAX {
+            return Err(String::from("too many"));
+        }
+        let prog = load_program(src, &|p| self.read_fsroot(p)).map_err(|e| e.to_string())?;
+        let mut st = self.sound.lock();
+        if st.progs.len() >= SOUND_PROGRAM_MAX {
+            return Err(String::from("too many"));
+        }
+        let id = st.take_id()?;
+        st.progs.insert(id, Arc::new(prog));
+        Ok(id)
+    }
+
+    fn sound_load_file(&self, path: &str) -> Result<i32, String> {
+        let src = self.read_text(path)?;
+        self.sound_load(&src)
+    }
+
+    fn sound_free(&self, prog: i32) {
+        self.sound.lock().progs.remove(&prog);
+    }
+
+    fn sound_play(&self, prog: i32, name: &str, note: i32) -> Option<i32> {
+        let p = self.sound.lock().progs.get(&prog)?.clone();
+        let block = if name.is_empty() {
+            p.blocks.iter().position(|b| b.kind == BlockKind::Sound)?
+        } else {
+            p.block(name)?
+        };
+        self.ctx.kernel.audio_sound_play(self.ctx.task, p, block, note).map(|id| id as i32)
+    }
+
+    fn sound_stop(&self, id: i32) {
+        if let Ok(id) = u32::try_from(id) {
+            self.ctx.kernel.audio_sound_stop(self.ctx.task, id);
+        }
+    }
+
+    fn song_load(&self, path: &str) -> Result<(i32, Vec<String>), String> {
+        let text = self.read_text(path)?;
+        self.store_song(&text)
+    }
+
+    fn song_parse(&self, text: &str) -> Result<(i32, Vec<String>), String> {
+        self.store_song(text)
+    }
+
+    fn song_update(&self, song: i32, text: &str) -> Result<Vec<String>, String> {
+        if !self.sound.lock().songs.contains_key(&song) {
+            return Err(String::from("no such song"));
+        }
+        let (loaded, warnings) = load_song(text, &|p| self.read_fsroot(p)).map_err(|e| e.to_string())?;
+        let loaded = Arc::new(loaded);
+        self.sound.lock().songs.insert(song, loaded.clone());
+        self.ctx.kernel.audio_song_update(self.ctx.task, song as u32, loaded);
+        Ok(warnings)
+    }
+
+    fn song_free(&self, song: i32) {
+        self.sound.lock().songs.remove(&song);
+    }
+
+    fn song_play(&self, song: i32, order: i32, row: i32) {
+        let Some(s) = self.sound.lock().songs.get(&song).cloned() else { return };
+        self.ctx.kernel.audio_song_play(self.ctx.task, song as u32, s, order, row);
+    }
+
+    fn song_stop(&self) {
+        self.ctx.kernel.audio_song_stop(self.ctx.task);
+    }
+
+    fn song_position(&self) -> Option<(i32, i32, i32)> {
+        self.ctx.kernel.audio_song_position()
+    }
+
+    fn song_mute(&self, ch: i32, on: bool) {
+        self.ctx.kernel.audio_song_mute(self.ctx.task, ch, on);
+    }
+
+    fn song_preview(&self, song: i32, ch: i32, note: i32, inst: i32) {
+        let Some(s) = self.sound.lock().songs.get(&song).cloned() else { return };
+        self.ctx.kernel.audio_song_preview(self.ctx.task, s, ch, note, inst);
     }
     fn set_ring_partner(&self, voice: i32, partner: i32) { self.ctx.kernel.audio_set_ring_partner(voice, partner) }
     fn set_volume(&self, percent: i32) { self.ctx.kernel.set_master_volume(percent) }
@@ -1351,6 +1512,95 @@ mod tests {
         s.set_ona(voice, ona);
         s.voice_mut(voice as usize).sustain_level = (volume * acid_synth::ENV_FULL / 100) << 8;
         s.gate_on(voice);
+    }
+
+    const FOUR_SONG: &str = "acid-track 1\ntitle t\nspeed 2\nsfx-donor 4\ninstrument 01 \"Lead\"  wave saw  adsr 0 0 100 0  duty 50\norder 1  00 loop 0\norder 2  00 loop 0\norder 3  00 loop 0\norder 4  00 loop 0\n\npattern 00 2\nC-4 01 . .. ...\n... .. . .. ...\n";
+
+    #[test]
+    fn sound_load_reports_compile_errors() {
+        let (k, rx) = kernel_with_parked_apps();
+        let a = api_at(&k, &rx, 0, 30, 10, 10);
+        assert_eq!(a.sound_load("wav saw"), Err(String::from("1:1 unknown command 'wav'")));
+    }
+
+    #[test]
+    fn a_loaded_sound_plays_on_a_voice() {
+        let (k, rx) = kernel_with_parked_apps();
+        let a = api_at(&k, &rx, 0, 30, 10, 10);
+        let p = a.sound_load("sound zap\ngate on\nwait 50\nend\ninstrument i\nend").unwrap();
+        assert_eq!(a.sound_play(p, "i", 40), None, "instruments aren't sounds");
+        assert_eq!(a.sound_play(p, "nope", 40), None);
+        assert_eq!(a.sound_play(99, "", 40), None, "no such program");
+        assert!(a.sound_play(p, "", 40).is_some());
+        k.render_audio(&mut [0u8; 441]);
+        assert_eq!(a.active_voice_count(), 1);
+    }
+
+    #[test]
+    fn programs_and_songs_are_capped_per_app() {
+        let (k, rx) = kernel_with_parked_apps();
+        let a = api_at(&k, &rx, 0, 30, 10, 10);
+        let ids: Vec<i32> = (0..SOUND_PROGRAM_MAX).map(|_| a.sound_load("wait 1").unwrap()).collect();
+        assert_eq!(a.sound_load("wait 1"), Err(String::from("too many")));
+        a.sound_free(ids[0]);
+        assert!(a.sound_load("wait 1").is_ok());
+        for _ in 0..SONG_MAX {
+            a.song_parse(FOUR_SONG).unwrap();
+        }
+        assert_eq!(a.song_parse(FOUR_SONG), Err(String::from("too many")));
+    }
+
+    #[test]
+    fn a_song_plays_reports_its_place_and_stops() {
+        let (k, rx) = kernel_with_parked_apps();
+        let a = api_at(&k, &rx, 0, 30, 10, 10);
+        let (s, warnings) = a.song_parse(FOUR_SONG).unwrap();
+        assert!(warnings.is_empty());
+        a.song_play(s, 0, 0);
+        k.render_audio(&mut [0u8; 441]);
+        assert_eq!(a.song_position(), Some((0, 0, 1)));
+        assert_eq!(a.song_update(s, &FOUR_SONG.replace("C-4", "D-4")), Ok(vec![]));
+        assert_eq!(a.song_position(), Some((0, 0, 1)), "an update keeps the place");
+        a.song_stop();
+        assert_eq!(a.song_position(), None);
+        assert_eq!(a.song_update(77, FOUR_SONG), Err(String::from("no such song")));
+    }
+
+    #[test]
+    fn extreme_sound_and_song_arguments_do_not_panic() {
+        let (k, rx) = kernel_with_parked_apps();
+        let a = api_at(&k, &rx, 0, 30, 10, 10);
+        let (s, _) = a.song_parse(FOUR_SONG).unwrap();
+        let p = a.sound_load("sound z\ngate on\nwait 5\nend").unwrap();
+        a.song_play(s, i32::MIN, i32::MAX);
+        a.song_preview(s, i32::MAX, i32::MIN, i32::MAX);
+        let _ = a.sound_play(p, "", i32::MIN);
+        let _ = a.sound_play(p, "", i32::MAX);
+        a.song_mute(i32::MIN, true);
+        a.song_play(-1, 0, 0);
+        a.song_play(i32::MAX, 0, 0);
+        a.song_preview(i32::MIN, 1, 40, 1);
+        a.sound_stop(-5);
+        a.sound_stop(i32::MIN);
+        assert_eq!(a.song_update(i32::MIN, FOUR_SONG), Err(String::from("no such song")));
+        k.render_audio(&mut [0u8; 441]);
+    }
+
+    #[test]
+    fn a_missing_script_instrument_is_a_warning() {
+        let (k, rx) = kernel_with_parked_apps();
+        let a = api_at(&k, &rx, 0, 30, 10, 10);
+        let text = FOUR_SONG.replace("instrument 01 \"Lead\"  wave saw  adsr 0 0 100 0  duty 50", "instrument 01 \"S\"  script \"Home/nope.snd\" bass");
+        let (_, warnings) = a.song_parse(&text).unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].starts_with("instrument 01: Home/nope.snd: "), "{warnings:?}");
+    }
+
+    #[test]
+    fn song_parse_errors_name_the_line() {
+        let (k, rx) = kernel_with_parked_apps();
+        let a = api_at(&k, &rx, 0, 30, 10, 10);
+        assert_eq!(a.song_parse("nope"), Err(String::from("1: not an acid-track file")));
     }
 
     #[test]

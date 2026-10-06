@@ -25,6 +25,7 @@ dependencies = [
  "acid-gfx",
  "acid-kernel",
  "acid-platform",
+ "acid-sound",
  "acid-synth",
  "acid-testkit",
 ]
