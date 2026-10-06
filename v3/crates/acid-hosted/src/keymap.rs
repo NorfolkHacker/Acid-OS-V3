@@ -1,6 +1,5 @@
 //! Physical key -> Acid OS keycode: Shift is resolved here so apps only ever see a
-//! final character or a KEY_* constant. Anything unmapped (function keys,
-//! Ctrl/Alt) is ignored.
+//! final character or a KEY_* constant. Anything unmapped (F13 and up, Ctrl/Alt) is ignored.
 
 use acid_platform::KeyEvent;
 use acid_platform::keys::*;
@@ -45,6 +44,10 @@ pub fn translate_key(code: KeyCode, shift: bool) -> Option<i32> {
         KeyCode::Period => pick('.', '>'),
         KeyCode::Slash => pick('/', '?'),
         KeyCode::Backquote => pick('`', '~'),
+        KeyCode::F1 => Some(KEY_F1), KeyCode::F2 => Some(KEY_F2), KeyCode::F3 => Some(KEY_F3),
+        KeyCode::F4 => Some(KEY_F4), KeyCode::F5 => Some(KEY_F5), KeyCode::F6 => Some(KEY_F6),
+        KeyCode::F7 => Some(KEY_F7), KeyCode::F8 => Some(KEY_F8), KeyCode::F9 => Some(KEY_F9),
+        KeyCode::F10 => Some(KEY_F10), KeyCode::F11 => Some(KEY_F11), KeyCode::F12 => Some(KEY_F12),
         _ => None,
     }
 }
@@ -134,7 +137,7 @@ mod tests {
 
     #[test]
     fn unmapped_keys_are_ignored() {
-        assert_eq!(translate_key(KeyCode::F1, false), None);
+        assert_eq!(translate_key(KeyCode::F13, false), None);
         assert_eq!(translate_key(KeyCode::ControlLeft, false), None);
     }
 
@@ -151,8 +154,8 @@ mod tests {
     #[test]
     fn unmapped_keys_never_press_or_release() {
         let mut h = HeldKeys::default();
-        assert_eq!(h.press(KeyCode::F1, false), None);
-        assert_eq!(h.release(KeyCode::F1), None);
+        assert_eq!(h.press(KeyCode::F13, false), None);
+        assert_eq!(h.release(KeyCode::F13), None);
     }
 
     #[test]
@@ -165,5 +168,14 @@ mod tests {
             [KeyEvent { code: KEY_LEFT, pressed: false }, KeyEvent { code: 'W' as i32, pressed: false }]
         );
         assert_eq!(h.release_all(), []);
+    }
+
+    #[test]
+    fn function_keys_map_with_or_without_shift() {
+        assert_eq!(translate_key(KeyCode::F1, false), Some(KEY_F1));
+        assert_eq!(translate_key(KeyCode::F12, true), Some(KEY_F12));
+        let mut h = HeldKeys::default();
+        assert_eq!(h.press(KeyCode::F5, false), Some(KeyEvent { code: KEY_F5, pressed: true }));
+        assert_eq!(h.release(KeyCode::F5), Some(KeyEvent { code: KEY_F5, pressed: false }));
     }
 }
