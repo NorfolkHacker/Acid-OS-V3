@@ -5,7 +5,10 @@
 
 extern crate alloc;
 
+pub mod lexer;
 pub mod pitch;
+
+pub use lexer::CompileError;
 
 /// Samples per engine tick: 22050 Hz / 50 Hz, PAL timing as in GoatTracker.
 pub const TICK_SAMPLES: u32 = acid_synth::SAMPLE_RATE / 50;
