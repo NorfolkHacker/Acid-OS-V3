@@ -222,6 +222,12 @@ impl Kernel {
         self.audio.active_voice_mask.store(mask, Ordering::Relaxed);
     }
 
+    /// A voice's oscillator step: which pitch it plays, for tests that
+    /// check what a song or sound did. None for a voice that doesn't exist.
+    pub fn audio_voice_increment(&self, voice: usize) -> Option<u32> {
+        (voice < NUM_VOICES).then(|| self.audio.state.lock().synth.voice(voice).phase_increment)
+    }
+
     pub fn set_master_volume(&self, percent: i32) {
         self.audio.master_volume.store(percent.clamp(0, 100), Ordering::Relaxed);
     }

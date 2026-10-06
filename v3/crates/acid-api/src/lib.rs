@@ -1559,8 +1559,14 @@ mod tests {
         a.song_play(s, 0, 0);
         k.render_audio(&mut [0u8; 441]);
         assert_eq!(a.song_position(), Some((0, 0, 1)));
+        assert_eq!(k.audio_voice_increment(0), Some(acid_synth::ONA_PHASE_INCREMENT[39]), "C-4 is ona 40");
         assert_eq!(a.song_update(s, &FOUR_SONG.replace("C-4", "D-4")), Ok(vec![]));
         assert_eq!(a.song_position(), Some((0, 0, 1)), "an update keeps the place");
+        // Speed 2, two rows: ticks at 441, 882 and 1323 finish row 0 and row 1;
+        // the one at 1764 loops to row 0 and triggers the edited note.
+        k.render_audio(&mut [0u8; 4 * 441]);
+        assert_eq!(a.song_position(), Some((0, 0, 1)));
+        assert_eq!(k.audio_voice_increment(0), Some(acid_synth::ONA_PHASE_INCREMENT[41]), "D-4 is ona 42");
         a.song_stop();
         assert_eq!(a.song_position(), None);
         assert_eq!(a.song_update(77, FOUR_SONG), Err(String::from("no such song")));
