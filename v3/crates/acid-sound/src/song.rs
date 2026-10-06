@@ -427,6 +427,7 @@ pub fn parse(text: &str) -> Result<Song, SongError> {
     }
     Ok(song)
 }
+
 /// One row as the file writes it, e.g. "C-4 01 4 22 E-4".
 pub fn row_text(r: &Row) -> String {
     let note = |n: u8| match n {
@@ -616,8 +617,10 @@ A-0 03 9 20 ...
         s.title = "Edited".into();
         s.patterns.get_mut(&1).unwrap()[1] = Row { note: 88, inst: 1, cmd: b'1', param: 0, note2: 1 };
         assert_eq!(parse(&write(&s)).unwrap(), s);
-        s.title = "a \"quoted\" one".into();
-        assert_eq!(parse(&write(&s)).unwrap(), s);
+        for t in ["a \"quoted\" one", "say \"hi"] {
+            s.title = t.into();
+            assert_eq!(parse(&write(&s)).unwrap(), s);
+        }
     }
 
     #[test]
@@ -629,6 +632,7 @@ A-0 03 9 20 ...
     #[test]
     fn a_title_is_free_text() {
         assert_eq!(parse(&MIN.replace("title t", "title a \"quoted\" one")).unwrap().title, "a \"quoted\" one");
+        assert_eq!(parse(&MIN.replace("title t", "title say \"hi")).unwrap().title, "say \"hi");
         assert_eq!(parse(&MIN.replace("title t", "title")).unwrap().title, "");
     }
 
@@ -644,5 +648,8 @@ A-0 03 9 20 ...
         assert_eq!((b.vib, b.pwm), ((15, 0), 50));
         assert_eq!(b.arp, alloc::vec![48, -48]);
         assert_eq!(b.voice2, Voice2::Detune(768));
+        let low = MIN.replace("adsr 0 8 70 20  duty 50", "adsr 0 8 70 20  pwm -1000  voice2 detune -99999");
+        let Kind::BuiltIn(b) = &parse(&low).unwrap().instruments[&1].kind else { panic!("built-in") };
+        assert_eq!((b.pwm, b.voice2), (-50, Voice2::Detune(-768)));
     }
 }
