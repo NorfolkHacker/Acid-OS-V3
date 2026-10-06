@@ -19,3 +19,4 @@ pub mod program;
 pub use compile::compile;
 
 pub mod vm;
+pub mod song;
