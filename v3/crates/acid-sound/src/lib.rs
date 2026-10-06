@@ -17,3 +17,5 @@ pub mod compile;
 pub mod program;
 
 pub use compile::compile;
+
+pub mod vm;
