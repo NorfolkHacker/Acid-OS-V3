@@ -52,6 +52,7 @@ version = "0.1.0"
 dependencies = [
  "acid-gfx",
  "acid-platform",
+ "acid-sound",
  "acid-synth",
  "acid-testkit",
 ]
