@@ -24,9 +24,9 @@ fn read(path: &str) -> Result<String, String> {
     }
 }
 
-/// Four seconds of the demo, in 512-sample buffers; the zap starts in
-/// buffer 90 (about 2.1 s) and borrows channel 4's second voice.
-fn render_demo() -> Vec<u8> {
+/// Four seconds of the demo, in 512-sample buffers; with `with_zap`, the zap
+/// starts in buffer 90 (about 2.1 s) and borrows channel 4's second voice.
+fn render_demo_with(with_zap: bool) -> Vec<u8> {
     let text = std::fs::read_to_string(dir().join("demo.trk")).unwrap();
     let (song, warnings) = load_song(&text, &read).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
@@ -37,12 +37,16 @@ fn render_demo() -> Vec<u8> {
     engine.play_song(&mut synth, 1, 1, Arc::new(song), 0, 0);
     let mut out = vec![0u8; 22050 * 4];
     for (i, chunk) in out.chunks_mut(512).enumerate() {
-        if i == 90 {
+        if with_zap && i == 90 {
             assert!(engine.play_sound(&mut synth, 2, sfx.clone(), zap, 40, 0).is_some());
         }
         engine.render(&mut synth, chunk);
     }
     out
+}
+
+fn render_demo() -> Vec<u8> {
+    render_demo_with(true)
 }
 
 #[test]
@@ -65,6 +69,13 @@ fn the_demo_is_not_trivially_silent() {
     let r = render_demo();
     let loud = r.iter().filter(|&&b| b != 128).count();
     assert!(loud > r.len() / 10, "the demo must actually make sound");
+}
+
+#[test]
+fn the_zap_is_audible() {
+    let (with, without) = (render_demo_with(true), render_demo_with(false));
+    let diffs = with.iter().zip(&without).filter(|(a, b)| a != b).count();
+    assert!(diffs > 2000, "only {diffs} bytes differ: the zap must be heard over the song");
 }
 
 #[test]
