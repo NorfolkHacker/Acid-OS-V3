@@ -296,6 +296,11 @@ function acid_song_load(path)
 end
 function acid_song_update(song, text)
   if not SONGS[song] then return nil, "no such song" end
+  if SONG_PARSE_ERR then
+    local e = SONG_PARSE_ERR
+    SONG_PARSE_ERR = nil
+    return nil, e
+  end
   SONGS[song] = text
   push(SOUND_CALLS, { "update", song })
   return copy_list(SONG_WARNINGS)

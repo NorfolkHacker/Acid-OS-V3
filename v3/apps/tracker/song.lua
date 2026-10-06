@@ -129,18 +129,25 @@ end
 
 local function parse_instrument(f)
   local num = f[2] and not f[2].quoted and hex2(f[2].text)
+  if num and (num < 1 or num > TrkSong.MAX_INSTRUMENT) then return nil, "instrument number out of range" end
   if not num or not f[3] or not f[3].quoted then return nil end
   local name = f[3].text
   if f[4] and not f[4].quoted and f[4].text == "script" then
     if not (f[5] and f[5].quoted and f[6] and not f[7]) then return nil end
     return num, TrkSong.script(name, f[5].text, f[6].text)
   end
-  local b, i, bad = TrkSong.builtin(name), 4, false
-  local function nxt()
+  local b, i, bad = TrkSong.builtin(name), 4, nil
+  -- The next number, which must lie in lo..hi (out of range is an error,
+  -- as in the kernel's parser, never a clamp).
+  local function nxt(what, lo, hi)
     local v = int(f[i])
     i = i + 1
-    if v == nil then bad = true end
-    return v
+    if v == nil then
+      bad = bad or ("expected a number after " .. what)
+    elseif v < lo or v > hi then
+      bad = bad or (what .. " out of range")
+    end
+    return v or lo
   end
   local function word()
     local w = f[i] and f[i].text
@@ -157,24 +164,25 @@ local function parse_instrument(f)
       end
       if not b.wave then return nil end
     elseif key == "adsr" then
-      b.adsr = { nxt(), nxt(), nxt(), nxt() }
+      b.adsr = { nxt("adsr", 0, 100000), nxt("adsr", 0, 100000), nxt("adsr", 0, 100000), nxt("adsr", 0, 100000) }
     elseif key == "duty" then
-      b.duty = nxt()
+      b.duty = nxt("duty", 1, 99)
     elseif key == "pwm" then
-      b.pwm = nxt()
+      b.pwm = nxt("pwm", -50, 50)
     elseif key == "vib" then
-      b.vib = { nxt(), nxt() }
+      b.vib = { nxt("vib", 0, 15), nxt("vib", 0, 15) }
     elseif key == "arp" then
       b.arp = {}
-      while #b.arp < 3 and int(f[i]) do b.arp[#b.arp + 1] = nxt() end
+      while #b.arp < 3 and int(f[i]) do b.arp[#b.arp + 1] = nxt("arp", -48, 48) end
+      if #b.arp == 0 then return nil, "expected a number after arp" end
     elseif key == "filter" then
       local mode = ({ lp = 1, bp = 2, hp = 4 })[word()]
       if not mode then return nil end
-      b.filter = { mode, nxt(), nxt() }
+      b.filter = { mode, nxt("filter cutoff", 0, 255), nxt("filter resonance", 0, 15) }
     elseif key == "voice2" then
       local m = word()
       if m == "detune" then
-        b.voice2, b.detune = "detune", nxt()
+        b.voice2, b.detune = "detune", nxt("detune", -768, 768)
       elseif m == "off" or m == "octave" or m == "fifth" or m == "ring" then
         b.voice2 = m
       else
@@ -184,23 +192,28 @@ local function parse_instrument(f)
       return nil
     end
   end
-  if bad then return nil end
+  if bad then return nil, bad end
   return num, b
 end
 
 local function parse_order(f)
   local ch = int(f[2])
-  if not ch or ch < 1 or ch > TrkSong.CHANNELS then return nil end
+  if not ch or ch < 1 or ch > TrkSong.CHANNELS then return nil, "order channel out of range" end
   local entries, i = {}, 3
   while f[i] and f[i].text ~= "loop" do
     local p, t = f[i].text:match("^(%x%x)([+-]%d+)$")
     if not p then p, t = f[i].text:match("^(%x%x)$"), "0" end
     if not p then return nil end
-    entries[#entries + 1] = { pattern = tonumber(p, 16), transpose = math.tointeger(tonumber(t)) }
+    local pat, tr = tonumber(p, 16), math.tointeger(tonumber(t))
+    -- a transpose too big to hold (a float) is nil; Rust's is an i8
+    if pat > TrkSong.MAX_PATTERN then return nil, "order pattern out of range" end
+    if not tr or tr < -128 or tr > 127 then return nil, "transpose out of range" end
+    entries[#entries + 1] = { pattern = pat, transpose = tr }
     i = i + 1
   end
   local loop = int(f[i + 1])
   if #entries == 0 or not loop or f[i + 2] then return nil end
+  if loop < 0 or loop >= #entries then return nil, "loop out of range" end
   return ch, { entries = entries, loop = loop }
 end
 
@@ -229,19 +242,23 @@ function TrkSong.parse(text)
       if not f then return nil, n .. ": bad line" end
       if word == "speed" then
         s.speed = int(f[2])
+        if not s.speed or s.speed < 1 or s.speed > 31 then return nil, n .. ": speed out of range" end
       elseif word == "sfx-donor" then
         s.donor = int(f[2])
+        if not s.donor or s.donor < 1 or s.donor > 4 then return nil, n .. ": sfx-donor out of range" end
       elseif word == "instrument" then
         local num, ins = parse_instrument(f)
-        if not num then return nil, n .. ": bad instrument" end
+        if not num then return nil, n .. ": " .. (ins or "bad instrument") end
         s.instruments[num] = ins
       elseif word == "order" then
         local ch, o = parse_order(f)
-        if not ch then return nil, n .. ": bad order" end
+        if not ch then return nil, n .. ": " .. (o or "bad order") end
         s.orders[ch] = o
       elseif word == "pattern" then
         local num, len = hex2(f[2] and f[2].text), int(f[3])
         if not num or not len then return nil, n .. ": bad pattern" end
+        if num > TrkSong.MAX_PATTERN then return nil, n .. ": pattern number out of range" end
+        if len < 1 or len > TrkSong.MAX_ROWS then return nil, n .. ": pattern length out of range" end
         local rows = {}
         for r = 1, len do
           local row = lines[i] and parse_row(lines[i])
@@ -258,6 +275,9 @@ function TrkSong.parse(text)
   if not s.speed or not s.donor then return nil, "bad header" end
   for ch = 1, TrkSong.CHANNELS do
     if not s.orders[ch] then return nil, "no order for channel " .. ch end
+    for _, e in ipairs(s.orders[ch].entries) do
+      if not s.patterns[e.pattern] then return nil, "order " .. ch .. " uses a missing pattern" end
+    end
   end
   return s
 end

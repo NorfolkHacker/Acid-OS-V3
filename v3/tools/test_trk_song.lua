@@ -69,3 +69,15 @@ eq({ r.orders[1].entries[2].transpose, r.orders[1].loop, r.patterns[0][4].cmd, r
 group("not a song")
 eq({ TrkSong.parse("hello") }, { nil, "not an acid-track 1 file" }, "anything else is refused")
 eq(TrkSong.clamp(500, "duty"), 99, "clamp holds a value inside its range")
+
+group("out of range numbers are refused")
+local function variant(from, to) return (ROUND:gsub(from, to, 1)) end
+local function pat_len(n) return (ROUND:gsub("pattern 01 2", "pattern 01 " .. n, 1)) end
+eq({ TrkSong.parse(variant("speed 6", "speed 0")), TrkSong.parse(variant("speed 6", "speed 9223372036854775807")),
+     TrkSong.parse(variant("order 1  00 00%+12", "order 1  00 00+99999999999999999999")),
+     TrkSong.parse(variant("adsr 0 8 70 20", "adsr -5 0 0 0")), TrkSong.parse(variant("pwm 2", "pwm 51")),
+     TrkSong.parse(pat_len(65)), (TrkSong.parse(variant("order 2  01 01%-5 loop 0", "order 2  01 loop 3"))) },
+  {}, "speed, a huge transpose, adsr, pwm, pattern length and loop out of range are refused")
+local edge = variant("speed 6", "speed 31"):gsub("pwm 2", "pwm -50"):gsub("voice2 detune 6", "voice2 detune 768")
+  :gsub("adsr 0 8 70 20", "adsr 100000 100000 100000 100000")
+ok(TrkSong.parse(edge), "boundary values still parse")

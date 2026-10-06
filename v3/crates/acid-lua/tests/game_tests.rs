@@ -156,7 +156,7 @@ fn trk_prelude() -> (String, usize) {
 #[test]
 fn trk_song() {
     let (prelude, files) = trk_prelude();
-    run_suite_with(&prelude, &["v3/tools/game_test_env.lua", "v3/apps/tracker/song.lua", "v3/tools/test_trk_song.lua"], 14 + 2 * files);
+    run_suite_with(&prelude, &["v3/tools/game_test_env.lua", "v3/apps/tracker/song.lua", "v3/tools/test_trk_song.lua"], 16 + 2 * files);
 }
 
 #[test]
