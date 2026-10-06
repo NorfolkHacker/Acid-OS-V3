@@ -20,3 +20,4 @@ pub use compile::compile;
 
 pub mod vm;
 pub mod song;
+pub mod player;
