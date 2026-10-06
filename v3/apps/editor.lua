@@ -38,11 +38,12 @@ function EditorApp:on_create()
   -- (clicking a .lua file spawns Editor with that path as the launch
   -- arg -- see file_manager.lua); opened directly from Menu with no
   -- arg, it falls back to the general notes file it always edited
-  -- before. Either way the file is genuinely editable and saveable,
-  -- including files under fsroot/Source (a real symlink to v3/apps) --
-  -- there's no separate read-only mode, by design: this is meant to
-  -- double as a live way to tweak an app's own source and see the
-  -- change on its next launch, no rebuild step.
+  -- before. Either way the file is genuinely editable, including files
+  -- under fsroot/Source (a real symlink to v3/apps) -- there's no
+  -- separate read-only mode in the editor itself. System source saves
+  -- only with Developer Mode on (Config); otherwise the save says
+  -- "read only". With it on, this doubles as a live way to tweak an
+  -- app's own source and see the change on its next launch, no rebuild.
   local arg = acid_launch_arg()
   self.path = (arg == "") and EditorApp.DEFAULT_FILE or arg
   self.buf = Buffer.new(self:read_lines())
@@ -99,8 +100,11 @@ function EditorApp:save_file()
   local wrote, werr = acid_fs_write(tmp, table.concat(self.buf:lines(), "\n") .. "\n")
   wrote = wrote ~= nil
   local saved = false
+  local rerr
   if wrote then
-    saved = acid_fs_rename(tmp, self.path) ~= nil
+    local ok
+    ok, rerr = acid_fs_rename(tmp, self.path)
+    saved = ok ~= nil
   end
   -- A half-written temp file (write failed) or a temp file the rename
   -- couldn't place (rename failed) is debris either way -- clean it up
@@ -114,7 +118,7 @@ function EditorApp:save_file()
     self.message = backup_failed and "saved (backup failed)" or "saved"
   else
     -- System source is locked unless Developer Mode is on (Config).
-    self.message = werr == "read only" and "read only: save to Home, or DEV MODE in Config"
+    self.message = (werr == "read only" or rerr == "read only") and "read only: save to Home, or DEV MODE in Config"
       or "save failed"
   end
   return saved

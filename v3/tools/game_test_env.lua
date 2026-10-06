@@ -172,7 +172,7 @@ function acid_fs_read(path)
 end
 LAUNCH_ARG = ""
 FAIL_WRITES = {}   -- path -> true: acid_fs_write fails for it
-FAIL_RENAMES = {}  -- from-path -> true: acid_fs_rename fails for it
+FAIL_RENAMES = {}  -- from-path -> true (or an error string): acid_fs_rename fails for it
 function acid_launch_arg() return LAUNCH_ARG end
 function acid_fs_write(path, data)
   push(CALLS, { "write", path })
@@ -182,7 +182,10 @@ function acid_fs_write(path, data)
 end
 function acid_fs_rename(from, to)
   push(CALLS, { "rename", from, to })
-  if FAIL_RENAMES[from] or type(FS[from]) ~= "string" then return nil, "not found" end
+  if FAIL_RENAMES[from] then
+    return nil, type(FAIL_RENAMES[from]) == "string" and FAIL_RENAMES[from] or "not found"
+  end
+  if type(FS[from]) ~= "string" then return nil, "not found" end
   FS[to] = FS[from]
   FS[from] = nil
   return true

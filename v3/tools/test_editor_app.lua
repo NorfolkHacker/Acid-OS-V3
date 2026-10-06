@@ -60,6 +60,12 @@ eq(G.message, "save failed", "a failed rename reports save failed")
 eq(FS[tmp], nil, "and its temp file is deleted")
 FAIL_RENAMES = {}
 
+FAIL_RENAMES[tmp] = "read only"
+esc("s")
+eq(G.message, "read only: save to Home, or DEV MODE in Config", "a locked rename shows the hint too")
+eq(FS[tmp], nil, "and its temp file is deleted")
+FAIL_RENAMES = {}
+
 FAIL_WRITES[tmp] = "read only"
 esc("s")
 eq(G.message, "read only: save to Home, or DEV MODE in Config", "a locked save says how to get round it")

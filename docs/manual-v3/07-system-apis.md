@@ -525,8 +525,9 @@ refused unless that real location is inside the real `v3/apps` or the real
 What this means in practice:
 
 - `v3/fsroot/Source` is a symlink to `v3/apps`. Writing to `v3/fsroot/Source/x.lua`
-  **works** and lands in `v3/apps/x.lua`, because it really points into the
-  apps folder.
+  **works** with Developer Mode on, and lands in `v3/apps/x.lua`, because it
+  really points into the apps folder. With Developer Mode off it returns
+  `read only`.
 - A symlink to anywhere outside the two roots is refused with `bad path`. So
   writes can't escape through a symlink.
 - The parent folder has to exist to be checked. So **writing into a folder that
@@ -537,7 +538,12 @@ What this means in practice:
   apps.
 
 So a built-in app can write anywhere under the two roots, but `v3/apps` only
-while Developer Mode is on (or when Load Cart fills a cart slot). Keep your own
+while Developer Mode is on. The one exception is Load Cart installing a cart.
+With Developer Mode off it may write a cart's manifest (`<name>.app.toml`)
+only if the text says `source = cart`, and only into a fresh slot or over a
+cart's own manifest. It may write or delete the cart's `.lua` or `.wasm` only
+while that manifest says `source = cart`. It can never delete the manifest, and
+rename stays locked. Keep your own
 data under **`v3/fsroot/Home`**. A cart can't write anywhere else anyway.
 
 ### The layout

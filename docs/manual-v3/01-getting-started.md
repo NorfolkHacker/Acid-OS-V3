@@ -266,7 +266,8 @@ Your script is loaded **from disk** every time the app starts. So:
 You can also work from inside Acid OS itself. The **Editor** app (Menu →
 Editor) opens app source from the running system, and the **File Manager**
 launches an app when you click its name in the **Apps** or **Games** folder. Editing an app inside the OS
-it runs in is a perfectly good way to work.
+it runs in is a perfectly good way to work. Turn on DEV MODE in Config
+first.
 
 File Manager, Editor, Terminal and Load Cart show a scroll bar at their
 right edge when there's more than fits. Drag its thumb, or click above or

@@ -362,15 +362,24 @@ impl KernelApi {
         self.cart_may_change(path) && (!source || self.ctx.kernel.dev_mode())
     }
 
-    /// Spec §1.2: whether `path` is `v3/apps/<stem>.app.toml|.lua|.wasm` in a
-    /// cart slot: fresh (none of the three exists) or an installed cart's
-    /// (its manifest says `source = cart`). Fails closed on any read error.
-    fn is_cart_slot(&self, path: &str) -> bool {
+    /// Spec §1.2: whether the built-in caller may write (`data` is `Some`) or
+    /// delete (`None`) `path` as part of installing a cart. Only what Load
+    /// Cart does is allowed:
+    /// - `<stem>.app.toml`: written, never deleted, with text that says
+    ///   `source = cart`, into a fresh slot (none of the three files exists)
+    ///   or over a manifest that already says cart;
+    /// - `<stem>.lua` or `<stem>.wasm`: written or deleted only while the
+    ///   existing manifest reads Ok and says cart.
+    /// Fails closed on any read error.
+    fn is_cart_slot(&self, path: &str, data: Option<&[u8]>) -> bool {
         if self.ctx.cart || !acid_kernel::fs_path::fs_path_is_allowed(path) {
             return false;
         }
         let Some(file) = path.strip_prefix("v3/apps/") else { return false };
-        let Some(stem) = [".app.toml", ".lua", ".wasm"].iter().find_map(|e| file.strip_suffix(e)) else {
+        let Some((stem, ext)) = [".app.toml", ".lua", ".wasm"]
+            .iter()
+            .find_map(|e| file.strip_suffix(e).map(|s| (s, *e)))
+        else {
             return false;
         };
         if stem.is_empty() || stem.contains('/') {
@@ -378,8 +387,17 @@ impl KernelApi {
         }
         let platform = self.ctx.kernel.platform();
         let fs = platform.fs();
-        match fs.read(&format!("v3/apps/{stem}.app.toml")) {
-            Ok(bytes) => acid_kernel::manifest_says_cart(&String::from_utf8_lossy(&bytes)),
+        let manifest = fs.read(&format!("v3/apps/{stem}.app.toml"));
+        let says_cart = matches!(&manifest, Ok(b) if acid_kernel::manifest_says_cart(&String::from_utf8_lossy(b)));
+        if ext != ".app.toml" {
+            return says_cart;
+        }
+        let Some(data) = data else { return false };
+        if !acid_kernel::manifest_says_cart(&String::from_utf8_lossy(data)) {
+            return false;
+        }
+        match manifest {
+            Ok(_) => says_cart,
             Err(FsError::NotFound) => [".lua", ".wasm"]
                 .iter()
                 .all(|e| matches!(fs.size(&format!("v3/apps/{stem}{e}")), Err(FsError::NotFound))),
@@ -387,9 +405,9 @@ impl KernelApi {
         }
     }
 
-    /// Like `may_change`, but a cart slot may be written or deleted (not renamed).
-    fn may_change_slot(&self, path: &str) -> bool {
-        self.may_change(path) || (self.cart_may_change(path) && self.is_cart_slot(path))
+    /// Like `may_change`, but a cart slot may be filled or cleared (not renamed).
+    fn may_change_slot(&self, path: &str, data: Option<&[u8]>) -> bool {
+        self.may_change(path) || (self.cart_may_change(path) && self.is_cart_slot(path, data))
     }
 
     /// Reads a file named inside a .trk or .snd: paths there are fsroot-relative.
@@ -904,7 +922,7 @@ impl AcidApi for KernelApi {
         if !acid_kernel::fs_path::fs_path_is_allowed(path) {
             return Err(String::from("bad path"));
         }
-        if !self.may_change_slot(path) {
+        if !self.may_change_slot(path, Some(data)) {
             return Err(String::from("read only"));
         }
         self.ctx.kernel.platform().fs().write(path, data).map_err(fs_error)
@@ -924,7 +942,7 @@ impl AcidApi for KernelApi {
         if !acid_kernel::fs_path::fs_path_is_allowed(path) {
             return Err(String::from("bad path"));
         }
-        if !self.may_change_slot(path) {
+        if !self.may_change_slot(path, None) {
             return Err(String::from("read only"));
         }
         self.ctx.kernel.platform().fs().delete(path).map_err(fs_error)
@@ -1000,20 +1018,76 @@ mod tests {
         (k, KernelApi::new(ctx))
     }
 
+    /// The name of fsroot's link to v3/apps, built so no one spelling is typed twice.
+    fn link_name() -> String {
+        ["Sour", "ce"].concat()
+    }
+
+    const EDITOR_LUA: &[u8] = b"-- dummy editor\n";
+    const EDITOR_TOML: &[u8] = b"name = Editor\n";
+    const TETRIS_LUA: &[u8] = b"-- dummy tetris\n";
+    const NOTES: &[u8] = b"dummy notes\n";
+
+    /// A throwaway tree shaped like the checkout, so a regressed lock can
+    /// only damage dummy files. Removed on drop.
+    struct Tree(std::path::PathBuf);
+
+    impl Tree {
+        fn new(name: &str) -> Tree {
+            let root = std::env::temp_dir().join(format!("acid-lock-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(root.join("v3/apps")).unwrap();
+            std::fs::create_dir_all(root.join("v3/fsroot/Home")).unwrap();
+            std::fs::create_dir_all(root.join("v3/fsroot/Tmp")).unwrap();
+            std::fs::write(root.join("v3/apps/editor.lua"), EDITOR_LUA).unwrap();
+            std::fs::write(root.join("v3/apps/editor.app.toml"), EDITOR_TOML).unwrap();
+            std::fs::write(root.join("v3/apps/tetris.lua"), TETRIS_LUA).unwrap();
+            std::fs::write(root.join("v3/fsroot/Home/notes.txt"), NOTES).unwrap();
+            #[cfg(unix)]
+            std::os::unix::fs::symlink("../apps", root.join("v3/fsroot").join(link_name())).unwrap();
+            Tree(root)
+        }
+
+        fn platform(&self) -> Arc<FakePlatform> {
+            FakePlatform::new(&self.0)
+        }
+
+        fn path(&self, rel: &str) -> std::path::PathBuf {
+            self.0.join(rel)
+        }
+
+        /// Every dummy file is still there, byte for byte.
+        fn assert_intact(&self) {
+            for (rel, data) in [
+                ("v3/apps/editor.lua", EDITOR_LUA),
+                ("v3/apps/editor.app.toml", EDITOR_TOML),
+                ("v3/apps/tetris.lua", TETRIS_LUA),
+                ("v3/fsroot/Home/notes.txt", NOTES),
+            ] {
+                assert_eq!(std::fs::read(self.path(rel)).ok().as_deref(), Some(data), "{rel} changed");
+            }
+        }
+    }
+
+    impl Drop for Tree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn cart_level_apps_write_only_under_home_and_cannot_register_or_spawn_outside_apps() {
-        let p = FakePlatform::new(FakePlatform::repo_root());
+        let tree = Tree::new("cartlevel");
+        let p = tree.platform();
         let (_k, api) = spawn_cart_on(p.clone(), 10, 10);
         assert!(api.context().cart);
         assert_eq!(api.fs_write("v3/fsroot/Tmp/c.txt", b"x"), Err("read only".into()));
         assert_eq!(api.fs_write("v3/apps/x.lua", b"x"), Err("read only".into()));
         assert_eq!(api.fs_delete("v3/apps/tetris.lua"), Err("read only".into()));
         assert_eq!(api.fs_rename("v3/fsroot/Home/notes.txt", "v3/apps/n.txt"), Err("read only".into()));
-        let home = format!("v3/fsroot/Home/cart-{}.txt", std::process::id());
-        struct Cleanup(std::path::PathBuf);
-        impl Drop for Cleanup { fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); } }
-        let _c = Cleanup(FakePlatform::repo_root().join(&home));
-        assert_eq!(api.fs_write(&home, b"hi"), Ok(()), "Home is writable");
+        tree.assert_intact();
+        assert!(!tree.path("v3/fsroot/Tmp/c.txt").exists() && !tree.path("v3/apps/x.lua").exists());
+        assert_eq!(api.fs_write("v3/fsroot/Home/cart.txt", b"hi"), Ok(()), "Home is writable");
         assert!(!api.launcher_register("v3/apps/x.lua", "X", 100, 80, false, ""));
         assert!(!api.spawn_app("v3/fsroot/Home/x.lua", 100, 80, ""));
         let (_k2, built) = spawn_on(p, 10, 10);
@@ -1034,31 +1108,27 @@ mod tests {
 
     #[test]
     fn cart_rule_edges() {
-        let p = FakePlatform::new(FakePlatform::repo_root());
-        let (k, api) = spawn_cart_on(p.clone(), 10, 10);
+        let tree = Tree::new("edges");
+        let (k, api) = spawn_cart_on(tree.platform(), 10, 10);
         assert!(api.context().cart);
-        struct Cleanup(std::path::PathBuf);
-        impl Drop for Cleanup { fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); } }
-        let id = std::process::id();
         // Renaming from outside Home into Home is refused at the source end.
-        let tmp = format!("v3/fsroot/Tmp/edge-{id}.txt");
-        let _c1 = Cleanup(FakePlatform::repo_root().join(&tmp));
-        std::fs::write(FakePlatform::repo_root().join(&tmp), b"x").unwrap();
-        let dest = format!("v3/fsroot/Home/edge-{id}.txt");
-        let _c3 = Cleanup(FakePlatform::repo_root().join(&dest));
-        assert_eq!(api.fs_rename(&tmp, &dest), Err("read only".into()));
-        assert!(FakePlatform::repo_root().join(&tmp).exists(), "the source is untouched");
+        let tmp = "v3/fsroot/Tmp/edge.txt";
+        std::fs::write(tree.path(tmp), b"x").unwrap();
+        let dest = "v3/fsroot/Home/edge.txt";
+        assert_eq!(api.fs_rename(tmp, dest), Err("read only".into()));
+        assert!(tree.path(tmp).exists(), "the source is untouched");
+        assert!(!tree.path(dest).exists());
         // Home itself, and a sibling whose name only starts with Home.
         assert_eq!(api.fs_write("v3/fsroot/Home", b"x"), Err("read only".into()));
         assert_eq!(api.fs_delete("v3/fsroot/Home"), Err("read only".into()));
         assert_eq!(api.fs_write("v3/fsroot/HomeX/x", b"x"), Err("read only".into()));
         assert_eq!(api.fs_rename("v3/fsroot/Home/a", "v3/fsroot/HomeX/a"), Err("read only".into()));
         // A delete inside Home works.
-        let home = format!("v3/fsroot/Home/edge-del-{id}.txt");
-        let _c2 = Cleanup(FakePlatform::repo_root().join(&home));
-        std::fs::write(FakePlatform::repo_root().join(&home), b"x").unwrap();
-        assert_eq!(api.fs_delete(&home), Ok(()));
-        assert!(!FakePlatform::repo_root().join(&home).exists());
+        let home = "v3/fsroot/Home/edge-del.txt";
+        std::fs::write(tree.path(home), b"x").unwrap();
+        assert_eq!(api.fs_delete(home), Ok(()));
+        assert!(!tree.path(home).exists());
+        tree.assert_intact();
         // A cart may still spawn an app from v3/apps.
         let before = k.with_state(|st| st.windows.count());
         assert!(api.spawn_app("v3/apps/t2.lua", 10, 10, ""), "spawning a v3/apps app is allowed");
@@ -1082,106 +1152,123 @@ mod tests {
 
     #[test]
     fn write_calls_are_path_guarded() {
-        let (_k, api) = spawn_on(FakePlatform::new(FakePlatform::repo_root()), 10, 10);
+        let tree = Tree::new("guard");
+        let (_k, api) = spawn_on(tree.platform(), 10, 10);
         assert_eq!(api.fs_write("v3/crates/x.txt", b"x"), Err("bad path".into()));
         assert_eq!(api.fs_rename("v3/fsroot/Home/notes.txt", "/tmp/x"), Err("bad path".into()));
         assert_eq!(api.fs_delete("../x"), Err("bad path".into()));
-        let p = format!("v3/fsroot/Tmp/api-write-{}.txt", std::process::id());
-        struct Cleanup(std::path::PathBuf);
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(&self.0);
-            }
-        }
-        let _cleanup = Cleanup(FakePlatform::repo_root().join(&p));
-        assert_eq!(api.fs_write(&p, b"abc"), Ok(()));
-        assert_eq!(api.fs_read(&p), Ok(b"abc".to_vec()));
-        assert_eq!(api.fs_delete(&p), Ok(()));
-        assert_eq!(api.fs_delete(&p), Err("not found".into()));
+        let p = "v3/fsroot/Tmp/api-write.txt";
+        assert_eq!(api.fs_write(p, b"abc"), Ok(()));
+        assert_eq!(api.fs_read(p), Ok(b"abc".to_vec()));
+        assert_eq!(api.fs_delete(p), Ok(()));
+        assert_eq!(api.fs_delete(p), Err("not found".into()));
+        tree.assert_intact();
     }
 
     #[test]
     fn system_source_is_read_only_unless_developer_mode_is_on() {
-        let (k, api) = spawn_on(FakePlatform::new(FakePlatform::repo_root()), 10, 10);
-        let name = format!("v3/apps/lock-test-{}.txt", std::process::id());
-        struct Cleanup(std::path::PathBuf);
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(&self.0);
-            }
-        }
-        let _cleanup = Cleanup(FakePlatform::repo_root().join(&name));
+        let tree = Tree::new("devmode");
+        let (k, api) = spawn_on(tree.platform(), 10, 10);
+        let name = "v3/apps/lock-test.txt";
         let ro = Err(String::from("read only"));
         assert!(!k.dev_mode(), "Developer Mode is off at boot");
-        assert_eq!(api.fs_write(&name, b"x"), ro);
+        assert_eq!(api.fs_write(name, b"x"), ro);
         assert_eq!(api.fs_delete("v3/apps/editor.lua"), ro);
         assert_eq!(api.fs_rename("v3/apps/editor.lua", "v3/fsroot/Tmp/x.lua"), ro, "out of source");
-        assert_eq!(api.fs_rename("v3/fsroot/Home/notes.txt", &name), ro, "into source");
-        assert_eq!(api.fs_write("v3/fsroot/Source/x.lua", b"x"), ro, "the Source spelling is locked too");
-        assert!(api.fs_read("v3/apps/hello_acid.app.toml").is_ok(), "reading is never locked");
+        assert_eq!(api.fs_rename("v3/fsroot/Home/notes.txt", name), ro, "into source");
+        assert_eq!(api.fs_write(&format!("v3/fsroot/{}/x.lua", link_name()), b"x"), ro, "the link spelling is locked too");
+        assert!(!tree.path(name).exists() && !tree.path("v3/apps/x.lua").exists(), "nothing was created");
+        tree.assert_intact();
+        assert!(api.fs_read("v3/apps/editor.app.toml").is_ok(), "reading is never locked");
         assert!(api.set_dev_mode(true));
         assert!(api.dev_mode());
-        assert_eq!(api.fs_write(&name, b"x"), Ok(()));
-        assert_eq!(api.fs_delete(&name), Ok(()));
+        assert_eq!(api.fs_write(name, b"x"), Ok(()));
+        assert_eq!(api.fs_delete(name), Ok(()));
         assert!(api.set_dev_mode(false));
-        let tmp = format!("v3/fsroot/Tmp/lock-test-{}.txt", std::process::id());
-        let _c2 = Cleanup(FakePlatform::repo_root().join(&tmp));
-        assert_eq!(api.fs_write(&tmp, b"x"), Ok(()), "outside source nothing changes");
-        assert_eq!(api.fs_delete(&tmp), Ok(()));
+        assert_eq!(api.fs_write("v3/fsroot/Tmp/lock-test.txt", b"x"), Ok(()), "outside source nothing changes");
+        assert_eq!(api.fs_delete("v3/fsroot/Tmp/lock-test.txt"), Ok(()));
     }
 
     #[test]
     fn the_cart_installer_may_fill_a_cart_slot() {
-        let (k, api) = spawn_on(FakePlatform::new(FakePlatform::repo_root()), 10, 10);
-        let stem = format!("cartslot-test-{}", std::process::id());
-        struct Cleanup(String);
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                for ext in [".app.toml", ".lua", ".wasm"] {
-                    let _ = std::fs::remove_file(FakePlatform::repo_root().join(format!("v3/apps/{}{ext}", self.0)));
-                }
-            }
-        }
-        let _cleanup = Cleanup(stem.clone());
+        let tree = Tree::new("slot");
+        let (k, api) = spawn_on(tree.platform(), 10, 10);
+        let stem = "cartslot-test";
         let ro = Err(String::from("read only"));
         assert!(!k.dev_mode());
         let toml = format!("v3/apps/{stem}.app.toml");
         let lua = format!("v3/apps/{stem}.lua");
         assert_eq!(api.fs_write(&toml, b"name = T\nsource = cart\n"), Ok(()), "a fresh slot: the manifest");
         assert_eq!(api.fs_write(&lua, b"-- x"), Ok(()), "then the script, once the manifest says cart");
+        assert_eq!(api.fs_write(&toml, b"name = T2\nsource = cart\n"), Ok(()), "a replace rewrites the manifest");
         assert_eq!(api.fs_rename(&lua, &format!("v3/apps/{stem}.wasm")), ro, "rename stays locked");
         assert_eq!(api.fs_delete(&lua), Ok(()), "a replace may delete the other runtime's file");
         assert_eq!(api.fs_write("v3/apps/editor.lua", b"x"), ro, "a built-in script");
-        assert_eq!(api.fs_write("v3/apps/editor.app.toml", b"x"), ro, "a built-in manifest");
+        assert_eq!(api.fs_write("v3/apps/editor.app.toml", b"source = cart\n"), ro, "a built-in manifest");
         assert_eq!(api.fs_write(&format!("v3/apps/{stem}/x.lua"), b"x"), ro, "a subfolder");
-        assert_eq!(api.fs_write(&format!("v3/fsroot/Source/{stem}.lua"), b"x"), ro, "through the link");
-        let (_k2, cart) = spawn_cart_on(FakePlatform::new(FakePlatform::repo_root()), 10, 10);
+        assert_eq!(api.fs_write(&format!("v3/fsroot/{}/{stem}.lua", link_name()), b"x"), ro, "through the link");
+        tree.assert_intact();
+        let (_k2, cart) = spawn_cart_on(tree.platform(), 10, 10);
         let fresh = format!("v3/apps/{stem}-fresh.app.toml");
         assert_eq!(cart.fs_write(&fresh, b"source = cart\n"), ro, "a cart is refused a fresh slot");
-        assert!(!FakePlatform::repo_root().join(&fresh).exists());
+        assert!(!tree.path(&fresh).exists());
+        tree.assert_intact();
+    }
+
+    #[test]
+    fn a_fresh_script_with_no_manifest_is_refused() {
+        let tree = Tree::new("nomanifest");
+        let (_k, api) = spawn_on(tree.platform(), 10, 10);
+        let ro = Err(String::from("read only"));
+        assert_eq!(api.fs_write("v3/apps/fresh.lua", b"-- x"), ro);
+        assert_eq!(api.fs_write("v3/apps/fresh.wasm", b"x"), ro);
+        assert!(!tree.path("v3/apps/fresh.lua").exists() && !tree.path("v3/apps/fresh.wasm").exists());
+        tree.assert_intact();
+    }
+
+    #[test]
+    fn a_manifest_without_source_cart_is_refused_fresh_and_when_replacing() {
+        let tree = Tree::new("badmanifest");
+        let (_k, api) = spawn_on(tree.platform(), 10, 10);
+        let ro = Err(String::from("read only"));
+        assert_eq!(api.fs_write("v3/apps/fresh.app.toml", b"name = F\n"), ro, "fresh, no source line");
+        assert_eq!(api.fs_write("v3/apps/fresh.app.toml", b"name = F\nsource = builtin\n"), ro, "fresh, wrong source");
+        assert!(!tree.path("v3/apps/fresh.app.toml").exists());
+        assert_eq!(api.fs_write("v3/apps/c.app.toml", b"name = C\nsource = cart\n"), Ok(()), "an installed cart");
+        let before = std::fs::read(tree.path("v3/apps/c.app.toml")).unwrap();
+        assert_eq!(api.fs_write("v3/apps/c.app.toml", b"name = C\n"), ro, "replacing without source = cart");
+        assert_eq!(api.fs_write("v3/apps/c.app.toml", b"name = C\nsource = builtin\n"), ro, "replacing with another source");
+        assert_eq!(std::fs::read(tree.path("v3/apps/c.app.toml")).unwrap(), before, "the manifest is unchanged");
+        tree.assert_intact();
+    }
+
+    #[test]
+    fn a_carts_manifest_cannot_be_deleted_through_the_exemption() {
+        let tree = Tree::new("delmanifest");
+        let (_k, api) = spawn_on(tree.platform(), 10, 10);
+        let ro = Err(String::from("read only"));
+        assert_eq!(api.fs_write("v3/apps/c.app.toml", b"name = C\nsource = cart\n"), Ok(()));
+        assert_eq!(api.fs_write("v3/apps/c.lua", b"-- c"), Ok(()));
+        assert_eq!(api.fs_delete("v3/apps/c.app.toml"), ro);
+        assert!(tree.path("v3/apps/c.app.toml").exists(), "the manifest survives");
+        assert_eq!(api.fs_delete("v3/apps/editor.lua"), ro, "a built-in's script has no cart manifest");
+        tree.assert_intact();
     }
 
     #[cfg(unix)]
     #[test]
     fn a_symlink_into_the_source_is_locked_too() {
-        let (_k, api) = spawn_on(FakePlatform::new(FakePlatform::repo_root()), 10, 10);
-        let link_rel = format!("v3/fsroot/Tmp/lock-link-{}", std::process::id());
-        let link = FakePlatform::repo_root().join(&link_rel);
-        struct Unlink(std::path::PathBuf);
-        impl Drop for Unlink {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(&self.0);
-            }
-        }
-        let _ = std::fs::remove_file(&link);
-        std::os::unix::fs::symlink("../../apps", &link).unwrap();
-        let _unlink = Unlink(link);
+        let tree = Tree::new("symlink");
+        let (_k, api) = spawn_on(tree.platform(), 10, 10);
+        let link_rel = "v3/fsroot/Tmp/lock-link";
+        std::os::unix::fs::symlink("../../apps", tree.path(link_rel)).unwrap();
         let ro = Err(String::from("read only"));
         assert_eq!(api.fs_write(&format!("{link_rel}/x.txt"), b"x"), ro);
         assert_eq!(api.fs_delete(&format!("{link_rel}/editor.lua")), ro);
-        assert_eq!(api.fs_rename(&link_rel, "v3/fsroot/Tmp/y"), ro, "link as source");
-        assert_eq!(api.fs_rename("v3/fsroot/Home/notes.txt", &link_rel), ro, "link as target");
-        assert!(FakePlatform::repo_root().join("v3/apps/editor.lua").exists());
+        assert_eq!(api.fs_rename(link_rel, "v3/fsroot/Tmp/y"), ro, "link as source");
+        assert_eq!(api.fs_rename("v3/fsroot/Home/notes.txt", link_rel), ro, "link as target");
+        assert!(!tree.path("v3/apps/x.txt").exists());
+        tree.assert_intact();
     }
 
     #[test]

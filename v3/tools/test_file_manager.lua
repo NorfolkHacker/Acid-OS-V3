@@ -215,5 +215,11 @@ key(AcidKeys.ENTER)
 labels = {}
 for i, e in ipairs(G.entries) do labels[i] = e.label or e.name end
 eq(labels, { "..", "Tetris" }, "Games lists only games")
+FS["v3/apps"][#FS["v3/apps"] + 1] = "cased.app.toml"
+FS["v3/apps/cased.app.toml"] = "name = Cased\nw = 90\nh = 70\ncategory = \"Game\"\n"
+G:scan_view()
+labels = {}
+for i, e in ipairs(G.entries) do labels[i] = e.label or e.name end
+eq(labels, { "..", "Cased", "Tetris" }, "a quoted, capitalised category still lands in Games")
 key(AcidKeys.ENTER)
 eq({ G.view, names()[1] }, { nil, "Apps" }, "the .. row goes back up too")

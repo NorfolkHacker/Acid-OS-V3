@@ -64,6 +64,17 @@ local function trim(s)
   return s:match("^%s*(.-)%s*$")
 end
 
+-- A manifest value as the kernel reads it: trimmed, one pair of surrounding
+-- quotes stripped (either kind), trimmed again.
+local function unquote(s)
+  s = trim(s)
+  if #s >= 2 then
+    local q = s:sub(1, 1)
+    if (q == '"' or q == "'") and s:sub(-1) == q then s = trim(s:sub(2, -2)) end
+  end
+  return s
+end
+
 -- Everything derived from the window size lives here, so a resize can redo
 -- it: the window's extent and the columns an entry label is clipped to.
 function FileManagerApp:layout()
@@ -148,7 +159,7 @@ function FileManagerApp:scan_view()
   for _, name in ipairs(acid_fs_list(self.APPS_DIR) or {}) do
     if ends_with(name, ".app.toml") then
       local f = self:read_manifest(self.APPS_DIR .. "/" .. name)
-      local category = f and f.category == "game" and "game" or "app"
+      local category = f and f.category and unquote(f.category):lower() == "game" and "game" or "app"
       if f and f.name and category == want then
         found[#found + 1] = { name = name, label = f.name, desc = f.desc or "", launch = true, dir = false, size = 0 }
       end

@@ -644,6 +644,12 @@ mod tests {
     }
 
     #[test]
+    fn developer_mode_is_off_on_a_new_kernel() {
+        let k = Kernel::new(FakePlatform::new("."));
+        assert!(!k.dev_mode());
+    }
+
+    #[test]
     fn spawn_without_runner_fails() {
         let k = Kernel::new(FakePlatform::new("."));
         assert_eq!(k.spawn_app(req(0, 30, 10, 10)), None);

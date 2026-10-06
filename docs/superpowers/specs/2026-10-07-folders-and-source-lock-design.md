@@ -58,7 +58,11 @@ While Developer Mode is off:
 
 Reading, listing, sizing and launching are never locked. With Developer Mode on, these calls behave as they do today. The existing cart rule (carts change only under Home) still applies on top.
 
-- **Cart slots.** A built-in app (in practice, Load Cart) may write or delete `v3/apps/<stem>.app.toml|.lua|.wasm` while Developer Mode is off, if the slot is fresh (none of the three files exists) or its manifest says `source = cart`. Built-in apps' files are never cart slots. Rename stays locked.
+- **Cart slots.** While Developer Mode is off, a built-in app (in practice, Load Cart) may change `v3/apps/<stem>.app.toml|.lua|.wasm` only as follows. Built-in apps' files are never cart slots. Rename stays locked.
+  - **Write `<stem>.app.toml`:** allowed when the slot is fresh (none of the three files exists) or the existing manifest says `source = cart`, AND the data being written itself says `source = cart`. Load Cart's manifest always ends with that line.
+  - **Write `<stem>.lua` or `<stem>.wasm`:** allowed only when the existing `<stem>.app.toml` reads Ok and says `source = cart`. A fresh slot is not enough; Load Cart writes the manifest first.
+  - **Delete:** allowed only for `<stem>.lua` or `<stem>.wasm` whose manifest says `source = cart`. A `.app.toml` is never deleted through the exemption.
+  - Any read error fails closed.
 
 ## 2. Config: the DEV MODE row
 

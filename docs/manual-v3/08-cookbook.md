@@ -238,8 +238,10 @@ that must hold across the whole system has to be enforced by the kernel.
 
 ### A write says `read only`
 
-The app is cart-level and the path is outside `v3/fsroot/Home/`. See
-[§7.11](07-system-apis.md#711-what-a-cart-is-refused).
+The app is cart-level and the path is outside `v3/fsroot/Home/`, or the path
+is system source (`v3/apps`, `Source`) and Developer Mode is off. See
+[§7.11](07-system-apis.md#711-what-a-cart-is-refused) and
+[§7.9](07-system-apis.md#79-developer-mode-and-the-source-lock).
 
 If a write says `bad path` instead, the path is badly formed, or it points into
 a folder that doesn't exist.

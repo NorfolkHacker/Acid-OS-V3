@@ -74,6 +74,8 @@ pub trait Fs: Send + Sync {
     /// Whether `path` really lands under `dir` (both relative to the
     /// root), wherever symlinks on the way point. The default only
     /// compares spellings, so a fake file system with no links stays simple.
+    /// A case-insensitive `Fs` (such as FAT) must override this, or the
+    /// lock can be bypassed by spelling.
     fn resolves_into(&self, path: &str, dir: &str) -> bool {
         path == dir || path.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/'))
     }
