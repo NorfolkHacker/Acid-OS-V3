@@ -2,6 +2,13 @@
 //! tracker, and up to MAX_SOUNDS running .snd sounds, stepped every
 //! TICK_SAMPLES samples while the synth renders. Owners are app task ids.
 
+//!
+//! Voice choice for a sound: it takes the highest-numbered free voice,
+//! avoiding voices apps play directly (`busy`) and voices other sounds hold.
+//! While a song plays, every voice except the song's donor voice is
+//! reserved for it. A voice a sound takes is lent to the song and preview
+//! players, and handed back when the sound ends.
+
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -94,6 +101,9 @@ impl Engine {
         }
     }
 
+    /// Commands from song script instruments are dropped: they have no
+    /// program context, so they can't start songs. Preview commands are
+    /// discarded too.
     pub fn tick(&mut self, synth: &mut Synth) {
         self.ticks = self.ticks.wrapping_add(1);
         if let Some(s) = self.song.as_mut() {
@@ -131,7 +141,10 @@ impl Engine {
     }
 
     fn apply_cmds(&mut self, synth: &mut Synth, owner: u32, prog: Option<&Arc<Program>>) {
+        // Stop, tempo, mute and jump act only on a song this owner started.
         for k in 0..self.cmds.len() {
+            // Re-read each time: an earlier command may have replaced the song.
+            let own = self.song_owner() == Some(owner);
             match self.cmds[k] {
                 SongCmd::Play { song: Some(i), order } => {
                     let found = prog.and_then(|p| p.songs.get(i as usize)).and_then(|s| s.clone());
@@ -139,23 +152,24 @@ impl Engine {
                         self.play_song(synth, owner, 0, ls, order, 0);
                     }
                 }
-                SongCmd::Play { song: None, order } => {
+                SongCmd::Play { song: None, order } if own => {
                     if let Some(s) = self.song.as_mut() {
                         s.player.jump(order);
                     }
                 }
-                SongCmd::Stop => self.stop_song(synth),
-                SongCmd::Tempo(n) => {
+                SongCmd::Stop if own => self.stop_song(synth),
+                SongCmd::Tempo(n) if own => {
                     if let Some(s) = self.song.as_mut() {
                         s.player.set_speed(n);
                     }
                 }
-                SongCmd::Mute(ch, on) => self.mute(synth, ch, on),
-                SongCmd::Jump(o) => {
+                SongCmd::Mute(ch, on) if own => self.mute(synth, ch, on),
+                SongCmd::Jump(o) if own => {
                     if let Some(s) = self.song.as_mut() {
                         s.player.jump(o);
                     }
                 }
+                _ => {}
             }
         }
     }
@@ -517,5 +531,53 @@ mod tests {
         }
         e.play_song(&mut s, 1, 1, song(4), i32::MAX, i32::MAX);
         render(&mut e, &mut s, T);
+    }
+
+    #[test]
+    fn script_song_commands_only_touch_the_callers_own_song() {
+        let (mut e, mut s) = (Engine::new(), Synth::new());
+        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        render(&mut e, &mut s, T);
+        e.play_sound(&mut s, 2, prog("mute 1"), 0, 40, 0).unwrap();
+        render(&mut e, &mut s, T);
+        assert!(!e.song_player().unwrap().muted(0), "owner 2 can't mute owner 1's song");
+        e.play_sound(&mut s, 2, prog("stop song"), 0, 40, 0).unwrap();
+        render(&mut e, &mut s, T);
+        assert!(e.song_position().is_some(), "owner 2 can't stop owner 1's song");
+        e.play_sound(&mut s, 1, prog("mute 1"), 0, 40, 0).unwrap();
+        render(&mut e, &mut s, T);
+        assert!(e.song_player().unwrap().muted(0), "the owner still can");
+        e.play_sound(&mut s, 1, prog("stop song"), 0, 40, 0).unwrap();
+        render(&mut e, &mut s, T);
+        assert_eq!(e.song_position(), None);
+    }
+
+    #[test]
+    fn stop_sound_hands_the_voice_back() {
+        let (mut e, mut s) = (Engine::new(), Synth::new());
+        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        let id = e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
+        assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
+        e.stop_sound(&mut s, 2, id);
+        assert_eq!(e.song_player().unwrap().borrowed(), 0);
+    }
+
+    #[test]
+    fn release_owner_of_a_sound_hands_back_a_song_it_does_not_own() {
+        let (mut e, mut s) = (Engine::new(), Synth::new());
+        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
+        assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
+        e.release_owner(&mut s, 2);
+        assert_eq!(e.song_player().unwrap().borrowed(), 0);
+        assert_eq!(e.song_owner(), Some(1));
+    }
+
+    #[test]
+    fn a_song_started_during_a_sound_starts_with_its_voice_lent() {
+        let (mut e, mut s) = (Engine::new(), Synth::new());
+        e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
+        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
     }
 }
