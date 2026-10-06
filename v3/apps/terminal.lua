@@ -389,8 +389,10 @@ function TerminalApp:cmd_play(args)
 end
 
 function TerminalApp:stop_playing()
+  -- A script-started song (sync.snd runs acid_groove.trk) belongs to this
+  -- task but isn't in self.song; the kernel only stops the caller's own song.
+  if self.song or self.prog then acid_song_stop() end
   if self.song then
-    acid_song_stop()
     acid_song_free(self.song)
     self.song = nil
   end

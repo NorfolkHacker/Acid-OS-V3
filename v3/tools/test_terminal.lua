@@ -92,7 +92,7 @@ eq(SOUND_CALLS, { { "stop" }, { "free", 1 }, { "sound_load", 1 }, { "sound_play"
   "playing a .snd stops the song first, then starts the sound")
 SOUND_CALLS = {}
 type_line("play")
-eq(SOUND_CALLS, { { "sound_stop", 1 }, { "sound_free", 1 } }, "play on its own stops everything")
+eq(SOUND_CALLS, { { "stop" }, { "sound_stop", 1 }, { "sound_free", 1 } }, "play on its own stops everything, including a song a script started")
 type_line("play /Home/missing.trk")
 eq(last(), "play: not found", "a missing file is reported")
 type_line("play notes.txt")
