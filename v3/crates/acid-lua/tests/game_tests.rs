@@ -160,6 +160,11 @@ fn trk_song() {
 }
 
 #[test]
+fn trk_edit() {
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/tracker/song.lua", "v3/apps/tracker/edit.lua", "v3/tools/test_trk_edit.lua"]), 36);
+}
+
+#[test]
 fn breakout() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/breakout.lua", "v3/tools/test_breakout.lua"]), 11);
 }
