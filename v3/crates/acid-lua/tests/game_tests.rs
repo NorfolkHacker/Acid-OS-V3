@@ -165,6 +165,11 @@ fn trk_edit() {
 }
 
 #[test]
+fn trk_layout_and_commands() {
+    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/tracker/layout.lua", "v3/apps/tracker/cmd.lua", "v3/tools/test_trk_layout_cmd.lua"], 15);
+}
+
+#[test]
 fn breakout() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/breakout.lua", "v3/tools/test_breakout.lua"]), 11);
 }
