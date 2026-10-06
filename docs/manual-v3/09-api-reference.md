@@ -58,7 +58,7 @@ limits or errors, then what a cart gets (if that differs).
 
 **Launching** — [`acid_launcher_register`](#acid_launcher_register) · [`acid_launcher_count`](#acid_launcher_count) · [`acid_launcher_name`](#acid_launcher_name) · [`acid_launcher_path`](#acid_launcher_path) · [`acid_launcher_spawn`](#acid_launcher_spawn) · [`acid_spawn_app`](#acid_spawn_app) · [`acid_launch_arg`](#acid_launch_arg)
 
-**System** — [`acid_refresh_tasks`](#acid_refresh_tasks) · [`acid_task_count`](#acid_task_count) · [`acid_task_info`](#acid_task_info) · [`acid_mem_used_kb`](#acid_mem_used_kb) · [`acid_composited_frames`](#acid_composited_frames) · [`acid_skipped_frames`](#acid_skipped_frames) · [`acid_network_info`](#acid_network_info) · [`acid_set_wallpaper_enabled`](#acid_set_wallpaper_enabled) · [`acid_get_wallpaper_enabled`](#acid_get_wallpaper_enabled) · [`acid_restart`](#acid_restart)
+**System** — [`acid_refresh_tasks`](#acid_refresh_tasks) · [`acid_task_count`](#acid_task_count) · [`acid_task_info`](#acid_task_info) · [`acid_mem_used_kb`](#acid_mem_used_kb) · [`acid_composited_frames`](#acid_composited_frames) · [`acid_skipped_frames`](#acid_skipped_frames) · [`acid_network_info`](#acid_network_info) · [`acid_set_wallpaper_enabled`](#acid_set_wallpaper_enabled) · [`acid_get_wallpaper_enabled`](#acid_get_wallpaper_enabled) · [`acid_get_dev_mode`](#acid_get_dev_mode) · [`acid_set_dev_mode`](#acid_set_dev_mode) · [`acid_restart`](#acid_restart)
 
 **File system** — [`acid_fs_list`](#acid_fs_list) · [`acid_fs_read`](#acid_fs_read) · [`acid_fs_size`](#acid_fs_size) · [`acid_fs_write`](#acid_fs_write) · [`acid_fs_rename`](#acid_fs_rename) · [`acid_fs_delete`](#acid_fs_delete)
 
@@ -379,7 +379,7 @@ Errors:
 - `bad path`: the path guard rejected it, or its real location is outside the
   allowed roots.
 - `not found`: there is no such file.
-- `read only`: a cart tried to delete outside its area (see below).
+- `read only`: system source (`v3/apps`, `Source`) unless Developer Mode is on, or a cart tried to delete outside its area (see below).
 - Anything else is the operating system's own message.
 
 **Cart:** only under `v3/fsroot/Home/`; elsewhere `nil, "read only"`.
@@ -423,7 +423,7 @@ Errors:
 - `bad path`: either path fails those checks, is a root folder itself, or is a
   symlink. This includes a `from` or `to` whose folder doesn't exist.
 - `not found`: there is nothing at `from`.
-- `read only`: a cart tried to rename outside its area (see below).
+- `read only`: system source (`v3/apps`, `Source`) unless Developer Mode is on, or a cart tried to rename outside its area (see below).
 
 **Cart:** both ends must be under `v3/fsroot/Home/`; otherwise
 `nil, "read only"`.
@@ -455,9 +455,19 @@ Errors:
 
 - `bad path`: the parent folder doesn't exist, or the path's real location is
   not inside `v3/apps` or `v3/fsroot`.
+- `read only`: system source (`v3/apps`, `Source`) unless Developer Mode is on.
 - Writing to a folder gives the operating system's own message.
 
 **Cart:** only under `v3/fsroot/Home/`; elsewhere `nil, "read only"`.
+
+### `acid_get_dev_mode`
+
+```lua snippet
+local on = acid_get_dev_mode()   -- true / false
+```
+
+Whether Developer Mode is on. When off, the OS's own code (`v3/apps`,
+`Source`) is read-only. Developer Mode is never saved: it is off at every boot.
 
 ### `acid_get_font_scale`
 
@@ -572,7 +582,7 @@ local year, month, day, hour, min, sec = acid_local_time()
 
 The local date and time as six integers. Months run 1 to 12 and hours 0 to
 23. On a platform with no clock you get `1970, 1, 1, 0, 0, 0`. See
-[§7.9](07-system-apis.md#79-the-clock).
+[§7.10](07-system-apis.md#710-the-clock).
 
 ### `acid_mem_used_kb`
 
@@ -690,7 +700,7 @@ local ms = acid_now_ms()
 Milliseconds since the platform started, as an integer. It only ever goes up,
 never backwards, so it is the clock to use for timing. `AcidGame` uses it to
 pace its ticks. See
-[§7.9](07-system-apis.md#79-the-clock).
+[§7.10](07-system-apis.md#710-the-clock).
 
 ### `acid_overlay_clear`
 
@@ -848,6 +858,19 @@ acid_send_self_to_back()
 
 Sends your app's own window behind all the others. It always acts on your own
 window.
+
+### `acid_set_dev_mode`
+
+```lua snippet
+local ok = acid_set_dev_mode(on)   -- returns true / false
+```
+
+Turns Developer Mode on or off. When on, the OS's own code (`v3/apps`,
+`Source`) becomes writable. Developer Mode is never saved: it is off at every
+boot.
+
+For a built-in app, returns `true` and sets the mode. For a cart, returns
+`false` and does nothing.
 
 ### `acid_set_font_scale`
 
@@ -1044,7 +1067,7 @@ still returns `true`. The new app then ends straight away and logs
 `Acid OS v3: refused unsafe script path <path>`.
 
 If a path came from the file system, tidy it with
-`AcidApp:canonical_app_path` first. `v3/fsroot/App` is a symlink to `v3/apps`,
+`AcidApp:canonical_app_path` first. `v3/fsroot/Source` is a symlink to `v3/apps`,
 and the registry doesn't follow it, so the same app can look unregistered.
 
 **Cart:** returns `false`:
@@ -1183,7 +1206,7 @@ MyApp:new():start()
 | `window_title()` | Derived from the class name, capped at 16 chars |
 | `focused()` | Wraps `acid_am_i_focused` |
 | `quit()` | Ends the loop (**no effect in `AcidGame`**) |
-| `canonical_app_path(path)` | Maps `v3/fsroot/App/...` to `v3/apps/...` |
+| `canonical_app_path(path)` | Maps `v3/fsroot/Source/...` to `v3/apps/...` |
 | `start()` | Runs the event loop |
 | `extend(class_name)` | Makes a subclass |
 | `new()` | Makes an instance |

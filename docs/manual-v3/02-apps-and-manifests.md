@@ -54,6 +54,7 @@ libs = lib/acid_sprite.lua, lib/acid_eggs.lua
 | `h` | **yes** | Window height in pixels, including the 16px title bar. 1 to the screen height (480 by default). |
 | `desc` | no | A one-line description shown alongside the app. It doesn't change how the app behaves. |
 | `menu` | no | `menu = false` hides the app from the Menu. You can still launch it by path (File Manager, `acid_spawn_app`, `--app`, Terminal's `run`). Any other value, or leaving the key out, means the app is shown. Only the exact string `false` hides it. |
+| `category` | no | `app` or `game`. It decides whether the File Manager lists the app under **Apps** or **Games**. Missing means `app`. This is separate from `menu = false`, which only hides an app from the Menu. |
 | `multi` | no | `multi = true` lets several windows of this app be open at once. By default an app is **single-instance**: launching it again raises and focuses the window that's already open instead of opening a second one. If a cart tries to launch it, the cart gets `false` and nothing is raised. And if a cart started the open copy, a built-in app launching it gets a new, trusted window of its own instead of raising the cart's copy. |
 | `resizable` | no | `resizable = true` gives the window a small grip in its bottom-right corner; dragging it resizes the window and the app gets `on_resize(w, h)` ([§3.1](03-app-lifecycle.md#31-the-callbacks)). Any other value, or leaving the key out, means a fixed size. Carts may opt in too. |
 | `min_w`, `min_h` | no | The smallest size a resizable window can be dragged to. Both default to 80 and 48, and are capped at the window's opening size. `min_w` is raised to at least 80, and `min_h` to at least the title bar plus one text line. Both are doubled for a Large-text window. Ignored without `resizable`. Carts may opt in too, through Load Cart's header (`-- resizable: true`, `-- min_w:`, `-- min_h:`) or their manifest. |
@@ -190,7 +191,7 @@ There are two limits to know about:
   still registered, and you can launch them by path, but they don't appear in
   the Menu.
 
-One trap: `v3/fsroot/App` is a symlink to `v3/apps`. The registry matches
+One trap: `v3/fsroot/Source` is a symlink to `v3/apps`. The registry matches
 launch paths as exact strings, so a path that goes through the symlink matches
 nothing. The app starts in a VM with none of its modules loaded. Worse, a
 script started from `v3/fsroot/...` runs at cart level

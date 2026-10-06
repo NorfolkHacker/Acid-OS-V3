@@ -172,7 +172,7 @@ taking its window with it, and logs:
 If you're launching something a user typed, check the path with `acid_fs_size`
 first.
 
-> **Canonicalise paths that came from the file system.** `v3/fsroot/App` is a
+> **Canonicalise paths that came from the file system.** `v3/fsroot/Source` is a
 > symlink to `v3/apps`. The registry and the singleton check both match paths
 > as exact strings, so a path that came in through the symlink matches
 > nothing. The app then opens with none of its modules, and a singleton can
@@ -182,7 +182,7 @@ first.
 > acid_spawn_app(self:canonical_app_path(path), w, h, "")
 > ```
 >
-> It turns `v3/fsroot/App/x.lua` back into `v3/apps/x.lua` and leaves every
+> It turns `v3/fsroot/Source/x.lua` back into `v3/apps/x.lua` and leaves every
 > other path alone.
 
 ### Reading your own launch argument
@@ -524,7 +524,7 @@ refused unless that real location is inside the real `v3/apps` or the real
 
 What this means in practice:
 
-- `v3/fsroot/App` is a symlink to `v3/apps`. Writing to `v3/fsroot/App/x.lua`
+- `v3/fsroot/Source` is a symlink to `v3/apps`. Writing to `v3/fsroot/Source/x.lua`
   **works** and lands in `v3/apps/x.lua`, because it really points into the
   apps folder.
 - A symlink to anywhere outside the two roots is refused with `bad path`. So
@@ -533,7 +533,7 @@ What this means in practice:
   doesn't exist fails** with `bad path`. There's no call to make a folder.
 - `acid_fs_rename` won't move a root itself. It also refuses if either end is a
   symlink, because it would move the link, not the thing it points at.
-- Reads follow symlinks freely, so `acid_fs_list("v3/fsroot/App")` lists the
+- Reads follow symlinks freely, so `acid_fs_list("v3/fsroot/Source")` lists the
   apps.
 
 So a built-in app can write anywhere under the two roots, `v3/apps` included.
@@ -548,8 +548,7 @@ Manager:
 | Path | Holds |
 |---|---|
 | `v3/fsroot/Home` | The user's files |
-| `v3/fsroot/App` | Symlink to `v3/apps` |
-| `v3/fsroot/Lib` | Symlink to `v3/apps/lib`, the shared Lua libraries |
+| `v3/fsroot/Source` | Symlink to `v3/apps`, the OS's own code and built-in apps |
 | `v3/fsroot/Help` | Help text |
 | `v3/fsroot/Tmp` | Temporary files; anything here can vanish |
 
@@ -610,7 +609,32 @@ of listings. Reading a file over 256 KB gives `nil, "too big"`.
 You'll only need these if you're writing a replacement for Load Cart
 ([§2.5](02-apps-and-manifests.md#25-carts)).
 
-## 7.9 The clock
+## 7.9 Developer Mode and the source lock
+
+The OS's own code (`v3/apps` and `v3/fsroot/Source`, which is a symlink to
+`v3/apps`) is **read-only from inside the OS**. Any attempt to write, rename or
+delete there returns `nil, "read only"`. This protects the system from
+accidental damage.
+
+**Developer Mode** is a switch in the Config app that temporarily unlocks the
+source for writing. It is **off at every boot**, so you must turn it on each
+time you want to edit system code.
+
+Carts cannot turn on Developer Mode or change system source, even if someone
+else turned it on. Load Cart is a built-in app, so it can still install carts
+while Developer Mode is off; the exception allows it to fill cart slots.
+
+The two calls that manage Developer Mode are:
+
+```lua snippet
+local on = acid_get_dev_mode()        -- true / false
+local ok = acid_set_dev_mode(on)      -- returns true for a built-in app, false for a cart
+```
+
+For a cart, `acid_set_dev_mode` returns `false` and does nothing, as the
+existing rule for `acid_restart` does.
+
+## 7.10 The clock
 
 ```lua snippet
 local year, month, day, hour, min, sec = acid_local_time()

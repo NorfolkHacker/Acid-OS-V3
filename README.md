@@ -81,7 +81,7 @@ Acid OS opens on a **screen-size picker**: 640×480 (the default), 640×360 or
 800×600. Pick one with the arrow keys and Enter or a click, or wait three
 seconds for the default. Then the desktop appears. Open apps from the **Menu**
 at the top left. Games, demos, Sprite Paint and Acid Tracker open from the **File Manager**:
-click their `.app.toml` in the `App` folder.
+open them from the File Manager's **Apps** or **Games** folder.
 
 ### Options
 

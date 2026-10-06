@@ -18,8 +18,8 @@ your app is doing.
 
 ## 11.1 Acid Tracker
 
-Open Acid Tracker from the File Manager: either `App/tracker.app.toml`, or
-any `.trk` file, such as `Home/music/acid_groove.trk`. You can also type
+Open Acid Tracker from the File Manager's **Apps** folder, or any `.trk` file,
+such as `Home/music/acid_groove.trk`. You can also type
 `run acid tracker` in the Terminal. Like Sprite Paint, it isn't in the Menu.
 
 A song has **four channels**, and each channel has **two voices**. Each row
