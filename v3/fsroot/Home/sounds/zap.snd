@@ -1,0 +1,14 @@
+# A laser zap for games:
+#   local zap = acid_sound_load_file("v3/fsroot/Home/sounds/zap.snd")
+#   acid_sound_play(zap)
+sound zap
+  wave saw
+  adsr 0 40 100 80
+  pitch 70
+  gate on
+  repeat 12
+    pitch -3
+    wait 1
+  end
+  gate off
+end

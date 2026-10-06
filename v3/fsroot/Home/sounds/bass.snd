@@ -1,0 +1,16 @@
+# A fat two-voice bass for Acid Tracker: a saw and a detuned pulse,
+# filtered, with the pulse width sweeping while the note holds.
+instrument fatbass
+  wave saw
+  v2 wave pulse; v2 duty 30; v2 fine +6
+  both adsr 2 120 60 80
+  filter lp 60 res 6
+  both route on
+  both gate on
+  loop
+    v2 duty +2
+    wait 1
+  end
+on release
+  both gate off
+end
