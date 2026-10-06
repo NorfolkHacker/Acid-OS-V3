@@ -230,7 +230,11 @@ impl Player {
             let Some(prog) = c.script.clone() else { continue };
             for slot in &mut c.instances {
                 let Some(inst) = slot else { continue };
-                inst.tick(&prog.blocks[inst.block], &mut Env { synth: &mut *synth, clock, song_cmds: &mut *cmds });
+                let Some(block) = prog.blocks.get(inst.block) else {
+                    *slot = None;
+                    continue;
+                };
+                inst.tick(block, &mut Env { synth: &mut *synth, clock, song_cmds: &mut *cmds });
                 if inst.state == State::Done {
                     *slot = None;
                 }
@@ -253,11 +257,13 @@ impl Player {
         let Some(entry) = song.song.orders[ch].entries.get(order_pos).copied() else { return };
         let Some(row) = song.song.patterns.get(&entry.pattern).and_then(|p| p.get(row_i)).copied() else { return };
         self.chans[ch].fx = RowFx::default();
-        if self.chans[ch].muted {
-            return;
-        }
         if row.inst != 0 {
             self.chans[ch].inst = row.inst;
+        }
+        // A mute only stops the channel changing its voices; song commands still run.
+        if self.chans[ch].muted {
+            self.command(synth, ch, row.cmd, row.param);
+            return;
         }
         let shift = |n: u8| (n as i32 + entry.transpose as i32).clamp(pitch::ONA_MIN, pitch::ONA_MAX);
         match row.note {
@@ -275,6 +281,9 @@ impl Player {
 
     fn command(&mut self, synth: &mut Synth, ch: usize, cmd: u8, param: u8) {
         let p = param as i32;
+        if self.chans[ch].muted && matches!(cmd, b'1' | b'2' | b'4' | b'8' | b'9') {
+            return;
+        }
         match cmd {
             b'1' => self.chans[ch].fx.slide = p,
             b'2' => self.chans[ch].fx.slide = -p,
@@ -325,6 +334,12 @@ impl Player {
         c.sounding = false;
         if c.muted {
             return;
+        }
+        // A new note stops whatever the channel was playing, even if it
+        // then plays nothing (a missing instrument is silence).
+        for v in [v1, v2].into_iter().flatten() {
+            synth.gate_off(v);
+            synth.clear_ring_partner(v);
         }
         c.playing = inst;
         c.base = fine_pos(ona);
@@ -398,7 +413,9 @@ impl Player {
         let c = &mut self.chans[ch];
         if let Some(prog) = c.script.clone() {
             for inst in c.instances.iter_mut().flatten() {
-                inst.release(&prog.blocks[inst.block], synth);
+                if let Some(block) = prog.blocks.get(inst.block) {
+                    inst.release(block, synth);
+                }
             }
         } else {
             for v in [v1, v2].into_iter().flatten() {
@@ -753,8 +770,54 @@ mod tests {
         p.trigger(&mut s, 0, i32::MAX, Some(i32::MIN), 1);
         assert_eq!(s.voice(0).phase_increment, ONA_PHASE_INCREMENT[87]);
         assert_eq!(s.voice(1).phase_increment, ONA_PHASE_INCREMENT[0]);
+        // Without the clamp `p1 + 6` overflows here.
+        p.trigger(&mut s, 0, i32::MAX, None, 1);
+        run(&mut p, &mut s, 1);
+        assert_eq!(s.voice(0).phase_increment, ONA_PHASE_INCREMENT[87]);
+        assert_eq!(s.voice(1).phase_increment, increment_at(fine_pos(88) + 6));
         p.trigger(&mut s, 0, i32::MIN, None, 1);
         assert_eq!(s.voice(0).phase_increment, ONA_PHASE_INCREMENT[0]);
+    }
+
+    #[test]
+    fn a_muted_channel_still_runs_speed_commands() {
+        let (mut p, mut s) = player(&one_channel(LEAD, &["C-4 01 F 03 ...", EMPTY]));
+        p.set_muted(&mut s, 0, true);
+        run(&mut p, &mut s, 2);
+        assert_eq!(p.position(), (0, 0, 2));
+        run(&mut p, &mut s, 1);
+        assert_eq!(p.position(), (0, 1, 0));
+        assert_eq!(s.voice(0).envelope_stage, EnvStage::Off);
+    }
+
+    #[test]
+    fn an_instrument_change_while_muted_is_used_after_unmute() {
+        let two = format!("{LEAD}\ninstrument 02 \"T\"  wave tri  adsr 0 0 100 0  duty 50");
+        let (mut p, mut s) = player(&one_channel(&two, &["... 02 . .. ...", "C-4 .. . .. ..."]));
+        p.set_muted(&mut s, 0, true);
+        run(&mut p, &mut s, 1);
+        p.set_muted(&mut s, 0, false);
+        run(&mut p, &mut s, 2);
+        assert_eq!(s.voice(0).waveform, Waveform::Triangle);
+    }
+
+    #[test]
+    fn a_note_on_a_missing_instrument_silences_the_old_one() {
+        let (mut p, mut s) = player(&one_channel(LEAD, &[EMPTY]));
+        p.trigger(&mut s, 0, 40, None, 1);
+        assert_eq!(s.voice(0).envelope_stage, EnvStage::Attack);
+        p.trigger(&mut s, 0, 41, None, 9);
+        assert_eq!(s.voice(0).envelope_stage, EnvStage::Release);
+    }
+
+    #[test]
+    fn a_bad_script_block_index_does_not_panic() {
+        let text = one_channel("instrument 01 \"S\"  script \"x.snd\" blip", &["C-4 01 . .. ..."]);
+        let mut ls = LoadedSong::plain(parse(&text).unwrap());
+        ls.scripts.insert(1, (Arc::new(compile(BLIP).unwrap()), 99));
+        let (mut p, mut s) = (Player::new(Arc::new(ls), 0, 0), Synth::new());
+        run(&mut p, &mut s, 2);
+        p.note_off(&mut s, 0);
     }
 
     #[test]
