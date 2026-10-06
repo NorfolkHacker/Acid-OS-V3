@@ -13,6 +13,8 @@ Header (all lines optional, first comment block only):
   -- h: 150                      window height, clamped to the screen
   -- desc: one-line description  shown in the Menu and File Manager
   -- libs: lib/acid_palette.lua  modules from v3/apps/lib, comma separated
+  -- category: game              listed under Games in the File Manager;
+                                 anything else (or none) is listed under Apps
 
 An installed cart joins the Menu dropdown at the next boot; Load Cart's
 RUN button starts it immediately in the meantime.

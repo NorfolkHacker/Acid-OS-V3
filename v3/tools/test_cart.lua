@@ -153,6 +153,18 @@ eq(has(YES, "resizable"), false, "only the exact value true opts in")
 eq(Cartfile.from_cart("rz.cart", "-- min_w: abc\n", LIBS).min_w, Cartfile.MIN_W, "a junk min_w clamps to the minimum")
 eq(has(BARE, "min_w"), false, "no header, no minimums")
 
+group("manifest_text: category = game")
+local GSPEC = Cartfile.from_cart("g.cart", "-- name: G\n-- category: game\n", LIBS)
+eq(GSPEC.category, "game", "category: game is read")
+eq(Cartfile.from_cart("g.cart", "-- category:  GaMe \n", LIBS).category, "game", "case and spaces don't matter")
+eq(Cartfile.from_cart("g.cart", "-- category: app\n", LIBS).category, nil, "app is the default, so nothing is kept")
+eq(Cartfile.from_cart("g.cart", "-- category: toy\n", LIBS).category, nil, "an unknown category is dropped")
+eq(Cartfile.from_cart("g.cart", "-- name: G\n", LIBS).category, nil, "no line, no category")
+local GMANI = Cartfile.manifest_text(GSPEC)
+eq(has(GMANI, "category = game\n"), true, "the manifest carries category = game")
+eq(GMANI:find("category = game", 1, true) < GMANI:find("source = cart", 1, true), true, "before source = cart")
+eq(has(BARE, "category"), false, "no category means no category line")
+
 -- -------------------------------------------------------- replaceable
 
 group("replaceable: what a cart may overwrite")
@@ -325,3 +337,5 @@ eq(WSPEC.name, "Wasm Thing", "and its name")
 eq(Cartfile.manifest_text(WSPEC), "name = Wasm Thing\nw = 300\nh = 100\nruntime = wasm\nsource = cart\n",
    "runtime = wasm sits just before the final source = cart")
 eq(SPEC.runtime, "lua", "a .cart has the lua runtime")
+local GWASM = Cartfile.from_cart("g.wasm", WASM_HEAD .. custom("acid", "name: G\ncategory: game\n"), LIBS)
+eq(GWASM.category, "game", "a wasm cart's acid section can say category: game")

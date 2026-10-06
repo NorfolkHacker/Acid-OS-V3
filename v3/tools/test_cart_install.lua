@@ -323,3 +323,15 @@ eq(app.status, "protected", "a built-in's slot is protected")
 eq(app.name_clash, "v3/apps/guard.lua", "and taking the built-in's name is still a clash")
 app:install()
 eq(FS["v3/apps/guard.lua"], "-- a built-in\n", "the built-in is untouched")
+
+group("category: a game cart lands in Games")
+CART_FS["v3/carts"][#CART_FS["v3/carts"] + 1] = "rocks.cart"
+CART_FS["v3/carts/rocks.cart"] = "-- name: Rocks\n-- category: game\n\nRocks = {}\n"
+select_cart("rocks.cart")
+eq(app.spec.category, "game", "the confirm screen knows it is a game")
+TEXTS = {}
+app:draw_confirm()
+eq(has(TEXTS, "game"), true, "and shows it")
+app:install()
+eq(FS["v3/apps/rocks.app.toml"], "name = Rocks\nw = 220\nh = 160\ncategory = game\nsource = cart\n",
+   "the manifest says category = game, before source = cart")

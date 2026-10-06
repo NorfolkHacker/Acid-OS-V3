@@ -230,7 +230,9 @@ Only the folders that exist are offered.
 
 Installing a cart writes `v3/apps/<slug>.lua`, plus a generated
 `v3/apps/<slug>.app.toml` that includes `source = cart`. (The slug is the
-installed file's base name; see below.) There's a sample at
+installed file's base name; see below.) A cart whose header says
+`-- category: game` also gets `category = game`, so it shows in the File
+Manager's **Games** folder; any other cart shows in **Apps**. There's a sample at
 `v3/carts/hello_acid.cart`, and `v3/carts/README.txt` describes the format.
 The sample ships already installed, as Hello Acid. Its manifest says
 `menu = false`, so open it from File Manager (**Apps** → Hello Acid).

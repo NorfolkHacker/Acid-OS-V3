@@ -56,7 +56,7 @@ Cartfile.DEFAULT_H = 160
 -- The only header keys that mean anything. Anything else in the comment
 -- block is a comment, including keys we might add later -- an unknown
 -- key never reaches the generated manifest.
-Cartfile.HEADER_KEYS = { "name", "w", "h", "desc", "libs", "resizable", "min_w", "min_h" }
+Cartfile.HEADER_KEYS = { "name", "w", "h", "desc", "libs", "resizable", "min_w", "min_h", "category" }
 
 local function includes(list, value)
   for _, v in ipairs(list) do
@@ -330,6 +330,8 @@ function Cartfile.manifest_text(fields)
   if fields.resizable then lines[#lines + 1] = "resizable = true" end
   if fields.min_w then lines[#lines + 1] = "min_w = " .. str(fields.min_w) end
   if fields.min_h then lines[#lines + 1] = "min_h = " .. str(fields.min_h) end
+  -- The File Manager's Games view; anything else is an app by default.
+  if fields.category == "game" then lines[#lines + 1] = "category = game" end
   -- Spec §15.4: tells the launchers to run <stem>.wasm, not <stem>.lua.
   -- Before `source = cart`, which must stay last (later key wins).
   if fields.runtime == "wasm" then lines[#lines + 1] = "runtime = wasm" end
@@ -447,6 +449,9 @@ function Cartfile.from_cart(filename, bytes, available_libs)
     resizable = fields["resizable"] == "true" or nil,
     min_w = fields["min_w"] and Cartfile.dimension(fields["min_w"], Cartfile.MIN_W, Cartfile.MIN_W, Cartfile.MAX_W) or nil,
     min_h = fields["min_h"] and Cartfile.dimension(fields["min_h"], Cartfile.MIN_H, Cartfile.MIN_H, Cartfile.MAX_H) or nil,
+    -- Only `game` means anything: `app` is the default, so it and any
+    -- unknown value are dropped.
+    category = fields["category"] and strip(fields["category"]):lower() == "game" and "game" or nil,
     libs = wasm and {} or Cartfile.filter_libs(fields["libs"], available_libs),
     runtime = wasm and "wasm" or "lua",
     script_path = Cartfile.APPS_DIR .. "/" .. s .. (wasm and Cartfile.WASM_EXT or ".lua"),
