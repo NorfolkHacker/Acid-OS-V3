@@ -20,7 +20,7 @@ const RESERVED: &[&str] = &[
 
 pub fn compile(src: &str) -> Result<Program, CompileError> {
     let toks = lex(src)?;
-    let mut p = Parser { toks, pos: 0, prog: Program::default() };
+    let mut p = Parser { toks, pos: 0, prog: Program::default(), depth: 0 };
     p.file()?;
     Ok(p.prog)
 }
@@ -101,10 +101,15 @@ impl Cx {
     }
 }
 
+/// Nesting limit for expressions and blocks, so a hostile file errors
+/// instead of overflowing the stack.
+const MAX_DEPTH: u32 = 64;
+
 struct Parser {
     toks: Vec<Token>,
     pos: usize,
     prog: Program,
+    depth: u32,
 }
 
 impl Parser {
@@ -129,6 +134,16 @@ impl Parser {
             self.pos += 1;
         }
         t
+    }
+
+    /// Enters one nesting level. An error aborts the whole compile, so the
+    /// early-return paths never need to undo this.
+    fn enter(&mut self) -> Result<(), CompileError> {
+        if self.depth >= MAX_DEPTH {
+            return self.err_here("nested too deeply");
+        }
+        self.depth += 1;
+        Ok(())
     }
 
     fn skip_newlines(&mut self) {
@@ -210,6 +225,9 @@ impl Parser {
             let opener = if kind == BlockKind::Sound { "sound" } else { "instrument" };
             let (nl, nc) = self.here();
             let name = self.ident("a name")?;
+            if RESERVED.contains(&name.as_str()) {
+                return Err(CompileError::new(nl, nc, format!("'{name}' is a reserved word")));
+            }
             if self.prog.blocks.iter().any(|b| b.name == name) {
                 return Err(CompileError::new(nl, nc, format!("'{name}' is already defined")));
             }
@@ -285,14 +303,24 @@ impl Parser {
                 let slot = cx.new_var(name, nl, nc)?;
                 cx.emit(Op::Store(slot));
             }
-            "if" => self.if_stmt(cx, l, c)?,
-            "repeat" => self.repeat_stmt(cx, l, c)?,
+            "if" => {
+                self.enter()?;
+                self.if_stmt(cx, l, c)?;
+                self.depth -= 1;
+            }
+            "repeat" => {
+                self.enter()?;
+                self.repeat_stmt(cx, l, c)?;
+                self.depth -= 1;
+            }
             "loop" => {
+                self.enter()?;
                 self.end_of_statement()?;
                 let top = cx.here();
                 self.body(cx, &["end"], ("loop", l, c))?;
                 self.bump();
                 cx.emit(Op::Jump(top));
+                self.depth -= 1;
             }
             "wait" => {
                 if self.eat_word("row") {
@@ -433,6 +461,13 @@ impl Parser {
 
     /// Also the form of a side-by-side command argument.
     fn unary(&mut self, cx: &mut Cx) -> Result<(), CompileError> {
+        self.enter()?;
+        self.unary_inner(cx)?;
+        self.depth -= 1;
+        Ok(())
+    }
+
+    fn unary_inner(&mut self, cx: &mut Cx) -> Result<(), CompileError> {
         if self.eat_sym("-") {
             self.unary(cx)?;
             cx.emit(Op::Neg);
@@ -579,6 +614,15 @@ mod tests {
         assert_eq!(err("sound a\non release\nend"), "2:1 only an instrument has 'on release'");
         assert_eq!(err("end"), "1:1 unexpected 'end'");
         assert_eq!(err("\n\n"), "2:1 nothing to play");
+        assert_eq!(err("sound end\nend"), "1:7 'end' is a reserved word");
+    }
+
+    #[test]
+    fn deep_nesting_is_an_error() {
+        let src = alloc::format!("wait {}1{}", "(".repeat(1000), ")".repeat(1000));
+        assert!(err(&src).ends_with("nested too deeply"));
+        let src = alloc::format!("{}{}", "loop\n".repeat(100), "end\n".repeat(100));
+        assert!(err(&src).ends_with("nested too deeply"));
     }
 
     #[test]
