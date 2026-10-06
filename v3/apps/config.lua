@@ -1,7 +1,8 @@
 -- Config -- system-wide settings.
 -- Three real knobs (master output volume via the audio global gain stage,
 -- the desktop wallpaper on/off, and the font scale for newly opened apps),
--- plus RESTART, which starts the OS again at its boot screen:
+-- plus Developer Mode (unlocks the OS's own source) and RESTART, which
+-- starts the OS again at its boot screen:
 -- every other candidate "setting" is either a compile-time constant no
 -- runtime code ever reads again, or has no shared state to adjust -- a
 -- toggle that changes nothing when tapped is worse than not having it.
@@ -9,7 +10,7 @@
 ConfigApp = AcidApp:extend("ConfigApp")
 
 ConfigApp.WINDOW_W = 180
-ConfigApp.WINDOW_H = 242
+ConfigApp.WINDOW_H = 298
 ConfigApp.TITLE_BAR_H = 16
 
 ConfigApp.TEXT_COLOR = 0xD4E6DB  -- THEME_TEXT
@@ -38,10 +39,17 @@ ConfigApp.FONT_LABEL_Y = 140
 ConfigApp.FONT_BTN_Y = 156
 ConfigApp.FONT_BTN_H = 20
 
--- RESTART, below the font note (button 212..232). It takes two presses:
+-- DEV MODE, below the font note (button 212..232): while on, the OS's own
+-- source (Source, v3/apps) is writable. Off at every boot.
+ConfigApp.DEV_LABEL_Y = 196
+ConfigApp.DEV_BTN_Y = 212
+ConfigApp.DEV_BTN_H = 20
+ConfigApp.DEV_NOTE_Y = 236
+
+-- RESTART, below DEV MODE (button 268..288). It takes two presses:
 -- the first arms it, a second within RESTART_CONFIRM_MS restarts.
-ConfigApp.SYSTEM_LABEL_Y = 196
-ConfigApp.RESTART_BTN_Y = 212
+ConfigApp.SYSTEM_LABEL_Y = 252
+ConfigApp.RESTART_BTN_Y = 268
 ConfigApp.RESTART_BTN_H = 20
 ConfigApp.RESTART_CONFIRM_MS = 3000
 
@@ -53,6 +61,7 @@ function ConfigApp:on_create()
   self.volume = acid_get_volume()
   self.wallpaper_on = acid_get_wallpaper_enabled()
   self.font_scale = acid_get_font_scale()
+  self.dev_mode = acid_get_dev_mode()
   self.restart_armed = false
   self.restart_failed = false
   self.armed_at = 0
@@ -88,6 +97,9 @@ function ConfigApp:redraw()
 
   acid_draw_text("applies to newly opened apps", 4, 180, C.MUTED_COLOR, C.BG_COLOR)
 
+  acid_draw_text("DEV MODE", 4, C.DEV_LABEL_Y, C.MUTED_COLOR, C.BG_COLOR)
+  self:draw_dev()
+
   acid_draw_text("SYSTEM", 4, C.SYSTEM_LABEL_Y, C.MUTED_COLOR, C.BG_COLOR)
   self:draw_restart()
 
@@ -101,6 +113,22 @@ function ConfigApp:draw_toggle()
   local fg = self.wallpaper_on and C.BG_COLOR or C.TEXT_COLOR
   acid_fill_rect(C.BAR_X, C.WALLPAPER_BTN_Y, C.BAR_W, C.WALLPAPER_BTN_H, bg)
   acid_draw_text(label, C.BAR_X + C.BAR_W // 2 - #label * 3, C.WALLPAPER_BTN_Y + 6, fg, bg)
+end
+
+function ConfigApp:draw_dev()
+  local C = ConfigApp
+  local label = self.dev_mode and "ON" or "OFF"
+  local bg = self.dev_mode and C.HARD_COLOR or C.PANEL_COLOR
+  local fg = self.dev_mode and C.BG_COLOR or C.TEXT_COLOR
+  acid_fill_rect(C.BAR_X, C.DEV_BTN_Y, C.BAR_W, C.DEV_BTN_H, bg)
+  acid_draw_text(label, C.BAR_X + C.BAR_W // 2 - #label * 3, C.DEV_BTN_Y + 6, fg, bg)
+  local note = self.dev_mode and "system source is writable" or "system source is read-only"
+  acid_draw_text(note, 4, C.DEV_NOTE_Y, self.dev_mode and C.HARD_COLOR or C.MUTED_COLOR, C.BG_COLOR)
+end
+
+function ConfigApp:set_dev(on)
+  if acid_set_dev_mode(on) then self.dev_mode = on end
+  self:redraw()
 end
 
 function ConfigApp:draw_font_buttons()
@@ -186,6 +214,11 @@ function ConfigApp:on_touch(x, y, pressed)
     elseif x >= 92 and x < 92 + 84 then
       self:set_font(2)
     end
+  end
+
+  if y >= C.DEV_BTN_Y and y < C.DEV_BTN_Y + C.DEV_BTN_H
+      and x >= C.BAR_X and x < C.BAR_X + C.BAR_W then
+    self:set_dev(not self.dev_mode)
   end
 end
 

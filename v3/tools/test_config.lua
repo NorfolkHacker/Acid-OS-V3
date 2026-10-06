@@ -71,43 +71,57 @@ local function restarts()
   return n
 end
 GAME:on_create()
-WIN_W, WIN_H = 180, 242
+WIN_W, WIN_H = 180, 298
 TEXTS, TEXT_AT, RECTS = {}, {}, {}
 GAME:redraw()
 ok(has(TEXTS, "SYSTEM") and has(TEXTS, "RESTART"), "a SYSTEM section with a RESTART button is drawn")
 local fits, why = drawn_inside_window()
-ok(fits, "everything fits the 180x242 window" .. (why and (": " .. why) or ""))
+ok(fits, "everything fits the 180x298 window" .. (why and (": " .. why) or ""))
 CALLS, TEXTS = {}, {}
-tap(90, 220)
+tap(90, 278)
 eq({ GAME.restart_armed, restarts() }, { true, 0 }, "the first press only arms it")
 ok(has(TEXTS, "SURE? PRESS AGAIN"), "and asks for a second press")
-GAME:on_touch(90, 220, true)
+GAME:on_touch(90, 278, true)
 eq(restarts(), 0, "holding that press doesn't restart")
-tap(90, 220)
+tap(90, 278)
 eq(restarts(), 1, "a second press restarts")
-tap(90, 220)
+tap(90, 278)
 CLOCK = CLOCK + 2999
 GAME:on_idle()
 eq(GAME.restart_armed, true, "it stays armed for up to 3 seconds")
 CLOCK = CLOCK + 1
 GAME:on_idle()
 eq(GAME.restart_armed, false, "then disarms itself")
-tap(90, 220)
+tap(90, 278)
 tap(10, 70)
 eq(GAME.restart_armed, false, "a press anywhere else disarms it")
-tap(90, 220)
+tap(90, 278)
 RESTART_OK = false
 TEXTS = {}
-tap(90, 220)
+tap(90, 278)
 ok(has(TEXTS, "RESTART FAILED"), "a refused restart says so")
 tap(10, 70)
 eq(GAME.restart_failed, false, "a press elsewhere clears RESTART FAILED")
 RESTART_OK = true
 -- on_idle can be starved by held touches, so a stale armed button must not restart.
 CALLS, TEXTS = {}, {}
-tap(90, 220)
+tap(90, 278)
 CLOCK = CLOCK + 3000
-tap(90, 220)
+tap(90, 278)
 eq(restarts(), 0, "a press after the 3 seconds are up doesn't restart")
 eq(GAME.restart_armed, true, "it arms again instead")
 ok(has(TEXTS, "SURE? PRESS AGAIN"), "and asks for a second press again")
+
+group("developer mode")
+DEV_MODE = false
+GAME:on_create()
+eq(GAME.dev_mode, false, "Developer Mode is read back from the kernel")
+TEXTS = {}
+GAME:redraw()
+ok(has(TEXTS, "DEV MODE") and has(TEXTS, "system source is read-only"), "a DEV MODE row says source is read-only")
+CALLS, TEXTS = {}, {}
+tap(90, 220)
+eq({ CALLS[1], GAME.dev_mode }, { { "set_dev_mode", true }, true }, "tapping it turns Developer Mode on")
+ok(has(TEXTS, "system source is writable"), "and then says source is writable")
+tap(90, 220)
+eq({ CALLS[2], DEV_MODE }, { { "set_dev_mode", false }, false }, "tapping again turns it off")
