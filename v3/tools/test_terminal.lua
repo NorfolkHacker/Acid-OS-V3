@@ -43,7 +43,7 @@ eq(last(), "cat: not found", "cat of a missing file reports v3's error")
 
 group("help and run")
 type_line("help")
-eq(last(), "help, clear, pwd, cd, ls, cat, echo, run <app>", "help lists the commands")
+eq(last(), "help, clear, pwd, cd, ls, cat, echo, run <app>, play <file>", "help lists the commands")
 LAUNCHER = {
   { "v3/apps/about.lua", "About", 180, 150, false, "" },
   { "v3/apps/sysmon.lua", "System Monitor", 200, 160, false, "" },
@@ -79,3 +79,21 @@ ok(AcidEggs.active(), "an egg's name starts it, in any case")
 eq(G:poll_timeout_ms(), AcidEggs.TICK_MS, "a running egg polls at its tick")
 G:on_destroy()
 ok(not AcidEggs.active(), "closing the window aborts the egg")
+
+group("play")
+FS["v3/fsroot/Home/a.trk"] = "acid-track 1\n"
+SOUND_CALLS = {}
+type_line("play /Home/a.trk")
+eq(SOUND_CALLS, { { "parse", 1 }, { "play", 1, 0, 0 } }, "play loads a .trk and plays it from the start")
+FS["v3/fsroot/Home/z.snd"] = "gate on\n"
+SOUND_CALLS = {}
+type_line("play /Home/z.snd")
+eq(SOUND_CALLS, { { "stop" }, { "free", 1 }, { "sound_load", 1 }, { "sound_play", 1, "", 40 } },
+  "playing a .snd stops the song first, then starts the sound")
+SOUND_CALLS = {}
+type_line("play")
+eq(SOUND_CALLS, { { "sound_stop", 1 }, { "sound_free", 1 } }, "play on its own stops everything")
+type_line("play /Home/missing.trk")
+eq(last(), "play: not found", "a missing file is reported")
+type_line("play notes.txt")
+eq(last(), "play: not a .trk or .snd file", "other files are refused")

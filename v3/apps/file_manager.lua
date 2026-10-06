@@ -1,5 +1,5 @@
 -- File Manager: browse the sandboxed fsroot, preview text files, open
--- .lua files in Editor, .spr files in Sprite Paint, and launch apps from their .app.toml manifests.
+-- .lua and .snd files in Editor, .spr files in Sprite Paint, .trk files in Acid Tracker, and launch apps from their .app.toml manifests.
 
 FileManagerApp = AcidApp:extend("FileManagerApp")
 
@@ -33,6 +33,10 @@ FileManagerApp.EDITOR_H = 280
 FileManagerApp.SPRITE_PATH = "v3/apps/sprite.lua"
 FileManagerApp.SPRITE_W = 360                 -- sprite.app.toml's size
 FileManagerApp.SPRITE_H = 260
+
+FileManagerApp.TRACKER_PATH = "v3/apps/tracker.lua"
+FileManagerApp.TRACKER_W = 480                -- tracker.app.toml's size
+FileManagerApp.TRACKER_H = 320
 
 -- Splits on "\n"; drops trailing empty strings.
 local function split_lines(text)
@@ -349,8 +353,10 @@ function FileManagerApp:activate_selected()
     self:redraw()
   elseif ends_with(entry.name, ".app.toml") then
     self:launch_manifest(entry.name)
-  elseif ends_with(entry.name, ".lua") then
+  elseif ends_with(entry.name, ".lua") or ends_with(entry.name, ".snd") then
     acid_spawn_app(self.EDITOR_PATH, self.EDITOR_W, self.EDITOR_H, self.dir .. "/" .. entry.name)
+  elseif ends_with(entry.name, ".trk") then
+    acid_spawn_app(self.TRACKER_PATH, self.TRACKER_W, self.TRACKER_H, self.dir .. "/" .. entry.name)
   elseif ends_with(entry.name, ".spr") then
     acid_spawn_app(self.SPRITE_PATH, self.SPRITE_W, self.SPRITE_H, self.dir .. "/" .. entry.name)
   else

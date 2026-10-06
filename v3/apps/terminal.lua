@@ -1,5 +1,5 @@
 -- Terminal -- a tiny shell over the sandboxed fsroot (help, clear, pwd,
--- cd, ls, cat, echo, run <app>), plus the undocumented easter eggs.
+-- cd, ls, cat, echo, run <app>, play <file>), plus the undocumented easter eggs.
 
 -- Splits on "\n", dropping trailing empty strings.
 local function split_lines(text)
@@ -252,13 +252,15 @@ function TerminalApp:run_command(line)
     self.lines[#self.lines + 1] = table.concat(args, " ")
   elseif cmd == "run" or cmd == "open" then
     self:cmd_run(args)
+  elseif cmd == "play" then
+    self:cmd_play(args)
   else
     self.lines[#self.lines + 1] = "command not found: " .. cmd
   end
 end
 
 function TerminalApp:cmd_help()
-  self.lines[#self.lines + 1] = "help, clear, pwd, cd, ls, cat, echo, run <app>"
+  self.lines[#self.lines + 1] = "help, clear, pwd, cd, ls, cat, echo, run <app>, play <file>"
 end
 
 -- Resolves a user-typed path (absolute-from-root with a leading "/", or
@@ -362,6 +364,46 @@ function TerminalApp:cmd_run(args)
   self.lines[#self.lines + 1] = "run: no app named " .. wanted
 end
 
+-- play FILE plays a .trk song or a .snd file's first sound; play on its
+-- own stops them. One of each at a time: a new play stops the last.
+function TerminalApp:cmd_play(args)
+  self:stop_playing()
+  if #args == 0 then return end
+  local path = self:resolve_path(table.concat(args, " "))
+  local function say(s) self.lines[#self.lines + 1] = "play: " .. s end
+  if path:sub(-4) == ".trk" then
+    local song, warnings = acid_song_load(path)
+    if not song then return say(tostring(warnings)) end
+    for _, w in ipairs(warnings) do say(w) end
+    self.song = song
+    acid_song_play(song, 0, 0)
+  elseif path:sub(-4) == ".snd" then
+    local prog, err = acid_sound_load_file(path)
+    if not prog then return say(tostring(err)) end
+    self.prog = prog
+    self.sound = acid_sound_play(prog)
+    if not self.sound then say("no free voice") end
+  else
+    say("not a .trk or .snd file")
+  end
+end
+
+function TerminalApp:stop_playing()
+  if self.song then
+    acid_song_stop()
+    acid_song_free(self.song)
+    self.song = nil
+  end
+  if self.sound then
+    acid_sound_stop(self.sound)
+    self.sound = nil
+  end
+  if self.prog then
+    acid_sound_free(self.prog)
+    self.prog = nil
+  end
+end
+
 -- While an egg is in flight the loop needs to wake up every frame rather
 -- than every 200ms. Typing is unaffected: a keystroke still arrives as an
 -- event the moment it happens.
@@ -374,6 +416,7 @@ function TerminalApp:on_idle()
 end
 
 function TerminalApp:on_destroy()
+  self:stop_playing()
   -- Closing the terminal mid-flight takes the overlay with it, rather
   -- than leaving a sprite frozen on the screen with nothing left running
   -- to clear it.

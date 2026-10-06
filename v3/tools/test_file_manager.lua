@@ -160,3 +160,23 @@ end
 CALLS = {}
 G:activate_selected()
 eq(CALLS[1], { "spawn", "v3/apps/sprite.lua", 360, 260, "v3/fsroot/Art/ship.spr" }, "a .spr opens in Sprite Paint with its path")
+
+group("song and sound files")
+FS["v3/fsroot/Music"] = { "a.trk", "b.snd" }
+FS["v3/fsroot/Music/a.trk"] = "acid-track 1\n"
+FS["v3/fsroot/Music/b.snd"] = "gate on\n"
+G.dir = "v3/fsroot/Music"
+G:scan_dir()
+local function pick(name)
+  for i, e in ipairs(G.entries) do
+    if e.name == name then G.selected = i - 1 end
+  end
+end
+pick("a.trk")
+CALLS = {}
+G:activate_selected()
+eq(CALLS[1], { "spawn", "v3/apps/tracker.lua", 480, 320, "v3/fsroot/Music/a.trk" }, "a .trk opens in Acid Tracker with its path")
+pick("b.snd")
+CALLS = {}
+G:activate_selected()
+eq(CALLS[1], { "spawn", "v3/apps/editor.lua", 420, 280, "v3/fsroot/Music/b.snd" }, "a .snd opens in the Editor")
