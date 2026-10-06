@@ -50,26 +50,26 @@ Config's RESTART (press it twice) brings the OS back to the size picker; every o
 The File Manager shows the OS's file system: **Apps** (user apps and built-in utilities), **Games** (games and demos), **Source** (the OS's own code, locked unless Developer Mode is on in Config), **Home** (your files), **Help** and **Tmp**.
 
 Try **Acid Spin**: spinning 3D shapes. It isn't in the Menu. Open File
-Manager, go into the **Apps** folder and click Acid Spin's `.app.toml` file. Left and Right
+Manager, go into the **Apps** folder and click its name. Left and Right
 change the shape, Up and Down the speed, Space cycles wire, solid and both, and
 you can resize its window.
 
-**AcidStorm** opens the same way: an arena shooter over an acid plasma
+**AcidStorm** opens from the **Games** folder: an arena shooter over an acid plasma
 background. Hold W, A, S and D to move and the arrows to fire; hold two for a
 diagonal. Or hold the pointer down to fire at it. P pauses. Rescue the humans
 and clear the robots to finish a wave.
 
-**Acid Snake** is in the same folder. The arrows or W, A, S and D turn (a tap
+**Acid Snake** is in the **Games** folder. The arrows or W, A, S and D turn (a tap
 turns towards it), P pauses. Every fifth pellet brings a rainbow pellet for a
 few seconds: it's worth five times as much and sets the snake's colours
 spinning.
 
-**Acid Invaders** is there too. Hold Left/A or Right/D to move. Space, Up or W
+**Acid Invaders** is in **Games** too. Hold Left/A or Right/D to move. Space, Up or W
 fires, and holding it keeps firing. Holding the pointer slides the cannon
 under it, and a tap fires. Shoot the saucer for a
 few seconds of rainbow triple shot.
 
-**Acid Rocks** is a vector rock shooter. Hold Left/A or Right/D to turn and
+**Acid Rocks** is a vector rock shooter in **Games**. Hold Left/A or Right/D to turn and
 Up/W to thrust. Space fires (hold it to keep firing) and Down/S jumps through
 hyperspace. Hold the pointer to turn towards it and fire.
 
@@ -265,7 +265,7 @@ Your script is loaded **from disk** every time the app starts. So:
 
 You can also work from inside Acid OS itself. The **Editor** app (Menu →
 Editor) opens app source from the running system, and the **File Manager**
-launches an app when you click its `.app.toml`. Editing an app inside the OS
+launches an app when you click its name in the **Apps** or **Games** folder. Editing an app inside the OS
 it runs in is a perfectly good way to work.
 
 File Manager, Editor, Terminal and Load Cart show a scroll bar at their

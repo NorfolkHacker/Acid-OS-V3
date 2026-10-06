@@ -233,7 +233,7 @@ Installing a cart writes `v3/apps/<slug>.lua`, plus a generated
 installed file's base name; see below.) There's a sample at
 `v3/carts/hello_acid.cart`, and `v3/carts/README.txt` describes the format.
 The sample ships already installed, as Hello Acid. Its manifest says
-`menu = false`, so open it from File Manager (`App` → `hello_acid.app.toml`).
+`menu = false`, so open it from File Manager (**Apps** → Hello Acid).
 Installing the sample again writes a fresh manifest without that line, and it
 then joins the Menu at the next boot.
 

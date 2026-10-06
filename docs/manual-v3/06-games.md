@@ -453,9 +453,8 @@ menu = false
 ```
 
 `menu = false` keeps a game out of the Menu, as all the built-in games do. You
-start them from the Terminal instead (`run tetris`), or by clicking their
-`.app.toml` in the File Manager. Leave the line out if you want yours in the
-Menu.
+start them from the Terminal instead (`run tetris`), or from the File Manager's
+**Games** folder. Leave the line out if you want yours in the Menu.
 
 ## 6.6 A worked example: Acid Spin
 
@@ -464,8 +463,7 @@ Menu.
 only redraws while focused, keyboard and tap controls with a press-once guard,
 afterimages built by remembering previous angles, a window that re-centres
 when it is resized, and a custom mesh built with `acid_mesh_new`. Like the
-games, it isn't in the Menu: open File Manager, go into `App` and click its
-`.app.toml` file.
+games, it isn't in the Menu: open it from the File Manager's **Apps** folder by name.
 
 ## 6.7 Held keys and frames
 

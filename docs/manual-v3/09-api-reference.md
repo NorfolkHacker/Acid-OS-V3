@@ -379,7 +379,7 @@ Errors:
 - `bad path`: the path guard rejected it, or its real location is outside the
   allowed roots.
 - `not found`: there is no such file.
-- `read only`: system source (`v3/apps`, `Source`) unless Developer Mode is on, or a cart tried to delete outside its area (see below).
+- `read only`: system source (`v3/apps`, `Source`) unless Developer Mode is on, except Load Cart filling a cart slot (see [§7.9](07-system-apis.md#79-developer-mode-and-the-source-lock)), or a cart tried to delete outside its area (see below).
 - Anything else is the operating system's own message.
 
 **Cart:** only under `v3/fsroot/Home/`; elsewhere `nil, "read only"`.
@@ -455,7 +455,7 @@ Errors:
 
 - `bad path`: the parent folder doesn't exist, or the path's real location is
   not inside `v3/apps` or `v3/fsroot`.
-- `read only`: system source (`v3/apps`, `Source`) unless Developer Mode is on.
+- `read only`: system source (`v3/apps`, `Source`) unless Developer Mode is on, except Load Cart filling a cart slot (see [§7.9](07-system-apis.md#79-developer-mode-and-the-source-lock)).
 - Writing to a folder gives the operating system's own message.
 
 **Cart:** only under `v3/fsroot/Home/`; elsewhere `nil, "read only"`.

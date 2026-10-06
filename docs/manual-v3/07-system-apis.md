@@ -536,8 +536,9 @@ What this means in practice:
 - Reads follow symlinks freely, so `acid_fs_list("v3/fsroot/Source")` lists the
   apps.
 
-So a built-in app can write anywhere under the two roots, `v3/apps` included.
-Please don't. Keep your own data under **`v3/fsroot/Home`**. A cart can't
+So a built-in app can write anywhere under the two roots, `v3/apps` only when
+Developer Mode is on or Load Cart is filling a cart slot. Please don't write
+there otherwise. Keep your own data under **`v3/fsroot/Home`**. A cart can't
 write anywhere else anyway.
 
 ### The layout
@@ -621,8 +622,11 @@ source for writing. It is **off at every boot**, so you must turn it on each
 time you want to edit system code.
 
 Carts cannot turn on Developer Mode or change system source, even if someone
-else turned it on. Load Cart is a built-in app, so it can still install carts
-while Developer Mode is off; the exception allows it to fill cart slots.
+else turned it on. Load Cart, a built-in app, may still write or delete a
+cart's own files in `v3/apps` with Developer Mode off: a new slot where none of
+`<name>.app.toml`, `<name>.lua` or `<name>.wasm` exists, or one whose manifest
+says `source = cart`. Built-in apps' files stay locked, and renaming stays
+locked.
 
 The two calls that manage Developer Mode are:
 
@@ -631,8 +635,8 @@ local on = acid_get_dev_mode()        -- true / false
 local ok = acid_set_dev_mode(on)      -- returns true for a built-in app, false for a cart
 ```
 
-For a cart, `acid_set_dev_mode` returns `false` and does nothing, as the
-existing rule for `acid_restart` does.
+For a cart, `acid_set_dev_mode` returns `false` and does nothing. Like
+`acid_restart`, it does nothing for a cart and returns false.
 
 ## 7.10 The clock
 
