@@ -339,8 +339,10 @@ same names, following the path the other `KEY_*` constants take.
 
 - **Status line.** Order, row, speed, octave, the current instrument, the
   edit or play mode, and the last message or error.
-- **Pattern grid.** The cursor row is fixed in the middle and the rows scroll
-  past it. Muted channels are dimmed. While playing, the grid follows
+- **Pattern grid.** A pattern that fits is shown from row 00. The grid scrolls
+  only when the cursor or the playing row would leave the screen, keeping it
+  near the middle. Grid rows are 10 px apart. (This departs from the original
+  design, which fixed the cursor row in the middle, for readability.) Muted channels are dimmed. While playing, the grid follows
   `acid_song_position()`, and the row being played gets a hue-cycling bar.
 - **Order panel and instrument panel.** These sit below the grid, and their
   height grows with the window. Built-in instruments are edited as fields. A
@@ -417,9 +419,6 @@ the key sends note-off. This uses the existing key-release events.
   - `sounds/` with a few scripts: `bass.snd`, `zap.snd`,
     `wobble.snd`, and `sync.snd` (a script that plays the song and pulses to
     `wait beat`)
-  - In short: `Home/music/acid_groove.trk` and
-    `Home/sounds/{bass,wobble,zap,sync}.snd`. File Manager opens `.snd`
-    in the Editor.
 - **Manual.** A new chapter covers the tracker and the audio language, and
   the app list, File Manager and Terminal chapters are updated.
 

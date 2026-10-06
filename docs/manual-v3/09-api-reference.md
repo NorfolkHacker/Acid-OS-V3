@@ -1012,7 +1012,7 @@ local id = acid_sound_play(prog, name, note)
 
 Starts the `sound` block called `name` (by default, the first), with `note` as the script's `note`
 (default 40, C-4). It takes a free voice, or the song's donor voice. Returns an id, or `nil` when no
-voice is free.
+voice is free, the name isn't a `sound` block, or 16 sounds are already running.
 
 ### `acid_sound_stop`
 

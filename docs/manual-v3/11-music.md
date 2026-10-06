@@ -32,7 +32,8 @@ C-4 01 4 22 E-4
 Read left to right, the five fields are:
 - a note
 - an instrument
-- a command and its parameter
+- a command
+- its parameter
 - a second note
 
 The second note plays on the channel's second voice. When a row leaves it
@@ -43,8 +44,9 @@ The window has four parts, from top to bottom:
 - **The status line**, showing the order position, row, speed, octave,
   current instrument and mode.
 - **The pattern grid**, showing each channel's pattern at the current order
-  position. The rows scroll past a fixed middle line. While the song plays,
-  the grid follows it.
+  position. A pattern that fits is shown from row 00. The grid scrolls
+  only when the cursor, or the playing row, would leave the screen, and
+  then keeps it near the middle. While the song plays, the grid follows it.
 - **The orders panel**, with one line per channel. Each line shows the
   loop point (`L00`), then the patterns the channel plays in turn. `03+5`
   means pattern 03, transposed up 5 semitones.
@@ -58,7 +60,7 @@ The window has four parts, from top to bottom:
 | `q 2 w 3 e r 5 t 6 y 7 u i` | The octave above |
 | Space | Edit mode on or off. Off, the note keys only play the note. |
 | `` ` `` | Note-off (edit mode, note column) |
-| `.` or Delete | Clear the field under the cursor |
+| `.` or Delete | In edit mode, clear the field under the cursor and move down a row |
 | `0`–`9`, `a`–`f` | Instrument (01–3F) and parameter digits in the grid, and pattern numbers |
 | `1 2 3 4 8 9 a f` | In the command column, the command |
 | Arrow keys | Move |
@@ -88,8 +90,8 @@ Every change is heard at once, even while the song plays.
 
 | Command | What it does |
 |---|---|
-| `w [name]` | Save, or save as `Home/<name>.trk` |
-| `o name` | Open `Home/<name>.trk` |
+| `w [name]` | Save, or save as `Home/<name>.trk` (names live under `Home`) |
+| `o name` | Open `Home/<name>.trk` (names live under `Home`) |
 | `new` | A new song |
 | `speed N` | Ticks per row, 1–31 |
 | `len N` | The current pattern's length, 1–64 rows |
@@ -105,7 +107,9 @@ Every change is heard at once, even while the song plays.
 
 ## 11.2 The song format (`.trk`)
 
-A `.trk` file is plain text, so you can read it or write it by hand:
+A `.trk` file is plain text, so you can read it or write it by hand. This
+is an excerpt, and doesn't load on its own: a real file needs all four
+`order` lines, and a row for every row of each pattern.
 
 ```text
 acid-track 1
@@ -132,7 +136,7 @@ A **built-in instrument** has these fields:
 | Field | Values |
 |---|---|
 | `wave` | `pulse`, `saw`, `tri` or `noise` |
-| `adsr` | Attack, decay and release in ms (0–100000), and sustain in percent |
+| `adsr` | Attack, decay and release in ms (0–100000), and sustain as a percentage (0–100 in the tracker) |
 | `duty` | Pulse width, 1–99 |
 | `pwm` | Duty change per tick, –50 to 50 |
 | `vib` | Vibrato depth and speed, 0–15 each |
@@ -156,6 +160,13 @@ These are the pattern commands:
 | `9 XX` | Duty |
 | `A XX` | Filter cutoff |
 | `F XX` | Speed |
+
+These ranges hold:
+- pattern numbers 00–7F, instrument numbers 01–3F, pattern length 1–64;
+- `speed` 1–31 and `sfx-donor` 1–4;
+- an order transpose is kept to ±48 by the tracker, though a hand-written
+  file may use –128 to 127;
+- the second note column can't hold `===`.
 
 A file with a number out of range, or anything malformed, fails to load
 with `LINE: message`. A script instrument whose file is missing or broken
@@ -216,7 +227,7 @@ A file with no blocks at all is one sound, so a short script needs no
 | `if … else … end`, `repeat N … end`, `loop … end` | Control flow |
 | `wait N`, `wait row`, `wait beat` | Sleep for ticks, or until the song's next row or beat |
 | `stop` | End now, releasing the voices |
-| `song "PATH"`, `play [N]`, `stop song` | Load a song (when the script loads), play it from order N, stop it |
+| `song "PATH"`, `play [N]`, `stop song` | `song` loads a song (when the script loads). `play` plays it from order N. A bare `play`, with no `song` line before it, restarts the app's own song from order N. `stop song` stops it |
 | `tempo N`, `mute CH`, `unmute CH`, `jump N` | Steer the song |
 
 **Voices.** A script has two voices. Put `v1`, `v2` or `both` before a
@@ -236,13 +247,15 @@ A script can read `note`, `note2`, `tick` and the song's `row`, `beat` and
 **Limits.**
 - A script runs at most 256 instructions a tick. A busy loop just carries
   on next tick, and can't stall the sound.
-- It can have at most 64 variables, and can nest at most 64 deep.
+- It can have at most 64 variables, and each `repeat` counts as one of them.
+  It can nest at most 64 deep, and nested expressions count too.
 - Arithmetic saturates rather than overflowing, and dividing by zero gives 0.
 - A script can't crash the OS. A mistake is a compile error with its line
   and column, such as `3:7 unknown command 'wav'`.
 
 The song commands in a script only steer a song that the same app started.
-`play "song"` replaces whatever is playing, just as `acid_song_play` does.
+`song "PATH"` followed by `play` replaces whatever is playing, just as
+`acid_song_play` does.
 
 ## 11.4 Sounds and songs from an app
 
@@ -271,7 +284,8 @@ end
 | Call | Returns |
 |---|---|
 | `acid_sound_load(src)`, `acid_sound_load_file(path)` | A program, or `nil, "LINE:COL message"` |
-| `acid_sound_play(prog[, name[, note]])`, `acid_sound_stop(id)`, `acid_sound_free(prog)` | A sound id, or `nil` |
+| `acid_sound_play(prog[, name[, note]])` | A sound id, or `nil` when no voice is free, the name isn't a `sound` block, or 16 sounds are already running |
+| `acid_sound_stop(id)`, `acid_sound_free(prog)` | Nothing |
 | `acid_song_load(path)`, `acid_song_parse(text)` | A song and a table of warnings, or `nil, "LINE: message"` |
 | `acid_song_update(song, text)` | The warnings, or `nil, err`. A playing copy keeps its place. |
 | `acid_song_play(song[, order[, row]])`, `acid_song_stop()`, `acid_song_mute(ch, on)` | Nothing |
@@ -290,7 +304,8 @@ channel 4 uses voices 6 and 7.
 
 A sound effect takes a free voice if there is one. During a song, it
 borrows the **donor** channel's second voice, set with `sfx-donor` and
-channel 4 by default. The song gets the voice back when the sound ends.
+channel 4 by default. The song gets the voice back when the sound ends. During a song, a sound
+that uses `v2` or `both` gets only that one voice.
 Notes you start yourself with `acid_play_note` still work as before, and
 the last thing to write to a voice wins.
 
