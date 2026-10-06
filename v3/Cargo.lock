@@ -95,6 +95,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "acid-sound"
+version = "0.1.0"
+dependencies = [
+ "acid-synth",
+]
+
+[[package]]
 name = "acid-synth"
 version = "0.1.0"
 
