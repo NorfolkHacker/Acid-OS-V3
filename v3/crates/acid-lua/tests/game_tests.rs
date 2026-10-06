@@ -169,6 +169,21 @@ fn trk_layout_and_commands() {
     run_suite(&["v3/tools/game_test_env.lua", "v3/apps/tracker/layout.lua", "v3/apps/tracker/cmd.lua", "v3/tools/test_trk_layout_cmd.lua"], 15);
 }
 
+const TRACKER_APP: [&str; 6] = [
+    "v3/tools/game_test_env.lua",
+    "v3/apps/tracker/song.lua",
+    "v3/apps/tracker/edit.lua",
+    "v3/apps/tracker/layout.lua",
+    "v3/apps/tracker/cmd.lua",
+    "v3/apps/tracker.lua",
+];
+
+#[test]
+fn tracker_app() {
+    let files: Vec<&str> = TRACKER_APP.iter().copied().chain(["v3/tools/test_tracker_app.lua"]).collect();
+    run_suite_with("WIN_W, WIN_H = 480, 320", &with_libs(&files), 38);
+}
+
 #[test]
 fn breakout() {
     run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/breakout.lua", "v3/tools/test_breakout.lua"]), 11);

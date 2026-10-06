@@ -1,0 +1,10 @@
+name = Acid Tracker
+w = 480
+h = 320
+desc = 4-channel tracker for .trk songs
+multi = true
+libs = tracker/song.lua, tracker/edit.lua, tracker/layout.lua, tracker/cmd.lua
+resizable = true
+min_w = 420
+min_h = 240
+menu = false
