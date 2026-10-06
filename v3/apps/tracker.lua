@@ -81,7 +81,7 @@ function TrackerApp:new_song()
   if not handle then self.message = "new song failed: " .. tostring(warnings) end
 end
 
--- A file that won't load leaves a new song, and says why.
+-- A file that won't load keeps the open song (or a new one at launch) and says why.
 function TrackerApp:open_path(path)
   local text, err = acid_fs_read(path)
   if text then
@@ -93,7 +93,8 @@ function TrackerApp:open_path(path)
     end
     err = song
   end
-  self:new_song()
+  -- Keep whatever is open; only a launch with nothing open falls back.
+  if not self.E then self:new_song() end
   self.message = "can't open: " .. tostring(err)
 end
 

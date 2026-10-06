@@ -133,7 +133,8 @@ eq(SOUND_CALLS[#SOUND_CALLS], { "free", 1 }, "and frees the old one")
 SONG_PARSE_ERR = "1: not an acid-track file"
 FS["v3/fsroot/Home/bad.trk"] = "nope"
 command("o bad")
-eq({ G.message, G.path }, { "can't open: 1: not an acid-track file", nil }, "a bad file leaves a new song and says why")
+eq({ G.message, G.path, G.handle }, { "can't open: 1: not an acid-track file", "v3/fsroot/Home/groove.trk", 2 },
+  "a bad file keeps the open song and says why")
 SONG_PARSE_ERR = "3: bad line"
 G.synced = false
 G:sync()
