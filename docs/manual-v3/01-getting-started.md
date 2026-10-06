@@ -279,8 +279,8 @@ them as `.spr` files in `Home`. Like the games, it isn't in the Menu: open
 
 **Acid Tracker** writes music: four channels of two voices, saved as `.trk`
 files. Open `App/tracker.app.toml` or any `.trk` file in the File Manager,
-from the `Home/music` folder, and press F1 to play it. You can also
-play a song or a `.snd` sound from the Terminal with `play` and the file's path, such as a `.snd` file from `Home/sounds`.
+such as `Home/music/acid_groove.trk`, and press F1 to play it. You can also
+play a song or a `.snd` sound from the Terminal with `play Home/music/acid_groove.trk`.
 See [chapter 11](11-music.md).
 
 ---

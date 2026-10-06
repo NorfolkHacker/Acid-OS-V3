@@ -19,7 +19,7 @@ your app is doing.
 ## 11.1 Acid Tracker
 
 Open Acid Tracker from the File Manager: either `App/tracker.app.toml`, or
-any `.trk` file, such as the demo song in `Home/music`. You can also type
+any `.trk` file, such as `Home/music/acid_groove.trk`. You can also type
 `run acid tracker` in the Terminal. Like Sprite Paint, it isn't in the Menu.
 
 A song has **four channels**, and each channel has **two voices**. Each row
@@ -261,7 +261,7 @@ note as the third argument to `acid_sound_play` to set the script's `note`.
 Songs work the same way:
 
 ```lua snippet
-local song, warnings = acid_song_load("v3/fsroot/Home/music/demo.trk")
+local song, warnings = acid_song_load("v3/fsroot/Home/music/acid_groove.trk")
 if song then
   acid_song_play(song)                  -- from the start
   local order, row, tick = acid_song_position()

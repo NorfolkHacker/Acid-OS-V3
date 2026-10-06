@@ -377,7 +377,7 @@ fn mentioned(text: &str) -> BTreeSet<String> {
                 e += 1;
             }
             let word = &line[s..e];
-            let file_name = line[e..].starts_with(".lua") || line[e..].starts_with(".wasm");
+            let file_name = [".lua", ".wasm", ".trk", ".snd", ".spr"].iter().any(|x| line[e..].starts_with(x));
             if before_ok && !file_name && word.len() > 5 && !NOT_CALLS.contains(&word) {
                 out.insert(word.to_string());
             }
