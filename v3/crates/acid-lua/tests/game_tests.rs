@@ -221,7 +221,7 @@ fn tetris() {
 
 #[test]
 fn piano() {
-    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/piano.lua", "v3/tools/test_piano.lua"]), 7);
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/piano.lua", "v3/tools/test_piano.lua"]), 10);
 }
 
 #[test]

@@ -8,6 +8,9 @@ group("keys")
 eq(P:hit_test(0), 0, "the left edge is the root (C)")
 eq(P:hit_test(Piano.WINDOW_W - 1), 11, "the right edge is B")
 eq(P:hit_test(P:black_key_x(0)), 1, "the first black key is C#")
+eq(P:hit_test(-1), 0, "a drag off the left edge stays on C")
+eq(P:hit_test(-100000), 0, "a drag far off the left edge stays on C")
+eq(P:hit_test(Piano.WINDOW_W + 100000), 11, "a drag far off the right edge stays on B")
 
 group("playing")
 NOTES = {}

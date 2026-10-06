@@ -82,7 +82,10 @@ function Piano:hit_test(x)
     if x >= bx and x < bx + Piano.BLACK_W then return Piano.BLACK_OFFSETS[slot + 1] end
     slot = slot + 1
   end
+  -- A held drag keeps reporting x past either window edge, so clamp both
+  -- ends -- a negative index would read nil and crash on_touch.
   local index = x // Piano.KEY_W
+  if index < 0 then index = 0 end
   if index >= Piano.WHITE_COUNT then index = Piano.WHITE_COUNT - 1 end
   return Piano.WHITE_OFFSETS[index + 1]
 end
