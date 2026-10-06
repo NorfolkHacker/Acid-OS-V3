@@ -1,6 +1,6 @@
 # 10. WASM carts
 
-[← API reference](09-api-reference.md) · [Contents](README.md)
+[← API reference](09-api-reference.md) · [Contents](README.md) · [Next: Music →](11-music.md)
 
 A **WASM cart** is an app written as a WebAssembly module instead of a Lua
 script. WebAssembly ("WASM") is a compact program format that many languages,
@@ -752,4 +752,4 @@ bytes moved (see Fuel).
 
 ---
 
-[← API reference](09-api-reference.md) · [Contents](README.md)
+[← API reference](09-api-reference.md) · [Contents](README.md) · [Next: Music →](11-music.md)

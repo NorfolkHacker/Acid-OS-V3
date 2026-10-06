@@ -310,12 +310,12 @@ same names, following the path the other `KEY_*` constants take.
 ### 7.1 Files and manifest
 
 - `apps/tracker.lua` with `apps/tracker.app.toml` (name "Acid Tracker",
-  480×320, resizable, minimum 420×240). Helpers are split by job under
-  `apps/tracker/`:
+  480×320, resizable, minimum 420×240, `menu = false` like Sprite Paint).
+  Helpers are split by job under `apps/tracker/`:
   - `song.lua`: the Lua song model, plus `.trk` read and write
-  - `grid.lua`: drawing and editing the pattern grid
-  - `orders.lua`, `instruments.lua`: the panels
-  - `cmdbar.lua`: the Esc command bar
+  - `edit.lua`: the cursor and every edit
+  - `layout.lua`: where each part of the window goes
+  - `cmd.lua`: the Esc command line's parser
 - **The `.trk` model lives in Lua** so the tracker can edit and save. To play
   or update, it serialises to text and calls `acid_song_parse`. There's one
   parser of record (Rust), which is the one games use.
@@ -347,22 +347,59 @@ same names, following the path the other `KEY_*` constants take.
   script instrument shows its path and name, and gets keys to open the file
   in the Editor (`e`) or recompile it (`r`).
 
-### 7.3 Keys
+### 7.3 Keys and commands
 
-| Key | Action |
+| Key | What it does |
 |---|---|
-| `z s x d c v g b h n j m` / `q 2 w 3 e r 5 t 6 y 7 u i` | Notes, lower and upper octave (note columns, edit mode) |
-| `` ` `` | Note-off |
-| `.` / Delete | Clear the field |
-| Hex digits | Instrument, command and parameter columns |
-| Space | Toggle edit mode |
+| `z s x d c v g b h n j m` | Notes from C to B in the current octave |
+| `q 2 w 3 e r 5 t 6 y 7 u i` | The octave above |
+| Space | Edit mode on or off. Off, the note keys only play the note. |
+| `` ` `` | Note-off (edit mode, note column) |
+| `.` or Delete | Clear the field under the cursor |
+| `0`–`9`, `a`–`f` | Instrument (01–3F) and parameter digits in the grid, and pattern numbers |
+| `1 2 3 4 8 9 a f` | In the command column, the command |
 | Arrow keys | Move |
-| Tab | Next channel, then the order panel, then the instrument panel |
-| `<` / `>` | Octave |
-| `[` / `]` | Current instrument |
-| F1 / F2 / F4 | Play from start / play from cursor / stop |
+| Tab | Next channel, then the orders panel, then the instrument |
+| `<` `>` | Octave down, up |
+| `[` `]` | Previous, next instrument |
+| F1 / F2 / F4 | Play from the start / play from the cursor's row / stop |
 | F5–F8 | Mute or unmute channels 1–4 |
-| Esc | Command bar: `:w [path]`, `:o path`, `:new`, `:speed N`, `:len N` (pattern length), `:ins N script PATH NAME`, `:q` |
+| Esc | The command line: type a command and press Enter. Esc again cancels. |
+
+In the orders panel:
+- Up and Down choose the channel, and Left and Right choose the entry;
+- hex digits choose the pattern (00–7F), and a new number makes an empty pattern;
+- `+` and `-` transpose the entry;
+- Enter repeats the entry after itself, and Delete removes it;
+- `l` makes the entry the loop point.
+
+In the instrument panel:
+- Up and Down choose a field;
+- Left and Right change it by 1, and `-` and `+` by 10;
+- on a script instrument, `e` opens its `.snd` file in the Editor and `r`
+  reloads it.
+
+Every change is heard at once, even while the song plays. The row being
+played gets a bar that cycles through hues.
+
+Esc opens the command line (type a command, Enter runs it):
+
+| Command | What it does |
+|---|---|
+| `w [name]` | Save, or save as `Home/<name>.trk` |
+| `o name` | Open `Home/<name>.trk` |
+| `new` | A new song |
+| `speed N` | Ticks per row, 1–31 |
+| `len N` | The current pattern's length, 1–64 rows |
+| `title text` | The song's title |
+| `ins N` | Make (if needed) and select built-in instrument `N` (hex) |
+| `ins N script PATH NAME` | Make instrument `N` the instrument block `NAME` in `PATH` |
+| `name text` | The current instrument's name |
+| `arp a b c` | The current built-in's arpeggio, up to 3 offsets of –48 to 48 |
+| `donor N` | Which channel's second voice sound effects borrow, 1–4 |
+| `q` | Quit |
+
+`new`, `o` and `q` on an unsaved song need typing twice.
 
 When not in edit mode, the note keys play a preview of the current
 instrument through `acid_song_preview` on the cursor's channel, and releasing
@@ -380,6 +417,9 @@ the key sends note-off. This uses the existing key-release events.
   - `sounds/` with a few scripts: `bass.snd`, `zap.snd`,
     `wobble.snd`, and `sync.snd` (a script that plays the song and pulses to
     `wait beat`)
+  - In short: `Home/music/acid_groove.trk` and
+    `Home/sounds/{bass,wobble,zap,sync}.snd`. File Manager opens `.snd`
+    in the Editor.
 - **Manual.** A new chapter covers the tracker and the audio language, and
   the app list, File Manager and Terminal chapters are updated.
 
