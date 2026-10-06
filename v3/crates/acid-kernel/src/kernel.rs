@@ -80,9 +80,9 @@ pub fn manifest_flags(platform: &dyn Platform, script_path: &str) -> ManifestFla
     let toml = alloc::format!("{stem}.app.toml");
     match platform.fs().read(&toml) {
         Ok(bytes) => {
-            let fields = crate::manifest::parse_manifest(&String::from_utf8_lossy(&bytes));
-            // Any spelling of the key counts (`Source`, `SOURCE`): fail closed.
-            let cart = fields.iter().any(|(k, v)| k.eq_ignore_ascii_case("source") && unquote(v).eq_ignore_ascii_case("cart"));
+            let text = String::from_utf8_lossy(&bytes);
+            let fields = crate::manifest::parse_manifest(&text);
+            let cart = manifest_says_cart(&text);
             let scalable = fields.iter().any(|(k, v)| k.eq_ignore_ascii_case("font") && unquote(v) == "scalable");
             let has = |key: &str, val: &str| fields.iter().any(|(k, v)| k.eq_ignore_ascii_case(key) && unquote(v) == val);
             let num = |key: &str| {
@@ -106,6 +106,14 @@ pub fn manifest_flags(platform: &dyn Platform, script_path: &str) -> ManifestFla
         Err(acid_platform::FsError::NotFound) => ManifestFlags { cart: false, scalable: false, resizable: false, min_w: 0, min_h: 0 },
         Err(_) => outside,
     }
+}
+
+/// Whether a manifest's text says `source = cart`. Any spelling of the key
+/// counts, and the value is unquoted and case-insensitive (fail closed).
+pub fn manifest_says_cart(text: &str) -> bool {
+    crate::manifest::parse_manifest(text)
+        .iter()
+        .any(|(k, v)| k.eq_ignore_ascii_case("source") && unquote(v).eq_ignore_ascii_case("cart"))
 }
 
 pub fn app_is_cart(platform: &dyn Platform, script_path: &str) -> bool {

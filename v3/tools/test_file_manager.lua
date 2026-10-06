@@ -20,6 +20,7 @@ end
 
 group("listing")
 eq(G.entries[#G.entries].name, "(error: not found)", "an unreadable root lists the error")
+eq(names()[1], "Apps", "and the views are still there")
 local long = {}
 for i = 1, 20 do long[i] = "line " .. i end
 local many = {}
@@ -215,4 +216,4 @@ labels = {}
 for i, e in ipairs(G.entries) do labels[i] = e.label or e.name end
 eq(labels, { "..", "Tetris" }, "Games lists only games")
 key(AcidKeys.ENTER)
-eq(G.view, nil, "the .. row goes back up too")
+eq({ G.view, names()[1] }, { nil, "Apps" }, "the .. row goes back up too")

@@ -23,7 +23,7 @@ pub mod window;
 mod windows_api;
 
 pub use windows_api::WindowInfo;
-pub use kernel::{AppContext, AppRunner, Kernel, SpawnRequest, app_is_cart};
+pub use kernel::{AppContext, AppRunner, Kernel, SpawnRequest, app_is_cart, manifest_says_cart};
 
 /// The kernel's own id for one spawned app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

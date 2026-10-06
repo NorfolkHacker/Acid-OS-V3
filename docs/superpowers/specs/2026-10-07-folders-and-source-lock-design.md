@@ -58,6 +58,8 @@ While Developer Mode is off:
 
 Reading, listing, sizing and launching are never locked. With Developer Mode on, these calls behave as they do today. The existing cart rule (carts change only under Home) still applies on top.
 
+- **Cart slots.** A built-in app (in practice, Load Cart) may write or delete `v3/apps/<stem>.app.toml|.lua|.wasm` while Developer Mode is off, if the slot is fresh (none of the three files exists) or its manifest says `source = cart`. Built-in apps' files are never cart slots. Rename stays locked.
+
 ## 2. Config: the DEV MODE row
 
 - Config gains a row labelled `DEV MODE` with an OFF/ON toggle. It sits below FONT and above RESTART, and follows the existing button style.

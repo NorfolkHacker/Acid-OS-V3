@@ -362,6 +362,36 @@ impl KernelApi {
         self.cart_may_change(path) && (!source || self.ctx.kernel.dev_mode())
     }
 
+    /// Spec §1.2: whether `path` is `v3/apps/<stem>.app.toml|.lua|.wasm` in a
+    /// cart slot: fresh (none of the three exists) or an installed cart's
+    /// (its manifest says `source = cart`). Fails closed on any read error.
+    fn is_cart_slot(&self, path: &str) -> bool {
+        if self.ctx.cart || !acid_kernel::fs_path::fs_path_is_allowed(path) {
+            return false;
+        }
+        let Some(file) = path.strip_prefix("v3/apps/") else { return false };
+        let Some(stem) = [".app.toml", ".lua", ".wasm"].iter().find_map(|e| file.strip_suffix(e)) else {
+            return false;
+        };
+        if stem.is_empty() || stem.contains('/') {
+            return false;
+        }
+        let platform = self.ctx.kernel.platform();
+        let fs = platform.fs();
+        match fs.read(&format!("v3/apps/{stem}.app.toml")) {
+            Ok(bytes) => acid_kernel::manifest_says_cart(&String::from_utf8_lossy(&bytes)),
+            Err(FsError::NotFound) => [".lua", ".wasm"]
+                .iter()
+                .all(|e| matches!(fs.size(&format!("v3/apps/{stem}{e}")), Err(FsError::NotFound))),
+            Err(_) => false,
+        }
+    }
+
+    /// Like `may_change`, but a cart slot may be written or deleted (not renamed).
+    fn may_change_slot(&self, path: &str) -> bool {
+        self.may_change(path) || (self.cart_may_change(path) && self.is_cart_slot(path))
+    }
+
     /// Reads a file named inside a .trk or .snd: paths there are fsroot-relative.
     fn read_fsroot(&self, path: &str) -> Result<String, String> {
         self.read_text(&format!("v3/fsroot/{path}"))
@@ -874,7 +904,7 @@ impl AcidApi for KernelApi {
         if !acid_kernel::fs_path::fs_path_is_allowed(path) {
             return Err(String::from("bad path"));
         }
-        if !self.may_change(path) {
+        if !self.may_change_slot(path) {
             return Err(String::from("read only"));
         }
         self.ctx.kernel.platform().fs().write(path, data).map_err(fs_error)
@@ -894,7 +924,7 @@ impl AcidApi for KernelApi {
         if !acid_kernel::fs_path::fs_path_is_allowed(path) {
             return Err(String::from("bad path"));
         }
-        if !self.may_change(path) {
+        if !self.may_change_slot(path) {
             return Err(String::from("read only"));
         }
         self.ctx.kernel.platform().fs().delete(path).map_err(fs_error)
@@ -1084,8 +1114,8 @@ mod tests {
         let ro = Err(String::from("read only"));
         assert!(!k.dev_mode(), "Developer Mode is off at boot");
         assert_eq!(api.fs_write(&name, b"x"), ro);
-        assert_eq!(api.fs_delete("v3/apps/hello_acid.lua"), ro);
-        assert_eq!(api.fs_rename("v3/apps/hello_acid.lua", "v3/fsroot/Tmp/x.lua"), ro, "out of source");
+        assert_eq!(api.fs_delete("v3/apps/editor.lua"), ro);
+        assert_eq!(api.fs_rename("v3/apps/editor.lua", "v3/fsroot/Tmp/x.lua"), ro, "out of source");
         assert_eq!(api.fs_rename("v3/fsroot/Home/notes.txt", &name), ro, "into source");
         assert_eq!(api.fs_write("v3/fsroot/Source/x.lua", b"x"), ro, "the Source spelling is locked too");
         assert!(api.fs_read("v3/apps/hello_acid.app.toml").is_ok(), "reading is never locked");
@@ -1098,6 +1128,37 @@ mod tests {
         let _c2 = Cleanup(FakePlatform::repo_root().join(&tmp));
         assert_eq!(api.fs_write(&tmp, b"x"), Ok(()), "outside source nothing changes");
         assert_eq!(api.fs_delete(&tmp), Ok(()));
+    }
+
+    #[test]
+    fn the_cart_installer_may_fill_a_cart_slot() {
+        let (k, api) = spawn_on(FakePlatform::new(FakePlatform::repo_root()), 10, 10);
+        let stem = format!("cartslot-test-{}", std::process::id());
+        struct Cleanup(String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                for ext in [".app.toml", ".lua", ".wasm"] {
+                    let _ = std::fs::remove_file(FakePlatform::repo_root().join(format!("v3/apps/{}{ext}", self.0)));
+                }
+            }
+        }
+        let _cleanup = Cleanup(stem.clone());
+        let ro = Err(String::from("read only"));
+        assert!(!k.dev_mode());
+        let toml = format!("v3/apps/{stem}.app.toml");
+        let lua = format!("v3/apps/{stem}.lua");
+        assert_eq!(api.fs_write(&toml, b"name = T\nsource = cart\n"), Ok(()), "a fresh slot: the manifest");
+        assert_eq!(api.fs_write(&lua, b"-- x"), Ok(()), "then the script, once the manifest says cart");
+        assert_eq!(api.fs_rename(&lua, &format!("v3/apps/{stem}.wasm")), ro, "rename stays locked");
+        assert_eq!(api.fs_delete(&lua), Ok(()), "a replace may delete the other runtime's file");
+        assert_eq!(api.fs_write("v3/apps/editor.lua", b"x"), ro, "a built-in script");
+        assert_eq!(api.fs_write("v3/apps/editor.app.toml", b"x"), ro, "a built-in manifest");
+        assert_eq!(api.fs_write(&format!("v3/apps/{stem}/x.lua"), b"x"), ro, "a subfolder");
+        assert_eq!(api.fs_write(&format!("v3/fsroot/Source/{stem}.lua"), b"x"), ro, "through the link");
+        let (_k2, cart) = spawn_cart_on(FakePlatform::new(FakePlatform::repo_root()), 10, 10);
+        let fresh = format!("v3/apps/{stem}-fresh.app.toml");
+        assert_eq!(cart.fs_write(&fresh, b"source = cart\n"), ro, "a cart is refused a fresh slot");
+        assert!(!FakePlatform::repo_root().join(&fresh).exists());
     }
 
     #[cfg(unix)]
@@ -1117,10 +1178,10 @@ mod tests {
         let _unlink = Unlink(link);
         let ro = Err(String::from("read only"));
         assert_eq!(api.fs_write(&format!("{link_rel}/x.txt"), b"x"), ro);
-        assert_eq!(api.fs_delete(&format!("{link_rel}/hello_acid.lua")), ro);
+        assert_eq!(api.fs_delete(&format!("{link_rel}/editor.lua")), ro);
         assert_eq!(api.fs_rename(&link_rel, "v3/fsroot/Tmp/y"), ro, "link as source");
         assert_eq!(api.fs_rename("v3/fsroot/Home/notes.txt", &link_rel), ro, "link as target");
-        assert!(FakePlatform::repo_root().join("v3/apps/hello_acid.lua").exists());
+        assert!(FakePlatform::repo_root().join("v3/apps/editor.lua").exists());
     }
 
     #[test]
