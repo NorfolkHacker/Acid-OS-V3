@@ -1,0 +1,2 @@
+# Golden audio recordings are raw bytes: never convert line endings.
+*.u8 binary
