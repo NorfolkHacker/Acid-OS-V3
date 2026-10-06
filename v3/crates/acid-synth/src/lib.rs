@@ -102,6 +102,7 @@ pub struct Synth {
     cutoff_index: usize,
     res_index: usize,
     mode_mask: i32,
+    mix_shift: u32,
 }
 
 impl Default for Synth {
@@ -227,7 +228,17 @@ impl Synth {
             cutoff_index: 128,
             res_index: 0,
             mode_mask: FILTER_MODE_LP,
+            mix_shift: 0,
         }
+    }
+
+    /// Headroom: the voice mix is divided by 2^shift before clipping.
+    pub fn set_mix_shift(&mut self, shift: i32) {
+        self.mix_shift = shift.clamp(0, 3) as u32;
+    }
+
+    pub fn mix_shift(&self) -> u32 {
+        self.mix_shift
     }
 
     pub fn voice(&self, v: usize) -> &Voice {
@@ -434,7 +445,7 @@ impl Synth {
                 FILTER_Q_COEFF[self.res_index],
                 self.mode_mask,
             );
-            let sum = (filtered_out + bypass_sum).clamp(-128, 127);
+            let sum = ((filtered_out + bypass_sum) >> self.mix_shift).clamp(-128, 127);
             *out = (sum + 128) as u8;
         }
     }
@@ -591,5 +602,40 @@ mod tests {
         let mut buf = [0u8; 22];
         s.render(&mut buf);
         assert_eq!(s.voice(0).phase_increment, ONA_PHASE_INCREMENT[43]);
+    }
+
+    fn four_saws(shift: i32, spread: u32) -> [u8; 2048] {
+        let mut s = Synth::new();
+        s.set_mix_shift(shift);
+        for v in 0..4 {
+            s.set_voice_waveform(v, 1);
+            s.set_adsr(v, 0, 0, 100, 0);
+            s.set_ona(v, 40);
+            s.set_voice_filter_route(v, 0);
+            s.gate_on(v);
+            s.voice_mut(v as usize).phase_accum = v as u32 * spread;
+        }
+        let mut buf = [0u8; 2048];
+        s.render(&mut buf);
+        buf
+    }
+
+    #[test]
+    fn mix_shift_gives_headroom() {
+        let hot = four_saws(0, 0);
+        assert!(hot.iter().any(|&b| b == 0 || b == 255), "four full saws clip without headroom");
+        let cool = four_saws(2, 0x1000_0000);
+        assert!(cool.iter().all(|&b| b != 0 && b != 255), "shift 2 leaves four saws unclipped");
+        assert!(cool.iter().any(|&b| b != 128));
+    }
+
+    #[test]
+    fn mix_shift_is_clamped() {
+        let mut s = Synth::new();
+        assert_eq!(s.mix_shift(), 0);
+        s.set_mix_shift(i32::MAX);
+        assert_eq!(s.mix_shift(), 3);
+        s.set_mix_shift(i32::MIN);
+        assert_eq!(s.mix_shift(), 0);
     }
 }

@@ -1,6 +1,8 @@
 //! The engine the kernel ticks: one song, a preview player for the
 //! tracker, and up to MAX_SOUNDS running .snd sounds, stepped every
 //! TICK_SAMPLES samples while the synth renders. Owners are app task ids.
+//! While a song plays the synth mixes with SONG_MIX_SHIFT bits of headroom,
+//! because a song sums many full-scale voices and would otherwise clip.
 
 //!
 //! Voice choice for a sound: it takes the highest-numbered free voice,
@@ -21,6 +23,9 @@ use crate::vm::{Clock, Env, Instance, SongCmd, State, SONG_CMDS_MAX};
 use crate::TICK_SAMPLES;
 
 pub const MAX_SOUNDS: usize = 16;
+
+/// Mixer headroom (divide by 4) while a song plays.
+pub const SONG_MIX_SHIFT: i32 = 2;
 
 struct Sound {
     id: u32,
@@ -239,12 +244,14 @@ impl Engine {
             }
         }
         self.song = Some(SongSlot { owner, handle, player });
+        synth.set_mix_shift(SONG_MIX_SHIFT);
     }
 
     pub fn stop_song(&mut self, synth: &mut Synth) {
         if let Some(mut s) = self.song.take() {
             s.player.stop(synth);
         }
+        synth.set_mix_shift(0);
     }
 
     /// Swaps edited data into the playing song if it came from this handle.
@@ -560,6 +567,19 @@ mod tests {
         assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
         e.stop_sound(&mut s, 2, id);
         assert_eq!(e.song_player().unwrap().borrowed(), 0);
+    }
+
+    #[test]
+    fn songs_play_with_headroom() {
+        let (mut e, mut s) = (Engine::new(), Synth::new());
+        assert_eq!(s.mix_shift(), 0);
+        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        assert_eq!(s.mix_shift(), SONG_MIX_SHIFT as u32);
+        e.stop_song(&mut s);
+        assert_eq!(s.mix_shift(), 0);
+        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.release_owner(&mut s, 1);
+        assert_eq!(s.mix_shift(), 0);
     }
 
     #[test]
