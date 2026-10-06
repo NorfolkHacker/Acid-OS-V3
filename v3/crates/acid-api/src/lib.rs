@@ -630,7 +630,7 @@ impl AcidApi for KernelApi {
     }
 
     fn song_position(&self) -> Option<(i32, i32, i32)> {
-        self.ctx.kernel.audio_song_position()
+        self.ctx.kernel.audio_song_position(self.ctx.task)
     }
 
     fn song_mute(&self, ch: i32, on: bool) {

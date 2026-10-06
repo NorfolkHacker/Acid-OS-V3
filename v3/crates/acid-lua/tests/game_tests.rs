@@ -181,7 +181,7 @@ const TRACKER_APP: [&str; 6] = [
 #[test]
 fn tracker_app() {
     let files: Vec<&str> = TRACKER_APP.iter().copied().chain(["v3/tools/test_tracker_app.lua"]).collect();
-    run_suite_with("WIN_W, WIN_H = 480, 320", &with_libs(&files), 38);
+    run_suite_with("WIN_W, WIN_H = 480, 320", &with_libs(&files), 47);
 }
 
 #[test]

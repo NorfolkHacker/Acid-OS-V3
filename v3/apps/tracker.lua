@@ -9,12 +9,12 @@
 TrackerApp = AcidApp:extend("TrackerApp")
 TrackerApp.BG = 0x050607         -- THEME_BG
 TrackerApp.PANEL = 0x0B1712      -- THEME_PANEL
-TrackerApp.SEL_BG = 0x123322     -- THEME_PANEL's hover shade
 TrackerApp.TEXT = 0xD4E6DB       -- THEME_TEXT
 TrackerApp.MUTED = 0x9DAAA3      -- THEME_MUTED
 TrackerApp.HARD = 0x00FF66       -- THEME_HARD
 TrackerApp.DIM = 0x4A5650        -- a muted channel's notes
 TrackerApp.BEAT = 0x0E1E18       -- every fourth row
+TrackerApp.HUES = 16             -- the playing row's bar steps round this many hues
 TrackerApp.PLAY_MS = 40          -- how often the play position is read
 TrackerApp.EDITOR_PATH = "v3/apps/editor.lua"
 TrackerApp.EDITOR_W, TrackerApp.EDITOR_H = 420, 280   -- editor.app.toml's size
@@ -32,6 +32,8 @@ function TrackerApp:on_create()
   self.armed = nil         -- "new" / "o" / "q" after one go on an unsaved song
   self.message = nil
   self.held = {}           -- key code -> channel, so its release ends the preview
+  self.hue = 0             -- the playing row's bar colour, one step per row
+  self.song_error = false  -- the kernel refused the last update: don't save it
   local arg = acid_launch_arg()
   if arg ~= nil and arg ~= "" then self:open_path(arg) else self:new_song() end
   self:layout(acid_window_size())
@@ -66,6 +68,7 @@ function TrackerApp:adopt(handle, song, warnings)
   self.handle = handle
   self.E = TrkEdit.new(song)
   self.synced = true
+  self.song_error = false
   self.armed = nil
   self.message = type(warnings) == "table" and warnings[1] or nil
 end
@@ -75,6 +78,7 @@ function TrackerApp:new_song()
   local handle, warnings = acid_song_parse(TrkSong.write(song))
   self:adopt(handle, song, warnings)
   self.path = nil
+  if not handle then self.message = "new song failed: " .. tostring(warnings) end
 end
 
 -- A file that won't load leaves a new song, and says why.
@@ -98,6 +102,7 @@ function TrackerApp:sync()
   if self.synced or not self.handle then return end
   self.synced = true
   local warnings, err = acid_song_update(self.handle, TrkSong.write(self.E.song))
+  self.song_error = not warnings
   if not warnings then
     self.message = "song error: " .. tostring(err)
   elseif warnings[1] then
@@ -135,6 +140,13 @@ function TrackerApp:save(name)
   end
   if not path then
     self.message = "usage: " .. TrkCmd.USAGE.w
+    return
+  end
+  -- Only text the kernel accepts is saved, so a saved file always loads:
+  -- pending edits go over first, and a refused song waits for a good sync.
+  self:sync()
+  if self.song_error then
+    self.message = "can't save: the song has an error"
     return
   end
   local ok, err = acid_fs_write(path, TrkSong.write(self.E.song))
@@ -190,6 +202,7 @@ function TrackerApp:on_idle()
     self.play_pos = nil
   elseif self.play_pos[1] ~= o or self.play_pos[2] ~= r then
     self.play_pos = { o, r }
+    self.hue = (self.hue + 1) % self.HUES
     self.E:set_order(o)
   else
     return
@@ -200,6 +213,10 @@ end
 function TrackerApp:edit_script()
   local ins = self.E.song.instruments[self.E.inst]
   if ins and ins.kind == "script" then
+    if not TrackerApp.script_path_ok(ins.path) then
+      self.message = "not a script path"
+      return
+    end
     acid_spawn_app(self.EDITOR_PATH, self.EDITOR_W, self.EDITOR_H, "v3/fsroot/" .. ins.path)
   else
     self.message = "not a script instrument"
@@ -260,6 +277,8 @@ function TrackerApp:focus_key(code)
     else note = E:piano_note(code) end
   elseif E.focus == "orders" then
     changed = E:orders_key(code)
+    -- the cursor channel may now show a shorter pattern
+    E:cell()
   elseif code == string.byte("e") then
     self:edit_script()
   elseif code == string.byte("r") then
@@ -290,6 +309,22 @@ function TrackerApp:cmd_key(code)
     self.cmd = self.cmd .. string.char(code)
   end
   self:redraw()
+end
+
+-- A script path the .trk file can hold and that stays inside fsroot: no
+-- leading /, no empty, . or .. segment, no quote or backslash.
+function TrackerApp.script_path_ok(path)
+  if path == "" or path:find('["\\]') then return false end
+  for seg in (path .. "/"):gmatch("([^/]*)/") do
+    if seg == "" or seg == "." or seg == ".." then return false end
+  end
+  return true
+end
+
+-- The playing row's bar: the hue wheel at a quarter brightness, so the
+-- row's text stays readable on it.
+function TrackerApp:play_bar_color()
+  return (AcidPalette.hue(self.hue, self.HUES) >> 2) & 0x3F3F3F
 end
 
 function TrackerApp:usage(name) self.message = "usage: " .. TrkCmd.USAGE[name] end
@@ -359,6 +394,14 @@ function TrackerApp:run_command(line)
     local n = TrkCmd.hex(a[1])
     if not n or n < 1 or n > TrkSong.MAX_INSTRUMENT then return self:usage("ins") end
     if a[2] == "script" and #a == 4 then
+      if not TrackerApp.script_path_ok(a[3]) then
+        self.message = "not a script path"
+        return
+      end
+      if not a[4]:match("^[%a_][%w_]*$") then
+        self.message = "not a block name"
+        return
+      end
       local old = E.song.instruments[n]
       E.song.instruments[n] = TrkSong.script(old and old.name or "Script", a[3], a[4])
       self:changed()
@@ -448,7 +491,7 @@ function TrackerApp:draw_grid()
     local r = top + i
     if r >= 0 and r < max_rows then
       local y = L.grid_y + i * S.CH_H
-      local bg = (following and r == self.play_pos[2]) and self.SEL_BG or (r % 4 == 0 and self.BEAT or self.BG)
+      local bg = (following and r == self.play_pos[2]) and self:play_bar_color() or (r % 4 == 0 and self.BEAT or self.BG)
       acid_fill_rect(L.x, y, width, S.CH_H, bg)
       acid_draw_text(string.format("%02X", r), L.x, y, self.MUTED, bg)
       for ch = 1, 4 do
