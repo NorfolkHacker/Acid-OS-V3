@@ -96,7 +96,8 @@ function EditorApp:save_file()
   -- fsroot/App (the live v3/apps symlink): saving without it would strip
   -- an existing app's final newline on every save, which is diff noise
   -- against git history for no reason.
-  local wrote = acid_fs_write(tmp, table.concat(self.buf:lines(), "\n") .. "\n") ~= nil
+  local wrote, werr = acid_fs_write(tmp, table.concat(self.buf:lines(), "\n") .. "\n")
+  wrote = wrote ~= nil
   local saved = false
   if wrote then
     saved = acid_fs_rename(tmp, self.path) ~= nil
@@ -112,7 +113,9 @@ function EditorApp:save_file()
     self.buf:mark_saved()
     self.message = backup_failed and "saved (backup failed)" or "saved"
   else
-    self.message = "save failed"
+    -- System source is locked unless Developer Mode is on (Config).
+    self.message = werr == "read only" and "read only: save as to Home, or turn on DEV MODE in Config"
+      or "save failed"
   end
   return saved
 end
