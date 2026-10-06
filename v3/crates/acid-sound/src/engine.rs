@@ -3,7 +3,6 @@
 //! TICK_SAMPLES samples while the synth renders. Owners are app task ids.
 //! While a song plays the synth mixes with SONG_MIX_SHIFT bits of headroom,
 //! because a song sums many full-scale voices and would otherwise clip.
-
 //!
 //! Voice choice for a sound: it takes the highest-numbered free voice,
 //! avoiding voices apps play directly (`busy`) and voices other sounds hold.
@@ -106,9 +105,10 @@ impl Engine {
         }
     }
 
-    /// Commands from song script instruments are dropped: they have no
-    /// program context, so they can't start songs. Preview commands are
-    /// discarded too.
+    /// Song script instruments have no program context, so their
+    /// `play "song"` is dropped; their `stop song`, `tempo`, `mute`, `jump`
+    /// and bare `play` still act on the song, whose owner they share.
+    /// Preview commands are discarded.
     pub fn tick(&mut self, synth: &mut Synth) {
         self.ticks = self.ticks.wrapping_add(1);
         if let Some(s) = self.song.as_mut() {
