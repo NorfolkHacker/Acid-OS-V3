@@ -293,7 +293,7 @@ C-3 02 3 20 E-3
 | `acid_song_free(song)` | — | |
 | `acid_song_play(song[, order[, row]])` | — | Replaces any song already playing (0-based order and row) |
 | `acid_song_stop()` / `acid_song_mute(ch, on)` | — | Only affect a song the caller started |
-| `acid_song_position()` | `order, row, tick` or nothing | |
+| `acid_song_position()` | `order, row, tick` or nothing | Only the caller's own song |
 | `acid_song_preview(song, ch, note, inst)` | — | Sound one note on channel `ch` (1..4); `note` 0 is note-off |
 
 Paths given to Lua calls are full paths, as with `acid_fs_read`. Paths inside files (`script "PATH"` in a `.trk`, `song "PATH"` in a `.snd`) are relative to fsroot.
@@ -326,7 +326,7 @@ same names, following the path the other `KEY_*` constants take.
 ### 7.2 Layout (6×8 font)
 
 ```
-┌ Acid Tracker ─ groove.trk ───────────────────────────────┐
+┌ Acid Tracker ────────────────────────────────────────────┐
 │ ORD 03/0C  ROW 0A  SPD 6  OCT 4  INS 02 Fat Bass   [EDIT] │
 ├──┬───────────────┬───────────────┬───────────────┬────────┤
 │08│C-3 02 . .. ...│--- .. . .. ...│E-4 01 4 22 G-4│...     │
@@ -338,14 +338,15 @@ same names, following the path the other `KEY_*` constants take.
 ```
 
 - **Status line.** Order, row, speed, octave, the current instrument, the
-  edit or play mode, and the last message or error.
+  edit or play mode. Messages and errors go on the bottom line, not here.
 - **Pattern grid.** A pattern that fits is shown from row 00. The grid scrolls
   only when the cursor or the playing row would leave the screen, keeping it
   near the middle. Grid rows are 10 px apart. (This departs from the original
   design, which fixed the cursor row in the middle, for readability.) Muted channels are dimmed. While playing, the grid follows
   `acid_song_position()`, and the row being played gets a hue-cycling bar.
-- **Order panel and instrument panel.** These sit below the grid, and their
-  height grows with the window. Built-in instruments are edited as fields. A
+- **Order panel and instrument panel.** These sit below the grid. Their
+  heights are fixed (4 order lines, 3 instrument lines); it is the grid that
+  grows with the window. Built-in instruments are edited as fields. A
   script instrument shows its path and name, and gets keys to open the file
   in the Editor (`e`) or recompile it (`r`).
 

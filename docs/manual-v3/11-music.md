@@ -129,7 +129,7 @@ A-4 01 . .. ...
 ```
 
 Each channel has its own **order list**, the patterns it plays in turn
-with an optional transpose. Each **pattern** belongs to one channel.
+with an optional transpose. Any channel's order can use any **pattern**, and editing a pattern changes it everywhere it is used.
 
 A **built-in instrument** has these fields:
 
