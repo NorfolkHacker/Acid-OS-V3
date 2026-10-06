@@ -6,6 +6,7 @@
 TrkLayout = {}
 TrkLayout.TITLE_H = 16
 TrkLayout.CH_W, TrkLayout.CH_H = 6, 8
+TrkLayout.ROW_H = 10             -- grid rows only: 8 px text with a gap, so rows don't touch
 TrkLayout.MARGIN = 4
 TrkLayout.CELL_CHARS = 15        -- "C-4 01 4 22 E-4"
 TrkLayout.COL_CHARS = 16         -- a cell and a gap
@@ -26,7 +27,7 @@ function TrkLayout.compute(w, h)
   L.msg_y = h - 2 - S.CH_H
   L.ins_y = L.msg_y - 2 - S.INS_LINES * S.CH_H
   L.ord_y = L.ins_y - 2 - S.ORDER_LINES * S.CH_H
-  L.rows = math.max(1, (L.ord_y - 2 - L.grid_y) // S.CH_H)
+  L.rows = math.max(1, (L.ord_y - 2 - L.grid_y) // S.ROW_H)
   L.ch_x = {}
   for ch = 1, 4 do L.ch_x[ch] = L.x + (S.ROWNUM_CHARS + (ch - 1) * S.COL_CHARS) * S.CH_W end
   L.text_cols = (w - 2 * L.x) // S.CH_W

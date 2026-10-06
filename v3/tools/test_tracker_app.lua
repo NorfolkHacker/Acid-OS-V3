@@ -27,6 +27,11 @@ eq({ G.E.ch, G.E.row, G.E.edit, G.path == nil }, { 1, 0, false, true }, "cursor 
 eq(SOUND_CALLS, { { "parse", 1 } }, "the new song was handed to the kernel")
 fits("everything fits 480x320")
 ok(shown("ORD 00/00  ROW 00  SPD 6  OCT 4  INS 01 Lead"), "the status line")
+local top_row = false
+for _, t in ipairs(TEXT_AT) do
+  if t[1] == "00" and t[2] == G.L.x and t[3] == G.L.grid_y then top_row = true end
+end
+ok(top_row, "a pattern that fits shows from row 00 at the top of the grid")
 
 group("previewing")
 SOUND_CALLS = {}
@@ -63,9 +68,10 @@ G:redraw()
 ok(shown("ROW 07"), "and the status line shows the playing row")
 eq(G:poll_timeout_ms(), TrackerApp.PLAY_MS, "it reads the position often while playing")
 local function play_bar()
-  local y = G.L.grid_y + (G.L.rows // 2) * TrkLayout.CH_H
+  -- a 16-row pattern fits, so it isn't scrolled: row r is line r
+  local y = G.L.grid_y + G.play_pos[2] * TrkLayout.ROW_H
   for _, r in ipairs(RECTS) do
-    if r[1] == G.L.x and r[2] == y and r[4] == TrkLayout.CH_H then return r[5] end
+    if r[1] == G.L.x and r[2] == y and r[4] == TrkLayout.ROW_H then return r[5] end
   end
 end
 RECTS = {}

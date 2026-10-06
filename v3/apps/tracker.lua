@@ -473,8 +473,9 @@ function TrackerApp:draw_row_text(text, x, y, fg, bg, off, w, hl)
   if off + w < #text then acid_draw_text(text:sub(off + w + 1), x + (off + w) * cw, y, fg, bg) end
 end
 
--- The rows scroll past a fixed middle line: the cursor's row, or the
--- playing row while the song plays here.
+-- A pattern that fits shows from row 00; a longer one scrolls only as far
+-- as it must to keep the cursor's row (or the playing row, while the song
+-- plays here) near the middle.
 function TrackerApp:draw_grid()
   local L, E, S = self.L, self.E, TrkLayout
   for ch = 1, 4 do
@@ -483,16 +484,16 @@ function TrackerApp:draw_grid()
   end
   local following = self.play_pos ~= nil and self.play_pos[1] == E.order
   local center = following and self.play_pos[2] or E.row
-  local top = center - L.rows // 2
+  local max_rows = E:max_rows()
+  local top = math.max(0, math.min(center - L.rows // 2, max_rows - L.rows))
   local width = (S.ROWNUM_CHARS + 4 * S.COL_CHARS - 1) * S.CH_W
   local slot = E:slot()
-  local max_rows = E:max_rows()
   for i = 0, L.rows - 1 do
     local r = top + i
     if r >= 0 and r < max_rows then
-      local y = L.grid_y + i * S.CH_H
+      local y = L.grid_y + i * S.ROW_H
       local bg = (following and r == self.play_pos[2]) and self:play_bar_color() or (r % 4 == 0 and self.BEAT or self.BG)
-      acid_fill_rect(L.x, y, width, S.CH_H, bg)
+      acid_fill_rect(L.x, y, width, S.ROW_H, bg)
       acid_draw_text(string.format("%02X", r), L.x, y, self.MUTED, bg)
       for ch = 1, 4 do
         local row = E:rows(ch)[r + 1]
