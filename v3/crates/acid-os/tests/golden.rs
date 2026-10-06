@@ -337,3 +337,29 @@ fn sprite_paint_matches_golden() {
     let grip = ((wx + ww - 8) as usize, (wy + wh - 8) as usize, 8, 8);
     assert_matches_golden_masked(&p.display.last_frame().unwrap(), "sprite_paint.ppm", 640, &[clock_mask(Screen::DEFAULT), grip]);
 }
+
+#[test]
+fn acid_tracker_matches_golden() {
+    let p = FakePlatform::new(FakePlatform::repo_root());
+    let k = boot_with(p.clone(), Screen::DEFAULT);
+    wait_for_desktop(&k, Screen::DEFAULT);
+    let (w, h) = (480, 320); // the manifest's size
+    let (x, y) = acid_kernel::placement::cascade_position(k.screen(), k.with_state(|st| st.windows.count()), w, h);
+    let tracker = k
+        .spawn_app(SpawnRequest {
+            script_path: format!("{APPS_DIR}/tracker.lua"),
+            x, y, w, h, closable: true,
+            arg: Some("v3/fsroot/Home/music/acid_groove.trk".into()),
+            libs: Some("lib/acid_palette.lua, tracker/song.lua, tracker/edit.lua, tracker/layout.lua, tracker/cmd.lua".into()),
+            force_cart: false,
+        })
+        .expect("Acid Tracker opens");
+    k.activate_window(tracker);
+    // Acid Tracker draws its border last, so a border means a whole frame.
+    wait_for_border(&k, tracker, w, h);
+    k.composite_frame();
+    // Resizable, so the kernel draws a grip in the window's bottom-right 8x8.
+    let (wx, wy, ww, wh) = k.with_state(|st| st.windows.by_task(tracker).map(|win| (win.x, win.y, win.w, win.h))).unwrap();
+    let grip = ((wx + ww - 8) as usize, (wy + wh - 8) as usize, 8, 8);
+    assert_matches_golden_masked(&p.display.last_frame().unwrap(), "acid_tracker.ppm", 640, &[clock_mask(Screen::DEFAULT), grip]);
+}
