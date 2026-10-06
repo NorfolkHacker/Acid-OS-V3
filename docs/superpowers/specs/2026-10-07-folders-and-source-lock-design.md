@@ -88,7 +88,7 @@ When a delete or rename returns `read only`, the File Manager shows `read only (
 
 ## 4. Editor
 
-When saving returns `read only`, the Editor shows `read only: save as to Home, or turn on DEV MODE in Config` instead of `save failed: read only`. Opening and reading system files are unchanged.
+When saving returns `read only`, the Editor shows `read only: save to Home, or DEV MODE in Config` instead of `save failed: read only`. Opening and reading system files are unchanged.
 
 ## 5. Manifests
 

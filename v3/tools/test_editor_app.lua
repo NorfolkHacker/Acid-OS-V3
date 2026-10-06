@@ -62,7 +62,16 @@ FAIL_RENAMES = {}
 
 FAIL_WRITES[tmp] = "read only"
 esc("s")
-eq(G.message, "read only: save as to Home, or turn on DEV MODE in Config", "a locked save says how to get round it")
+eq(G.message, "read only: save to Home, or DEV MODE in Config", "a locked save says how to get round it")
+FAIL_WRITES = {}
+
+local saveas_tmp = "v3/apps/locked.lua.editor-save-tmp"
+FAIL_WRITES[saveas_tmp] = "read only"
+esc("a")
+type_text("v3/apps/locked.lua")
+key(AcidKeys.ENTER)
+eq(G.message, "read only: save to Home, or DEV MODE in Config", "save-as to a locked path shows the hint")
+eq(G.path, "v3/fsroot/Home/a.lua", "and reverts the path on failure")
 FAIL_WRITES = {}
 
 group("close")

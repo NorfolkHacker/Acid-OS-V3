@@ -290,7 +290,7 @@ fn editor_app() {
         "v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/editor/buffer.lua", "v3/apps/editor/hl.lua",
         "v3/apps/editor/layout.lua", "v3/apps/editor/cmdbar.lua", "v3/apps/editor/touch.lua",
         "v3/apps/editor.lua", "v3/tools/test_editor_app.lua",
-    ]), 27);
+    ]), 29);
 }
 
 #[test]

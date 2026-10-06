@@ -114,7 +114,7 @@ function EditorApp:save_file()
     self.message = backup_failed and "saved (backup failed)" or "saved"
   else
     -- System source is locked unless Developer Mode is on (Config).
-    self.message = werr == "read only" and "read only: save as to Home, or turn on DEV MODE in Config"
+    self.message = werr == "read only" and "read only: save to Home, or DEV MODE in Config"
       or "save failed"
   end
   return saved
