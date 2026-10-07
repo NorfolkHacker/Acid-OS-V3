@@ -949,7 +949,7 @@ per app.
 acid_song_mute(ch, on)
 ```
 
-Mutes or unmutes channel `ch` (1–4) of the playing song, if your app started it.
+Mutes or unmutes track `ch` (1–8) of the playing song, if your app started it.
 
 ### `acid_song_parse`
 
@@ -974,7 +974,7 @@ already playing.
 local order, row, tick = acid_song_position()
 ```
 
-Where your app's playing song is, by channel 1. Returns nothing when your app's song isn't playing.
+Where your app's playing song is. Returns nothing when your app's song isn't playing.
 
 ### `acid_song_preview`
 
@@ -982,7 +982,7 @@ Where your app's playing song is, by channel 1. Returns nothing when your app's 
 acid_song_preview(song, ch, note, inst)
 ```
 
-Sounds one note (1–88) on channel `ch` with instrument `inst`. A `note` of 0 is a note-off. Acid
+Sounds one note (1–88) on track `ch` (1–8) with instrument `inst`. A `note` of 0 is a note-off. Acid
 Tracker uses it for the keys you play while editing.
 
 ### `acid_song_stop`
@@ -1034,8 +1034,8 @@ local id = acid_sound_play(prog, name, note)
 ```
 
 Starts the `sound` block called `name` (by default, the first), with `note` as the script's `note`
-(default 40, C-4). It takes a free voice, or the song's donor voice. Returns an id, or `nil` when no
-voice is free, the name isn't a `sound` block, or 16 sounds are already running.
+(default 40, C-4). It takes a free voice; during a song, only a voice of a track the song leaves empty.
+Returns an id, or `nil` when no voice is free, the name isn't a `sound` block, or 16 sounds are already running.
 
 ### `acid_sound_stop`
 

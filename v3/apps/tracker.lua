@@ -1,10 +1,9 @@
--- Acid Tracker: a GoatTracker-style tracker for .trk songs, four channels
--- of two voices. The song is a TrkSong (tracker/song.lua), the cursor and
+-- Acid Tracker: a tracker for .trk songs: eight tracks of one voice each,
+-- and one order list of up to 64 patterns. The song is a TrkSong (tracker/song.lua), the cursor and
 -- every edit a TrkEdit (tracker/edit.lua), positions TrkLayout
 -- (tracker/layout.lua) and the Esc command line TrkCmd (tracker/cmd.lua).
 -- The kernel plays the song: each change goes over with acid_song_update,
--- so edits are heard while it plays. See
--- docs/superpowers/specs/2026-10-06-acid-tracker-design.md §7.
+-- so edits are heard while it plays. See docs/manual-v3/11-music.md.
 
 TrackerApp = AcidApp:extend("TrackerApp")
 TrackerApp.BG = 0x050607         -- THEME_BG
@@ -18,7 +17,8 @@ TrackerApp.HUES = 16             -- the playing row's bar steps round this many 
 TrackerApp.PLAY_MS = 40          -- how often the play position is read
 TrackerApp.EDITOR_PATH = "v3/apps/editor.lua"
 TrackerApp.EDITOR_W, TrackerApp.EDITOR_H = 420, 280   -- editor.app.toml's size
-TrackerApp.HELP = "F1 play  F2 from row  F4 stop  F5-8 mute  Esc command  Space edit"
+TrackerApp.HELP = "F1 play  F2 from row  F4 stop  F5-F12 mute  Esc command  Space edit"
+TrackerApp.ORDER_HELP = "<> entry  hex/+- pattern  n new  p copy  Enter repeat  Del remove  l loop"
 
 function TrackerApp:window_title() return "Acid Tracker" end
 
@@ -27,7 +27,9 @@ function TrackerApp:on_create()
   self.path = nil
   self.playing = false
   self.play_pos = nil      -- { order, row } while playing
-  self.muted = { false, false, false, false }
+  self.muted = {}           -- track -> true while muted
+  self.first_track = 0     -- the leftmost track shown, 0-based
+  self.bar_grab = nil      -- the scroll bar's grab point while its thumb is dragged
   self.cmd = nil           -- the command line's text while it's open
   self.armed = nil         -- "new" / "o" / "q" after one go on an unsaved song
   self.message = nil
@@ -39,7 +41,10 @@ function TrackerApp:on_create()
   self:layout(acid_window_size())
 end
 
-function TrackerApp:layout(w, h) self.L = TrkLayout.compute(w, h) end
+function TrackerApp:layout(w, h)
+  self.L = TrkLayout.compute(w, h)
+  if self.E then self:scroll_to_cursor() end
+end
 function TrackerApp:on_resize(w, h) self:layout(w, h) end
 
 function TrackerApp:on_destroy()
@@ -67,6 +72,7 @@ function TrackerApp:adopt(handle, song, warnings)
   if self.handle then acid_song_free(self.handle) end
   self.handle = handle
   self.E = TrkEdit.new(song)
+  self.first_track = 0
   self.synced = true
   self.song_error = false
   self.armed = nil
@@ -168,8 +174,8 @@ function TrackerApp:play(order, row)
   acid_song_play(self.handle, order, row)
   self.playing = true
   self.play_pos = { order, row }
-  for ch = 1, 4 do
-    if self.muted[ch] then acid_song_mute(ch, true) end
+  for t = 1, TrkSong.TRACKS do
+    if self.muted[t] then acid_song_mute(t, true) end
   end
 end
 
@@ -246,9 +252,11 @@ function TrackerApp:on_key(code, pressed)
     self:play(0, 0)
   elseif code == K.F2 then
     self:play(E.order, E.row)
+  elseif code == K.F3 then
+    E:toggle_orders()
   elseif code == K.F4 then
     self:stop()
-  elseif code >= K.F5 and code <= K.F8 then
+  elseif code >= K.F5 and code <= K.F12 then
     self:toggle_mute(code - K.F5 + 1)
   elseif code == K.TAB then
     E:next_focus()
@@ -262,6 +270,7 @@ function TrackerApp:on_key(code, pressed)
     self:focus_key(code)
     return
   end
+  self:scroll_to_cursor()
   self:redraw()
 end
 
@@ -277,9 +286,9 @@ function TrackerApp:focus_key(code)
     elseif E.edit then changed, note = E:grid_key(code)
     else note = E:piano_note(code) end
   elseif E.focus == "orders" then
-    changed = E:orders_key(code)
-    -- the cursor channel may now show a shorter pattern
-    E:cell()
+    local msg
+    changed, msg = E:orders_key(code)
+    if msg then self.message = msg end
   elseif code == string.byte("e") then
     self:edit_script()
   elseif code == string.byte("r") then
@@ -293,6 +302,7 @@ function TrackerApp:focus_key(code)
     self.held[code] = E.ch
     self:preview(E.ch, note)
   end
+  self:scroll_to_cursor()
   self:redraw()
 end
 
@@ -353,18 +363,20 @@ function TrackerApp:run_command(line)
     if self:confirmed("new") then self:new_song() end
   elseif c.name == "q" then
     if self:confirmed("q") then self:quit() end
-  elseif c.name == "speed" or c.name == "donor" or c.name == "len" then
+  elseif c.name == "speed" or c.name == "len" then
     local n = TrkCmd.int(a[1])
-    local hi = ({ speed = 31, donor = 4, len = TrkSong.MAX_ROWS })[c.name]
+    local hi = ({ speed = 31, len = TrkSong.MAX_ROWS })[c.name]
     if not n or n < 1 or n > hi then return self:usage(c.name) end
     if c.name == "speed" then
       E.song.speed = n
-    elseif c.name == "donor" then
-      E.song.donor = n
     else
       E:set_length(n)
     end
     self:changed()
+  elseif c.name == "clean" then
+    local n = TrkSong.clean(E.song)
+    self.message = n == 1 and "dropped 1 unused pattern" or ("dropped " .. n .. " unused patterns")
+    if n > 0 then self:changed() end
   elseif c.name == "title" then
     E.song.title = c.rest
     self:changed()
@@ -443,9 +455,9 @@ function TrackerApp:status_text()
   local pos = self.play_pos or { E.order, E.row }
   local ins = E.song.instruments[E.inst]
   local tag = self.playing and "  [PLAY]" or (E.edit and "  [EDIT]" or "")
-  return string.format("ORD %02X/%02X  ROW %02X  SPD %d  OCT %d  INS %02X %s%s",
-    pos[1], E:order_count() - 1, pos[2], E.song.speed, E.octave, E.inst,
-    ins and ins.name:sub(1, 12) or "--", tag)
+  return string.format("ORD %02X/%02X  PAT %02X  ROW %02X/%02X  SPD %d  OCT %d  INS %02X %s%s",
+    pos[1], E:order_count() - 1, E:pattern_num(), pos[2], E:length() - 1, E.song.speed, E.octave, E.inst,
+    ins and ins.name:sub(1, 10) or "--", tag)
 end
 
 function TrackerApp:message_text()
@@ -474,63 +486,104 @@ function TrackerApp:draw_row_text(text, x, y, fg, bg, off, w, hl)
   if off + w < #text then acid_draw_text(text:sub(off + w + 1), x + (off + w) * cw, y, fg, bg) end
 end
 
+-- Keeps the cursor's track on screen while the grid has focus, scrolling
+-- sideways as little as it can; and the view inside the eight tracks.
+function TrackerApp:scroll_to_cursor()
+  local v = self.L.visible
+  local t = self.E.ch - 1
+  if self.E.focus == "grid" then
+    if t < self.first_track then self.first_track = t end
+    if t >= self.first_track + v then self.first_track = t - v + 1 end
+  end
+  self.first_track = math.max(0, math.min(self.first_track, AcidScrollbar.max_offset(TrkSong.TRACKS, v)))
+end
+
 -- A pattern that fits shows from row 00; a longer one scrolls only as far
 -- as it must to keep the cursor's row (or the playing row, while the song
--- plays here) near the middle.
+-- plays here) near the middle. Tracks the window can't fit scroll sideways
+-- with the cursor, or with the bar under the grid.
 function TrackerApp:draw_grid()
   local L, E, S = self.L, self.E, TrkLayout
-  for ch = 1, 4 do
-    local m = self.muted[ch]
-    acid_draw_text(m and (ch .. " muted") or tostring(ch), L.ch_x[ch], L.head_y, m and self.DIM or self.MUTED, self.BG)
+  local first, last = self.first_track, math.min(TrkSong.TRACKS, self.first_track + L.visible) - 1
+  for t = first, last do
+    local m = self.muted[t + 1]
+    local x = TrkLayout.track_x(L, t - first)
+    acid_draw_text(m and ((t + 1) .. " muted") or tostring(t + 1), x, L.head_y, m and self.DIM or self.MUTED, self.BG)
   end
   local following = self.play_pos ~= nil and self.play_pos[1] == E.order
   local center = following and self.play_pos[2] or E.row
-  local max_rows = E:max_rows()
-  local top = math.max(0, math.min(center - L.rows // 2, max_rows - L.rows))
-  local width = (S.ROWNUM_CHARS + 4 * S.COL_CHARS - 1) * S.CH_W
+  local rows = E:rows()
+  local top = math.max(0, math.min(center - L.rows // 2, #rows - L.rows))
+  local width = (S.ROWNUM_CHARS + (last - first + 1) * S.COL_CHARS - 1) * S.CH_W
   local slot = E:slot()
   for i = 0, L.rows - 1 do
     local r = top + i
-    if r >= 0 and r < max_rows then
+    local row = rows[r + 1]
+    if row then
       local y = L.grid_y + i * S.ROW_H
       local bg = (following and r == self.play_pos[2]) and self:play_bar_color() or (r % 4 == 0 and self.BEAT or self.BG)
       acid_fill_rect(L.x, y, width, S.ROW_H, bg)
       acid_draw_text(string.format("%02X", r), L.x, y, self.MUTED, bg)
-      for ch = 1, 4 do
-        local row = E:rows(ch)[r + 1]
-        if row then
-          local off, w
-          if E.focus == "grid" and ch == E.ch and r == E.row then
-            off, w = S.SLOT_CHARS[slot.col], S.SLOT_W[slot.col]
-            if slot.digit then off, w = off + slot.digit, 1 end
-          end
-          local fg = self.muted[ch] and self.DIM or self.TEXT
-          self:draw_row_text(TrkSong.row_text(row), L.ch_x[ch], y, fg, bg, off, w, E.edit and self.HARD or self.MUTED)
+      for t = first, last do
+        local off, w
+        if E.focus == "grid" and t + 1 == E.ch and r == E.row then
+          off, w = S.SLOT_CHARS[slot.col], S.SLOT_W[slot.col]
+          if slot.digit then off, w = off + slot.digit, 1 end
         end
+        local fg = self.muted[t + 1] and self.DIM or self.TEXT
+        self:draw_row_text(TrkSong.cell_text(row[t + 1]), TrkLayout.track_x(L, t - first), y, fg, bg, off, w,
+          E.edit and self.HARD or self.MUTED)
       end
     end
   end
+  AcidScrollbar.draw_h(L.tracks_x, L.bar_y, L.bar_w, TrkSong.TRACKS, L.visible, first)
 end
 
--- One line per channel: its loop point, then the entries around the
--- view's order position ("03+5" is pattern 03 transposed up 5).
+-- The order list around the view's position, its loop point marked "L",
+-- then the panel's keys while it has focus.
 function TrackerApp:draw_orders()
   local L, E, S = self.L, self.E, TrkLayout
   acid_fill_rect(L.x, L.ord_y - 1, L.w - 2 * L.x, S.ORDER_LINES * S.CH_H + 1, self.PANEL)
-  local per = math.max(1, (L.text_cols - 6) // 6)
-  for ch = 1, 4 do
-    local o = E.song.orders[ch]
-    local y = L.ord_y + (ch - 1) * S.CH_H
-    acid_draw_text(string.format("%d L%02X", ch, o.loop), L.x, y, self.MUTED, self.PANEL)
-    local first = math.max(0, math.min(E.order - per // 2, #o.entries - per))
-    for i = first, math.min(#o.entries - 1, first + per - 1) do
-      local e = o.entries[i + 1]
-      local label = string.format("%02X", e.pattern) .. (e.transpose ~= 0 and string.format("%+d", e.transpose) or "")
-      local sel = E.focus == "orders" and E.ord_ch == ch and E.ord_pos == i
-      local fg = sel and self.BG or (i == E.order and self.HARD or self.TEXT)
-      acid_draw_text(label, L.x + (6 + (i - first) * 6) * S.CH_W, y, fg, sel and self.HARD or self.PANEL)
-    end
+  local o = E.song.order
+  acid_draw_text("ORDER", L.x, L.ord_y, self.MUTED, self.PANEL)
+  local per = math.max(1, (L.text_cols - 6) // 3)
+  local at = E.focus == "orders" and E.ord_pos or E.order
+  local first = math.max(0, math.min(at - per // 2, #o - per))
+  for i = first, math.min(#o - 1, first + per - 1) do
+    local sel = E.focus == "orders" and E.ord_pos == i
+    local fg = sel and self.BG or (i == E.order and self.HARD or self.TEXT)
+    local x = L.x + (6 + (i - first) * 3) * S.CH_W
+    acid_draw_text(string.format("%02X", o[i + 1]), x, L.ord_y, fg, sel and self.HARD or self.PANEL)
+    if i == E.song.loop then acid_fill_rect(x, L.ord_y + S.CH_H - 1, 2 * S.CH_W, 1, self.MUTED) end
   end
+  local help = E.focus == "orders" and self.ORDER_HELP
+    or string.format("%d of 64 patterns  loop to %02X  F3 edit the order", self:pattern_count(), E.song.loop)
+  self:line(help, L.ord_y + S.CH_H, self.MUTED, self.PANEL)
+end
+
+function TrackerApp:pattern_count()
+  local n = 0
+  for _ in pairs(self.E.song.patterns) do n = n + 1 end
+  return n
+end
+
+-- A press on the tracks' scroll bar pages sideways or grabs the thumb;
+-- while held, the thumb follows the pointer.
+function TrackerApp:on_touch(x, y, pressed)
+  local L = self.L
+  if not pressed then
+    self.bar_grab = nil
+    return
+  end
+  local v = L.visible
+  if self.bar_grab then
+    self.first_track = AcidScrollbar.drag(L.bar_w, TrkSong.TRACKS, v, self.bar_grab, x - L.tracks_x)
+  elseif AcidScrollbar.needed(TrkSong.TRACKS, v) and AcidScrollbar.hit_h(L.tracks_x, L.bar_y, L.bar_w, x, y) then
+    self.first_track, self.bar_grab = AcidScrollbar.press(L.bar_w, TrkSong.TRACKS, v, self.first_track, x - L.tracks_x)
+  else
+    return
+  end
+  self:redraw()
 end
 
 -- The current instrument: its name, then its fields (a built-in) or its

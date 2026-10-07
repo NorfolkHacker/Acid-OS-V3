@@ -280,7 +280,7 @@ it from the File Manager's **Apps** folder, or open any `.spr` file, such as
 `Home/acid_ship.spr`, to edit it. Your apps can load sprites with
 `AcidSprite.load` ([§4.6](04-graphics.md#sprite-files)).
 
-**Acid Tracker** writes music: four channels of two voices, saved as `.trk`
+**Acid Tracker** writes music: eight tracks and up to 64 patterns, saved as `.trk`
 files. Open it from the File Manager's **Apps** folder, or any `.trk` file in the File Manager,
 such as `Home/music/acid_groove.trk`, and press F1 to play it. You can also
 play a song or a `.snd` sound from the Terminal with `play Home/music/acid_groove.trk`.

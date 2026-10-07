@@ -191,7 +191,7 @@ impl Kernel {
         a.engine.song_position()
     }
 
-    /// Mutes channel `ch` (1-based) of the song, if `task` started it.
+    /// Mutes track `ch` (1-based) of the song, if `task` started it.
     pub fn audio_song_mute(&self, task: TaskId, ch: i32, on: bool) {
         let mut a = self.audio.state.lock();
         let st = &mut *a;
@@ -473,7 +473,7 @@ mod tests {
         assert_eq!(got, want);
     }
 
-    const FOUR: &str = "acid-track 1\ntitle t\nspeed 2\nsfx-donor 4\ninstrument 01 \"Lead\"  wave saw  adsr 0 0 100 0  duty 50  voice2 detune 6\norder 1  00 loop 0\norder 2  00 loop 0\norder 3  00 loop 0\norder 4  00 loop 0\n\npattern 00 2\nC-4 01 . .. ...\n=== .. . .. ...\n";
+    const FOUR: &str = "acid-track 2\ntitle t\nspeed 2\ninstrument 01 \"Lead\"  wave saw  adsr 0 0 100 0  duty 50\norder 00 loop 0\n\npattern 00 2\nC-4 01 . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . ..\n=== .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . ..\n";
 
     fn song() -> Arc<acid_sound::player::LoadedSong> {
         Arc::new(acid_sound::player::LoadedSong::plain(acid_sound::song::parse(FOUR).unwrap()))
@@ -549,7 +549,9 @@ mod tests {
     fn preview_plays_through_the_kernel() {
         let k = kernel();
         k.audio_song_preview(TaskId(1), song(), 2, 40, 1);
-        assert_eq!(k.audio.state.lock().synth.voice(2).envelope_stage, EnvStage::Attack);
+        assert_eq!(k.audio.state.lock().synth.voice(1).envelope_stage, EnvStage::Attack, "track 2 is voice 1");
+        k.audio_song_preview(TaskId(1), song(), 8, 40, 1);
+        assert_eq!(k.audio.state.lock().synth.voice(7).envelope_stage, EnvStage::Attack, "track 8 is voice 7");
     }
 
     #[test]

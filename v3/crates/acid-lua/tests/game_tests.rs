@@ -60,7 +60,7 @@ fn with_libs(rest: &[&'static str]) -> Vec<&'static str> {
 
 #[test]
 fn acid_scrollbar() {
-    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/tools/test_acid_scrollbar.lua"], 23);
+    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/tools/test_acid_scrollbar.lua"], 26);
 }
 
 #[test]
@@ -156,21 +156,22 @@ fn trk_prelude() -> (String, usize) {
 #[test]
 fn trk_song() {
     let (prelude, files) = trk_prelude();
-    run_suite_with(&prelude, &["v3/tools/game_test_env.lua", "v3/apps/tracker/song.lua", "v3/tools/test_trk_song.lua"], 16 + 2 * files);
+    run_suite_with(&prelude, &["v3/tools/game_test_env.lua", "v3/apps/tracker/song.lua", "v3/tools/test_trk_song.lua"], 19 + 2 * files);
 }
 
 #[test]
 fn trk_edit() {
-    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/tracker/song.lua", "v3/apps/tracker/edit.lua", "v3/tools/test_trk_edit.lua"]), 36);
+    run_suite(&with_libs(&["v3/tools/game_test_env.lua", "v3/apps/tracker/song.lua", "v3/apps/tracker/edit.lua", "v3/tools/test_trk_edit.lua"]), 41);
 }
 
 #[test]
 fn trk_layout_and_commands() {
-    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/tracker/layout.lua", "v3/apps/tracker/cmd.lua", "v3/tools/test_trk_layout_cmd.lua"], 15);
+    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/lib/acid_scrollbar.lua", "v3/apps/tracker/song.lua", "v3/apps/tracker/layout.lua", "v3/apps/tracker/cmd.lua", "v3/tools/test_trk_layout_cmd.lua"], 17);
 }
 
-const TRACKER_APP: [&str; 6] = [
+const TRACKER_APP: [&str; 7] = [
     "v3/tools/game_test_env.lua",
+    "v3/apps/lib/acid_scrollbar.lua",
     "v3/apps/tracker/song.lua",
     "v3/apps/tracker/edit.lua",
     "v3/apps/tracker/layout.lua",
@@ -181,7 +182,7 @@ const TRACKER_APP: [&str; 6] = [
 #[test]
 fn tracker_app() {
     let files: Vec<&str> = TRACKER_APP.iter().copied().chain(["v3/tools/test_tracker_app.lua"]).collect();
-    run_suite_with("WIN_W, WIN_H = 480, 320", &with_libs(&files), 48);
+    run_suite_with("WIN_W, WIN_H = 480, 320", &with_libs(&files), 63);
 }
 
 #[test]

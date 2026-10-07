@@ -25,7 +25,7 @@ fn read(path: &str) -> Result<String, String> {
 }
 
 /// Four seconds of the demo, in 512-sample buffers; with `with_zap`, the zap
-/// starts in buffer 90 (about 2.1 s) and borrows channel 4's second voice.
+/// starts in buffer 90 (about 2.1 s) on track 8, which the song leaves empty.
 fn render_demo_with(with_zap: bool) -> Vec<u8> {
     let text = std::fs::read_to_string(dir().join("demo.trk")).unwrap();
     let (song, warnings) = load_song(&text, &read).unwrap();

@@ -350,7 +350,7 @@ fn acid_tracker_matches_golden() {
             script_path: format!("{APPS_DIR}/tracker.lua"),
             x, y, w, h, closable: true,
             arg: Some("v3/fsroot/Home/music/acid_groove.trk".into()),
-            libs: Some("lib/acid_palette.lua, tracker/song.lua, tracker/edit.lua, tracker/layout.lua, tracker/cmd.lua".into()),
+            libs: Some("lib/acid_palette.lua, lib/acid_scrollbar.lua, tracker/song.lua, tracker/edit.lua, tracker/layout.lua, tracker/cmd.lua".into()),
             force_cart: false,
         })
         .expect("Acid Tracker opens");

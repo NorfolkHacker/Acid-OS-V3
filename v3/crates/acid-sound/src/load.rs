@@ -61,7 +61,7 @@ mod tests {
     use super::*;
     use alloc::string::ToString;
 
-    const SONG: &str = "acid-track 1\ntitle t\nspeed 6\nsfx-donor 4\ninstrument 01 \"A\"  script \"Home/good.snd\" bass\ninstrument 02 \"B\"  script \"Home/bad.snd\" bass\ninstrument 03 \"C\"  script \"Home/missing.snd\" bass\ninstrument 04 \"D\"  script \"Home/good.snd\" zap\norder 1  00 loop 0\norder 2  00 loop 0\norder 3  00 loop 0\norder 4  00 loop 0\n\npattern 00 1\n... .. . .. ...\n";
+    const SONG: &str = "acid-track 2\ntitle t\nspeed 6\ninstrument 01 \"A\"  script \"Home/good.snd\" bass\ninstrument 02 \"B\"  script \"Home/bad.snd\" bass\ninstrument 03 \"C\"  script \"Home/missing.snd\" bass\ninstrument 04 \"D\"  script \"Home/good.snd\" zap\norder 00 loop 0\n\npattern 00 1\n... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . ..\n";
 
     fn files(path: &str) -> Result<String, String> {
         match path {

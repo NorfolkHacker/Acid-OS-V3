@@ -6,12 +6,12 @@ TrkCmd = {}
 TrkCmd.USAGE = {
   w = "w [name]", o = "o name", new = "new", speed = "speed 1-31", len = "len 1-64",
   title = "title text", ins = "ins N  or  ins N script PATH NAME", name = "name text",
-  arp = "arp [a [b [c]]]", donor = "donor 1-4", q = "q",
+  arp = "arp [a [b [c]]]", clean = "clean", q = "q",
 }
 -- Fewest and most arguments each command takes.
 local ARGS = {
   w = { 0, 1 }, o = { 1, 1 }, new = { 0, 0 }, speed = { 1, 1 }, len = { 1, 1 }, title = { 0, 99 },
-  ins = { 1, 4 }, name = { 0, 99 }, arp = { 0, 3 }, donor = { 1, 1 }, q = { 0, 0 },
+  ins = { 1, 4 }, name = { 0, 99 }, arp = { 0, 3 }, clean = { 0, 0 }, q = { 0, 0 },
 }
 
 -- A typed line -> { name, args, rest } (rest is everything after the

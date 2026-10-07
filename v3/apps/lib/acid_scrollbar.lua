@@ -1,4 +1,6 @@
--- A vertical scroll bar: the maths and the drawing, nothing else. The app
+-- A scroll bar: the maths and the drawing, nothing else. Vertical by
+-- default; hit_h and draw_h lay the same bar on its side (the maths is the
+-- same, with x for y and the track's width for its height). The app
 -- keeps its own scroll offset (the first visible row) and, while a drag is
 -- in progress, the grab point `press` returned; every function here takes
 -- what it needs as arguments, so one module serves any number of lists.
@@ -70,4 +72,16 @@ function AcidScrollbar.draw(x, y, h, total, visible, offset)
   acid_fill_rect(x, y, AcidScrollbar.WIDTH, h, AcidScrollbar.TRACK_COLOR)
   local ty, th = AcidScrollbar.thumb(h, total, visible, offset)
   acid_fill_rect(x + 1, y + ty, AcidScrollbar.WIDTH - 2, th, AcidScrollbar.THUMB_COLOR)
+end
+
+-- A horizontal bar along (x, y), w pixels wide and WIDTH tall.
+function AcidScrollbar.hit_h(x, y, w, px, py)
+  return px >= x and px < x + w and py >= y and py < y + AcidScrollbar.WIDTH
+end
+
+function AcidScrollbar.draw_h(x, y, w, total, visible, offset)
+  if not AcidScrollbar.needed(total, visible) then return end
+  acid_fill_rect(x, y, w, AcidScrollbar.WIDTH, AcidScrollbar.TRACK_COLOR)
+  local tx, tw = AcidScrollbar.thumb(w, total, visible, offset)
+  acid_fill_rect(x + tx, y + 1, tw, AcidScrollbar.WIDTH - 2, AcidScrollbar.THUMB_COLOR)
 end

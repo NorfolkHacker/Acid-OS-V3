@@ -16,7 +16,7 @@ Out of the box you get:
 - a terminal, a file manager, a text editor, a system monitor, network and
   settings apps;
 - Sprite Paint, for pixel art and animated sprites;
-- Acid Tracker, a four-channel tracker for `.trk` songs, with its own audio
+- Acid Tracker, an eight-track tracker for `.trk` songs, with its own audio
   scripting language (`.snd`);
 - Tetris, Breakout, Acid Blaster, a little piano, and a spinning 3D demo.
 

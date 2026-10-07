@@ -2,12 +2,18 @@
 -- reader of record is the kernel's (acid_song_parse): the tracker only
 -- reads text that has already parsed there, and `write` emits exactly the
 -- canonical text acid-sound's writer does, so files round-trip byte for
--- byte. See docs/superpowers/specs/2026-10-06-acid-tracker-design.md §3.
+-- byte. A song is one order list of patterns; every pattern holds all
+-- TRACKS tracks, so its length is every track's length.
+--
+-- The model: { title, speed, instruments = { [n] = ins }, order = { pattern
+-- numbers }, loop = 0-based entry, patterns = { [n] = rows } }, where each
+-- row is a list of TRACKS cells { note, inst, cmd, param }.
 
 TrkSong = {}
-TrkSong.CHANNELS = 4
+TrkSong.TRACKS = 8
 TrkSong.MAX_ROWS = 64
-TrkSong.MAX_PATTERN = 0x7F
+TrkSong.MAX_PATTERN = 0x3F        -- 64 patterns, 00..3F
+TrkSong.MAX_ORDER = 128
 TrkSong.MAX_INSTRUMENT = 0x3F
 TrkSong.NOTE_NONE = 0
 TrkSong.NOTE_OFF = 255
@@ -19,8 +25,7 @@ TrkSong.DEFAULT_ROWS = 16
 -- file always loads.
 TrkSong.RANGE = {
   adsr = { 0, 100000 }, sustain = { 0, 100 }, duty = { 1, 99 }, pwm = { -50, 50 }, vib = { 0, 15 },
-  arp = { -48, 48 }, detune = { -768, 768 }, cutoff = { 0, 255 }, res = { 0, 15 },
-  speed = { 1, 31 }, donor = { 1, 4 }, transpose = { -48, 48 },
+  arp = { -48, 48 }, cutoff = { 0, 255 }, res = { 0, 15 }, speed = { 1, 31 },
 }
 
 local NAMES = { "C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-" }
@@ -51,27 +56,61 @@ end
 
 function TrkSong.builtin(name)
   return { name = name, kind = "builtin", wave = 0, adsr = { 2, 40, 80, 40 }, duty = 50, pwm = 0,
-           vib = { 0, 0 }, arp = {}, filter = nil, voice2 = "off", detune = 0 }
+           vib = { 0, 0 }, arp = {}, filter = nil }
 end
 
 function TrkSong.script(name, path, block)
   return { name = name, kind = "script", path = path, block = block }
 end
 
+function TrkSong.empty_cell() return { note = 0, inst = 0, cmd = "", param = 0 } end
+
+function TrkSong.empty_row()
+  local row = {}
+  for t = 1, TrkSong.TRACKS do row[t] = TrkSong.empty_cell() end
+  return row
+end
+
 function TrkSong.empty_rows(n)
   local rows = {}
-  for i = 1, n do rows[i] = { note = 0, inst = 0, cmd = "", param = 0, note2 = 0 } end
+  for i = 1, n do rows[i] = TrkSong.empty_row() end
   return rows
 end
 
--- A new song: one lead instrument, each channel on its own empty pattern.
-function TrkSong.new()
-  local s = { title = "untitled", speed = 6, donor = 4, instruments = {}, orders = {}, patterns = {} }
-  s.instruments[1] = TrkSong.builtin("Lead")
-  for ch = 1, TrkSong.CHANNELS do
-    s.patterns[ch - 1] = TrkSong.empty_rows(TrkSong.DEFAULT_ROWS)
-    s.orders[ch] = { entries = { { pattern = ch - 1, transpose = 0 } }, loop = 0 }
+function TrkSong.copy_rows(rows)
+  local out = {}
+  for i, row in ipairs(rows) do
+    out[i] = {}
+    for t, c in ipairs(row) do out[i][t] = { note = c.note, inst = c.inst, cmd = c.cmd, param = c.param } end
   end
+  return out
+end
+
+-- The lowest pattern number not in use, or nil when all 64 are.
+function TrkSong.free_pattern(s)
+  for n = 0, TrkSong.MAX_PATTERN do
+    if not s.patterns[n] then return n end
+  end
+end
+
+-- Drops the patterns the order doesn't play; how many went.
+function TrkSong.clean(s)
+  local used, n = {}, 0
+  for _, p in ipairs(s.order) do used[p] = true end
+  for p in pairs(s.patterns) do
+    if not used[p] then
+      s.patterns[p] = nil
+      n = n + 1
+    end
+  end
+  return n
+end
+
+-- A new song: one lead instrument and one empty pattern.
+function TrkSong.new()
+  local s = { title = "untitled", speed = 6, instruments = {}, order = { 0 }, loop = 0, patterns = {} }
+  s.instruments[1] = TrkSong.builtin("Lead")
+  s.patterns[0] = TrkSong.empty_rows(TrkSong.DEFAULT_ROWS)
   return s
 end
 
@@ -107,24 +146,33 @@ local function int(f)
   if f and not f.quoted and f.text:match("^[+-]?%d+$") then return math.tointeger(tonumber(f.text)) end
 end
 
-local function parse_row(line)
+local function parse_cell(text)
   local f = {}
-  for w in line:gmatch("%S+") do f[#f + 1] = w end
-  if #f ~= 5 then return nil end
-  local function note(s, off_ok)
-    if s == "..." then return 0 end
-    if s == "===" and off_ok then return TrkSong.NOTE_OFF end
-    return TrkSong.parse_note(s)
-  end
-  local r = { note = note(f[1], true), note2 = note(f[5], false) }
-  r.inst = f[2] == ".." and 0 or hex2(f[2])
+  for w in text:gmatch("%S+") do f[#f + 1] = w end
+  if #f ~= 4 then return nil end
+  local c = {}
+  if f[1] == "..." then c.note = 0
+  elseif f[1] == "===" then c.note = TrkSong.NOTE_OFF
+  else c.note = TrkSong.parse_note(f[1]) end
+  c.inst = f[2] == ".." and 0 or hex2(f[2])
   if f[3] == "." then
-    r.cmd = ""
+    c.cmd = ""
   elseif #f[3] == 1 and TrkSong.COMMANDS:find(f[3], 1, true) then
-    r.cmd = f[3]
+    c.cmd = f[3]
   end
-  r.param = f[4] == ".." and 0 or hex2(f[4])
-  if r.note and r.note2 and r.inst and r.cmd and r.param then return r end
+  c.param = f[4] == ".." and 0 or hex2(f[4])
+  if c.note and c.inst and c.cmd and c.param then return c end
+end
+
+-- TRACKS cells split by "|".
+local function parse_row(line)
+  local row = {}
+  for part in (line .. "|"):gmatch("([^|]*)|") do
+    local c = parse_cell(part)
+    if not c then return nil end
+    row[#row + 1] = c
+  end
+  if #row == TrkSong.TRACKS then return row end
 end
 
 local function parse_instrument(f)
@@ -179,15 +227,6 @@ local function parse_instrument(f)
       local mode = ({ lp = 1, bp = 2, hp = 4 })[word()]
       if not mode then return nil end
       b.filter = { mode, nxt("filter cutoff", 0, 255), nxt("filter resonance", 0, 15) }
-    elseif key == "voice2" then
-      local m = word()
-      if m == "detune" then
-        b.voice2, b.detune = "detune", nxt("detune", -768, 768)
-      elseif m == "off" or m == "octave" or m == "fifth" or m == "ring" then
-        b.voice2 = m
-      else
-        return nil
-      end
     else
       return nil
     end
@@ -196,36 +235,32 @@ local function parse_instrument(f)
   return num, b
 end
 
+-- "order 00 01 00 loop 0" -> the pattern list and the 0-based loop entry.
 local function parse_order(f)
-  local ch = int(f[2])
-  if not ch or ch < 1 or ch > TrkSong.CHANNELS then return nil, "order channel out of range" end
-  local entries, i = {}, 3
+  local order, i = {}, 2
   while f[i] and f[i].text ~= "loop" do
-    local p, t = f[i].text:match("^(%x%x)([+-]%d+)$")
-    if not p then p, t = f[i].text:match("^(%x%x)$"), "0" end
+    local p = hex2(f[i].text)
     if not p then return nil end
-    local pat, tr = tonumber(p, 16), math.tointeger(tonumber(t))
-    -- a transpose too big to hold (a float) is nil; Rust's is an i8
-    if pat > TrkSong.MAX_PATTERN then return nil, "order pattern out of range" end
-    if not tr or tr < -128 or tr > 127 then return nil, "transpose out of range" end
-    entries[#entries + 1] = { pattern = pat, transpose = tr }
+    if p > TrkSong.MAX_PATTERN then return nil, "order pattern out of range" end
+    order[#order + 1] = p
     i = i + 1
   end
   local loop = int(f[i + 1])
-  if #entries == 0 or not loop or f[i + 2] then return nil end
-  if loop < 0 or loop >= #entries then return nil, "loop out of range" end
-  return ch, { entries = entries, loop = loop }
+  if #order == 0 or not loop or f[i + 2] then return nil end
+  if #order > TrkSong.MAX_ORDER then return nil, "the order is too long" end
+  if loop < 0 or loop >= #order then return nil, "loop out of range" end
+  return order, loop
 end
 
 -- Text acid_song_parse accepted -> a song, or nil and why.
 function TrkSong.parse(text)
   local lines = {}
   for line in (text .. "\n"):gmatch("(.-)\r?\n") do lines[#lines + 1] = line end
-  local s = { title = "", speed = 6, donor = 4, instruments = {}, orders = {}, patterns = {} }
+  local s = { title = "", speed = 6, instruments = {}, order = nil, loop = 0, patterns = {} }
   local i = 1
   while lines[i] and lines[i]:match("^%s*$") do i = i + 1 end
-  if not lines[i] or lines[i]:match("^%s*(.-)%s*$") ~= "acid-track 1" then
-    return nil, "not an acid-track 1 file"
+  if not lines[i] or lines[i]:match("^%s*(.-)%s*$") ~= "acid-track 2" then
+    return nil, "not an acid-track 2 file"
   end
   i = i + 1
   while i <= #lines do
@@ -243,17 +278,14 @@ function TrkSong.parse(text)
       if word == "speed" then
         s.speed = int(f[2])
         if not s.speed or s.speed < 1 or s.speed > 31 then return nil, n .. ": speed out of range" end
-      elseif word == "sfx-donor" then
-        s.donor = int(f[2])
-        if not s.donor or s.donor < 1 or s.donor > 4 then return nil, n .. ": sfx-donor out of range" end
       elseif word == "instrument" then
         local num, ins = parse_instrument(f)
         if not num then return nil, n .. ": " .. (ins or "bad instrument") end
         s.instruments[num] = ins
       elseif word == "order" then
-        local ch, o = parse_order(f)
-        if not ch then return nil, n .. ": " .. (o or "bad order") end
-        s.orders[ch] = o
+        local order, loop = parse_order(f)
+        if not order then return nil, n .. ": " .. (loop or "bad order") end
+        s.order, s.loop = order, loop
       elseif word == "pattern" then
         local num, len = hex2(f[2] and f[2].text), int(f[3])
         if not num or not len then return nil, n .. ": bad pattern" end
@@ -272,12 +304,10 @@ function TrkSong.parse(text)
       end
     end
   end
-  if not s.speed or not s.donor then return nil, "bad header" end
-  for ch = 1, TrkSong.CHANNELS do
-    if not s.orders[ch] then return nil, "no order for channel " .. ch end
-    for _, e in ipairs(s.orders[ch].entries) do
-      if not s.patterns[e.pattern] then return nil, "order " .. ch .. " uses a missing pattern" end
-    end
+  if not s.speed then return nil, "bad header" end
+  if not s.order then return nil, "no order" end
+  for _, p in ipairs(s.order) do
+    if not s.patterns[p] then return nil, "the order uses a missing pattern" end
   end
   return s
 end
@@ -291,27 +321,30 @@ local function sorted_keys(t)
   return k
 end
 
--- One row as the file writes it, e.g. "C-4 01 4 22 E-4".
-function TrkSong.row_text(r)
-  local function note(n)
-    if n == TrkSong.NOTE_NONE then return "..." end
-    if n == TrkSong.NOTE_OFF then return "===" end
-    return TrkSong.note_name(n)
-  end
-  local inst = r.inst == 0 and ".." or string.format("%02X", r.inst)
-  local cmd = r.cmd == "" and "." or r.cmd
-  local param = (r.cmd == "" and r.param == 0) and ".." or string.format("%02X", r.param)
-  return note(r.note) .. " " .. inst .. " " .. cmd .. " " .. param .. " " .. note(r.note2)
+-- One track's cell as the file writes it, e.g. "C-4 01 4 22".
+function TrkSong.cell_text(c)
+  local note = "..."
+  if c.note == TrkSong.NOTE_OFF then note = "===" elseif c.note ~= TrkSong.NOTE_NONE then note = TrkSong.note_name(c.note) end
+  local inst = c.inst == 0 and ".." or string.format("%02X", c.inst)
+  local cmd = c.cmd == "" and "." or c.cmd
+  local param = (c.cmd == "" and c.param == 0) and ".." or string.format("%02X", c.param)
+  return note .. " " .. inst .. " " .. cmd .. " " .. param
+end
+
+-- One row: every track's cell, split by " | ".
+function TrkSong.row_text(row)
+  local cells = {}
+  for t = 1, TrkSong.TRACKS do cells[t] = TrkSong.cell_text(row[t]) end
+  return table.concat(cells, " | ")
 end
 
 -- The canonical text, exactly as acid-sound's song::write produces it.
 function TrkSong.write(s)
   local out = {}
   local function add(x) out[#out + 1] = x end
-  add("acid-track 1\n")
+  add("acid-track 2\n")
   add("title " .. s.title .. "\n")
   add("speed " .. s.speed .. "\n")
-  add("sfx-donor " .. s.donor .. "\n")
   for _, num in ipairs(sorted_keys(s.instruments)) do
     local ins = s.instruments[num]
     add(string.format('instrument %02X "%s"', num, (ins.name:gsub('"', "'"))))
@@ -329,27 +362,12 @@ function TrkSong.write(s)
       if ins.filter then
         add(string.format("  filter %s %d %d", TrkSong.FILTER_MODES[ins.filter[1]], ins.filter[2], ins.filter[3]))
       end
-      if ins.voice2 == "detune" then
-        add("  voice2 detune " .. ins.detune)
-      elseif ins.voice2 ~= "off" then
-        add("  voice2 " .. ins.voice2)
-      end
     end
     add("\n")
   end
-  for ch = 1, TrkSong.CHANNELS do
-    local o = s.orders[ch]
-    add("order " .. ch .. " ")
-    for _, e in ipairs(o.entries) do
-      add(string.format(" %02X", e.pattern))
-      if e.transpose > 0 then
-        add("+" .. e.transpose)
-      elseif e.transpose < 0 then
-        add(tostring(e.transpose))
-      end
-    end
-    add(" loop " .. o.loop .. "\n")
-  end
+  add("order")
+  for _, p in ipairs(s.order) do add(string.format(" %02X", p)) end
+  add(" loop " .. s.loop .. "\n")
   for _, num in ipairs(sorted_keys(s.patterns)) do
     local rows = s.patterns[num]
     add(string.format("\npattern %02X %d\n", num, #rows))

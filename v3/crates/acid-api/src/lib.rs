@@ -175,7 +175,7 @@ pub trait AcidApi: Send + Sync {
     fn song_position(&self) -> Option<(i32, i32, i32)> { None }
     /// `ch` is 1-based.
     fn song_mute(&self, _ch: i32, _on: bool) {}
-    /// Sounds `note` on channel `ch` (1-based); note 0 is note-off.
+    /// Sounds `note` on track `ch` (1-based, 1..8); note 0 is note-off.
     fn song_preview(&self, _song: i32, _ch: i32, _note: i32, _inst: i32) {}
     /// Ring-modulate a voice with another (-1 clears).
     fn set_ring_partner(&self, voice: i32, partner: i32);
@@ -1754,7 +1754,7 @@ mod tests {
         s.gate_on(voice);
     }
 
-    const FOUR_SONG: &str = "acid-track 1\ntitle t\nspeed 2\nsfx-donor 4\ninstrument 01 \"Lead\"  wave saw  adsr 0 0 100 0  duty 50\norder 1  00 loop 0\norder 2  00 loop 0\norder 3  00 loop 0\norder 4  00 loop 0\n\npattern 00 2\nC-4 01 . .. ...\n... .. . .. ...\n";
+    const FOUR_SONG: &str = "acid-track 2\ntitle t\nspeed 2\ninstrument 01 \"Lead\"  wave saw  adsr 0 0 100 0  duty 50\norder 00 loop 0\n\npattern 00 2\nC-4 01 . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . ..\n... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . ..\n";
 
     #[test]
     fn sound_load_reports_compile_errors() {

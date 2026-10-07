@@ -22,34 +22,36 @@ Open Acid Tracker from the File Manager's **Apps** folder, or any `.trk` file,
 such as `Home/music/acid_groove.trk`. You can also type
 `run acid tracker` in the Terminal. Like Sprite Paint, it isn't in the Menu.
 
-A song has **four channels**, and each channel has **two voices**. Each row
-of a channel looks like this:
+A song has **eight tracks**, and each track plays one voice. A song is a
+list of **patterns**, played in turn: the **order**. Each pattern holds all
+eight tracks, so every track in it has the same length, up to 64 rows. A
+song can have up to 64 patterns (00–3F), and the order up to 128 entries.
+
+Each track's part of a row looks like this:
 
 ```text
-C-4 01 4 22 E-4
+C-4 01 4 22
 ```
 
-Read left to right, the five fields are:
+Read left to right, the four fields are:
 - a note
 - an instrument
 - a command
 - its parameter
-- a second note
 
-The second note plays on the channel's second voice. When a row leaves it
-empty, the instrument is free to use that voice itself, for example for a
-detuned double.
-
-The window has four parts, from top to bottom:
-- **The status line**, showing the order position, row, speed, octave,
-  current instrument and mode.
-- **The pattern grid**, showing each channel's pattern at the current order
-  position. A pattern that fits is shown from row 00. The grid scrolls
-  only when the cursor, or the playing row, would leave the screen, and
-  then keeps it near the middle. While the song plays, the grid follows it.
-- **The orders panel**, with one line per channel. Each line shows the
-  loop point (`L00`), then the patterns the channel plays in turn. `03+5`
-  means pattern 03, transposed up 5 semitones.
+The window has five parts, from top to bottom:
+- **The status line**, showing the order position, the pattern, the row
+  (and the pattern's last row), speed, octave, current instrument and mode.
+- **The pattern grid**, showing the pattern at the current order position.
+  A pattern that fits is shown from row 00. The grid scrolls only when the
+  cursor, or the playing row, would leave the screen, and then keeps it
+  near the middle. While the song plays, the grid follows it.
+- **The tracks' scroll bar.** The default window fits six of the eight
+  tracks. Moving the cursor onto a track scrolls the grid sideways to show
+  it, and you can also press or drag the bar under the grid. Widen the
+  window to see all eight.
+- **The orders panel**, showing the order: the pattern numbers in turn.
+  The loop point is underlined.
 - **The instrument panel**, showing the current instrument's fields.
 
 ### Keys
@@ -64,19 +66,24 @@ The window has four parts, from top to bottom:
 | `0`–`9`, `a`–`f` | Instrument (01–3F) and parameter digits in the grid, and pattern numbers |
 | `1 2 3 4 8 9 a f` | In the command column, the command |
 | Arrow keys | Move |
-| Tab | Next channel, then the orders panel, then the instrument |
+| Tab | Next track, then the orders panel, then the instrument |
 | `<` `>` | Octave down, up |
 | `[` `]` | Previous, next instrument |
 | F1 / F2 / F4 | Play from the start / play from the cursor's row / stop |
-| F5–F8 | Mute or unmute channels 1–4 |
+| F3 | Go to the orders panel, or back to the grid |
+| F5–F12 | Mute or unmute tracks 1–8 |
 | Esc | The command line: type a command and press Enter. Esc again cancels. |
 
 In the orders panel:
-- Up and Down choose the channel, and Left and Right choose the entry;
-- hex digits choose the pattern (00–7F), and a new number makes an empty pattern;
-- `+` and `-` transpose the entry;
+- Left and Right choose the entry, and the grid shows its pattern;
+- `n` makes a new, empty pattern after the entry, as long as the entry's
+  pattern;
+- `p` copies the entry's pattern into a new pattern after the entry;
+- hex digits type the entry's pattern number (00–3F), and `+` and `-` step
+  it. A number that isn't used yet makes an empty pattern;
 - Enter repeats the entry after itself, and Delete removes it;
-- `l` makes the entry the loop point.
+- `l` makes the entry the loop point, where the song goes back to after
+  its last entry.
 
 In the instrument panel:
 - Up and Down choose a field;
@@ -94,13 +101,13 @@ Every change is heard at once, even while the song plays.
 | `o name` | Open `Home/<name>.trk` (names live under `Home`) |
 | `new` | A new song |
 | `speed N` | Ticks per row, 1–31 |
-| `len N` | The current pattern's length, 1–64 rows |
+| `len N` | The current pattern's length, 1–64 rows. It changes every track in the pattern. |
+| `clean` | Drop the patterns the order doesn't play, so their numbers are free again |
 | `title text` | The song's title |
 | `ins N` | Make (if needed) and select built-in instrument `N` (hex) |
 | `ins N script PATH NAME` | Make instrument `N` the instrument block `NAME` in `PATH` |
 | `name text` | The current instrument's name |
 | `arp a b c` | The current built-in's arpeggio, up to 3 offsets of –48 to 48 |
-| `donor N` | Which channel's second voice sound effects borrow, 1–4 |
 | `q` | Quit |
 
 `new`, `o` and `q` on an unsaved song need typing twice.
@@ -108,28 +115,30 @@ Every change is heard at once, even while the song plays.
 ## 11.2 The song format (`.trk`)
 
 A `.trk` file is plain text, so you can read it or write it by hand. This
-is an excerpt, and doesn't load on its own: a real file needs all four
-`order` lines, and a row for every row of each pattern.
+is an excerpt, and doesn't load on its own: a real file needs a row for
+every row of each pattern.
 
 ```text
-acid-track 1
+acid-track 2
 title Acid Groove
 speed 6
-sfx-donor 4
-instrument 01 "Lead"  wave pulse  adsr 1 30 60 60  duty 40  pwm 2  vib 2 3  voice2 detune 5
+instrument 01 "Lead"  wave pulse  adsr 1 30 60 60  duty 40  pwm 2  vib 2 3
 instrument 02 "Fat Bass"  script "Home/sounds/bass.snd" fatbass
-order 1  00 00 01 00 loop 0
-order 2  02 02+5 02 02+7 loop 0
-order 3  03 loop 0
-order 4  04 loop 0
+order 00 01 02 03 loop 0
 
 pattern 00 16
-A-4 01 . .. ...
-... .. . .. ...
+A-4 01 . .. | A-1 02 . .. | A-3 03 . .. | C-6 05 . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . ..
+... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . ..
 ```
 
-Each channel has its own **order list**, the patterns it plays in turn
-with an optional transpose. Any channel's order can use any **pattern**, and editing a pattern changes it everywhere it is used.
+The **order** lists the patterns the song plays in turn, and `loop N`
+says which entry (counting from 0) to go back to after the last. A
+**pattern** can appear in the order any number of times, and editing it
+changes it everywhere it is used. Each row of a pattern has all eight
+tracks, split by `|`.
+
+Songs from before tracks (`acid-track 1`, four channels of two voices)
+don't load any more.
 
 A **built-in instrument** has these fields:
 
@@ -142,7 +151,6 @@ A **built-in instrument** has these fields:
 | `vib` | Vibrato depth and speed, 0–15 each |
 | `arp` | Up to 3 semitone offsets, –48 to 48, stepped one per tick |
 | `filter` | `lp`, `bp` or `hp`, then the cutoff (0–255) and the resonance (0–15) |
-| `voice2` | What the second voice does: `off`, `detune N` (–768 to 768, in 1/64 semitones), `octave`, `fifth` or `ring` |
 
 A **script instrument** names an `instrument` block in a `.snd` file. Paths
 inside song files are relative to the file system's root, such as
@@ -162,11 +170,9 @@ These are the pattern commands:
 | `F XX` | Speed |
 
 These ranges hold:
-- pattern numbers 00–7F, instrument numbers 01–3F, pattern length 1–64;
-- `speed` 1–31 and `sfx-donor` 1–4;
-- an order transpose is kept to ±48 by the tracker, though a hand-written
-  file may use –128 to 127;
-- the second note column can't hold `===`.
+- pattern numbers 00–3F, instrument numbers 01–3F, pattern length 1–64;
+- an order of 1–128 entries;
+- `speed` 1–31.
 
 A file with a number out of range, or anything malformed, fails to load
 with `LINE: message`. A script instrument whose file is missing or broken
@@ -230,8 +236,10 @@ A file with no blocks at all is one sound, so a short script needs no
 | `song "PATH"`, `play [N]`, `stop song` | `song` loads a song (when the script loads). `play` plays it from order N. A bare `play`, with no `song` line before it, restarts the app's own song from order N. `stop song` stops it |
 | `tempo N`, `mute CH`, `unmute CH`, `jump N` | Steer the song |
 
-**Voices.** A script has two voices. Put `v1`, `v2` or `both` before a
-command to choose; with none, it means `v1`. A leading `+` or `-` makes a
+**Voices.** A sound has two voices. Put `v1`, `v2` or `both` before a
+command to choose; with none, it means `v1`. A tracker instrument has only
+its track's voice, so in a song its `v2` commands do nothing and its
+`note2` is 0. A leading `+` or `-` makes a
 value relative to the current one. The sign applies to everything after
 it, so `fine -4 + 2` moves by –6.
 
@@ -299,13 +307,15 @@ position only work for the app that started it.
 
 ## 11.5 How songs and sounds share the voices
 
-A playing song uses all eight voices: channel 1 uses voices 0 and 1, and
-channel 4 uses voices 6 and 7.
+Track 1 of a song plays voice 0, and track 8 plays voice 7.
 
-A sound effect takes a free voice if there is one. During a song, it
-borrows the **donor** channel's second voice, set with `sfx-donor` and
-channel 4 by default. The song gets the voice back when the sound ends. During a song, a sound
-that uses `v2` or `both` gets only that one voice.
+A sound effect takes a free voice if there is one, starting from voice 7.
+During a song, the voices of tracks that have notes belong to the song,
+so a sound only gets the voice of a track the song leaves empty. A song
+that uses five tracks leaves three voices for sound effects; a song that
+uses all eight leaves none, and `acid_sound_play` returns `nil` until it
+stops. A sound that uses `v2` or `both` takes two voices when two are
+free, or one when only one is.
 Notes you start yourself with `acid_play_note` still work as before, and
 the last thing to write to a voice wins.
 

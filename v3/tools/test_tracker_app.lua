@@ -23,10 +23,10 @@ local function fits(what)
 end
 
 group("a new song")
-eq({ G.E.ch, G.E.row, G.E.edit, G.path == nil }, { 1, 0, false, true }, "cursor on channel 1, row 00, not editing, no file")
+eq({ G.E.ch, G.E.row, G.E.edit, G.path == nil }, { 1, 0, false, true }, "cursor on track 1, row 00, not editing, no file")
 eq(SOUND_CALLS, { { "parse", 1 } }, "the new song was handed to the kernel")
 fits("everything fits 480x320")
-ok(shown("ORD 00/00  ROW 00  SPD 6  OCT 4  INS 01 Lead"), "the status line")
+ok(shown("ORD 00/00  PAT 00  ROW 00/0F  SPD 6  OCT 4  INS 01 Lead"), "the status line")
 local top_row = false
 for _, t in ipairs(TEXT_AT) do
   if t[1] == "00" and t[2] == G.L.x and t[3] == G.L.grid_y then top_row = true end
@@ -36,10 +36,10 @@ ok(top_row, "a pattern that fits shows from row 00 at the top of the grid")
 group("previewing")
 SOUND_CALLS = {}
 key("z")
-eq(SOUND_CALLS, { { "preview", 1, 1, 40, 1 } }, "z previews C-4 on channel 1 with instrument 01")
+eq(SOUND_CALLS, { { "preview", 1, 1, 40, 1 } }, "z previews C-4 on track 1 with instrument 01")
 up("z")
 eq(SOUND_CALLS[2], { "preview", 1, 1, 0, 0 }, "letting go sends note-off")
-eq(G.E.song.patterns[0][1].note, 0, "and nothing was written")
+eq(G.E.song.patterns[0][1][1].note, 0, "and nothing was written")
 
 group("editing")
 key(" ")
@@ -48,14 +48,17 @@ SOUND_CALLS = {}
 key("q")
 eq(SOUND_CALLS, { { "update", 1 }, { "preview", 1, 1, 52, 1 } }, "a typed note goes to the kernel, then previews")
 up("q")
-eq({ G.E.song.patterns[0][1].note, G.E.row, G.E.dirty }, { 52, 1, true }, "C-5 written, the cursor down, the song unsaved")
+eq({ G.E.song.patterns[0][1][1].note, G.E.row, G.E.dirty }, { 52, 1, true }, "C-5 written, the cursor down, the song unsaved")
 
 group("playing")
 SOUND_CALLS = {}
 key(K.F1)
 eq(SOUND_CALLS, { { "play", 1, 0, 0 } }, "F1 plays from the start")
 key(K.F5)
-eq(SOUND_CALLS[2], { "mute", 1, true }, "F5 mutes channel 1 while playing")
+eq(SOUND_CALLS[2], { "mute", 1, true }, "F5 mutes track 1 while playing")
+key(K.F12)
+eq({ SOUND_CALLS[3], G.muted[8] }, { { "mute", 8, true }, true }, "F12 mutes track 8")
+key(K.F12)
 SOUND_CALLS = {}
 key("w")
 eq(SOUND_CALLS[1], { "update", 1 }, "an edit while playing is sent at once")
@@ -96,7 +99,7 @@ eq(G.E.song.speed, 9, ":speed sets the speed")
 command("speed 99")
 eq({ G.E.song.speed, G.message }, { 9, "usage: speed 1-31" }, "an out-of-range speed is refused")
 command("len 8")
-eq(#G.E.song.patterns[0], 8, ":len resizes the pattern under the cursor")
+eq({ #G.E.song.patterns[0], #G.E.song.patterns[0][8] }, { 8, 8 }, ":len resizes the pattern under the cursor, every track of it")
 command('ins 2 script a"b x')
 eq(G.message, "not a script path", ":ins refuses a script path the file can't hold")
 command("ins 2 script ../x.snd fatbass")
@@ -117,6 +120,50 @@ command("title Night Drive")
 eq(G.E.song.title, "Night Drive", ":title names the song")
 command("frob")
 eq(G.message, "unknown command: frob", "an unknown command is named")
+
+group("eight tracks, scrolling sideways")
+G.E.focus, G.E.ch, G.E.slot_i = "grid", 1, 1
+eq({ G.L.visible, G.first_track }, { 6, 0 }, "480 px shows tracks 1-6")
+for _ = 1, 7 do key(K.TAB) end
+eq({ G.E.ch, G.first_track }, { 8, 2 }, "moving onto track 8 scrolls the grid to show it")
+TEXT_AT, RECTS = {}, {}
+G:redraw()
+ok(shown("8") and not shown("C-5 01 . .. "), "track 8's heading is drawn")
+local bar = false
+for _, r in ipairs(RECTS) do
+  if r[1] == G.L.tracks_x and r[2] == G.L.bar_y and r[4] == AcidScrollbar.WIDTH then bar = true end
+end
+ok(bar, "the scroll bar under the grid shows there are more tracks")
+G:on_touch(G.L.tracks_x + 1, G.L.bar_y + 2, true)
+G:on_touch(G.L.tracks_x + 1, G.L.bar_y + 2, false)
+eq(G.first_track, 0, "a press left of the thumb scrolls back to track 1")
+key(K.TAB)
+eq({ G.E.focus, G.first_track }, { "orders", 0 }, "Tab past track 8 goes to the orders; the view stays put")
+
+group("making patterns")
+SOUND_CALLS = {}
+key("n")
+eq({ G.E.song.order, #G.E.song.patterns[1], G.E.order, G.message }, { { 0, 1 }, 8, 1, "pattern 01" },
+  "n in the orders makes a new pattern as long as this one, and shows it")
+eq({ G.E.dirty, #SOUND_CALLS }, { true, 0 }, "the song is unsaved; the kernel hears of it when it plays")
+TEXT_AT = {}
+G:redraw()
+ok(shown("PAT 01"), "the status line shows which pattern the grid holds")
+key(K.LEFT)
+eq(G.E.order, 0, "Left goes back to the first entry")
+key(K.F3)
+eq(G.E.focus, "grid", "F3 goes back to the grid")
+key(K.F3)
+eq({ G.E.focus, G.E.ord_pos }, { "orders", 0 }, "and F3 again is straight back in the orders")
+key(K.TAB)
+key(K.TAB)
+eq({ G.E.focus, G.E.ch }, { "grid", 1 }, "Tab twice more is back in the grid")
+
+group("cleaning up")
+G.E.song.patterns[9] = TrkSong.empty_rows(4)
+command("clean")
+eq({ G.E.song.patterns[9], G.E.song.patterns[0] ~= nil, G.E.song.patterns[1] ~= nil, G.message },
+  { nil, true, true, "dropped 1 unused pattern" }, ":clean drops patterns the order doesn't play")
 
 group("saving and opening")
 command("w groove")
@@ -155,9 +202,9 @@ ok(a and b2, "everything fits 420x240" .. (why and (": " .. why) or "") .. (why2
 group("edge cases")
 G.E.song.patterns[4] = TrkSong.empty_rows(4)
 G.E.focus, G.E.ch, G.E.row = "orders", 1, 15
-G.E.ord_ch, G.E.ord_pos, G.E.ord_digit = 1, 0, 1
+G.E.ord_pos, G.E.ord_digit = 0, 1
 key("4")
-eq({ G.E.song.orders[1].entries[1].pattern, G.E.row }, { 4, 3 }, "a shorter pattern in the orders pulls the cursor's row inside it")
+eq({ G.E.song.order[1], G.E.row }, { 4, 3 }, "a shorter pattern in the orders pulls the cursor's row inside it")
 G.E.focus = "grid"
 SONG_PARSE_ERR = "1: boom"
 G:new_song()

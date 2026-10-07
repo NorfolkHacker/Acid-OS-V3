@@ -42,3 +42,11 @@ ok(S.hit(213, 28, H, 213, 28), "the track's top-left corner is on the bar")
 ok(S.hit(213, 28, H, 218, 158), "and so is its bottom-right")
 ok(not S.hit(213, 28, H, 212, 50), "left of the bar is not")
 ok(not S.hit(213, 28, H, 215, 27), "nor above the track")
+
+group("on its side")
+RECTS = {}
+S.draw_h(40, 200, H, TOTAL, VISIBLE, 9)
+eq(RECTS, { { 40, 200, 131, 6, S.TRACK_COLOR }, { 40 + 59, 201, 72, 4, S.THUMB_COLOR } },
+  "a horizontal bar: the track, then the thumb at its offset, inset by 1")
+ok(S.hit_h(40, 200, H, 40, 205) and S.hit_h(40, 200, H, 170, 200), "its corners are on it")
+ok(not S.hit_h(40, 200, H, 171, 200) and not S.hit_h(40, 200, H, 50, 206), "right of it and below it are not")

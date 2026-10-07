@@ -6,9 +6,10 @@
 //!
 //! Voice choice for a sound: it takes the highest-numbered free voice,
 //! avoiding voices apps play directly (`busy`) and voices other sounds hold.
-//! While a song plays, every voice except the song's donor voice is
-//! reserved for it. A voice a sound takes is lent to the song and preview
-//! players, and handed back when the sound ends.
+//! While a song plays, the voices of tracks with notes are reserved for
+//! it; a sound only gets the voice of a track the song leaves empty. A
+//! voice a sound takes (or holds when a song starts) is lent to the song
+//! and preview players, and handed back when the sound ends.
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -17,7 +18,7 @@ use acid_synth::{Synth, NUM_VOICES};
 
 use crate::player::{LoadedSong, Player};
 use crate::program::{BlockKind, Program};
-use crate::song::CHANNELS;
+use crate::song::TRACKS;
 use crate::vm::{Clock, Env, Instance, SongCmd, State, SONG_CMDS_MAX};
 use crate::TICK_SAMPLES;
 
@@ -221,7 +222,7 @@ impl Engine {
         }
         let mut taken = busy | self.sound_voices();
         if let Some(s) = self.song.as_ref().filter(|s| s.player.playing) {
-            taken |= !(1u8 << s.player.donor_voice());
+            taken |= !s.player.free_voices();
         }
         let mut free = (0..NUM_VOICES as u8).rev().filter(|v| taken & (1 << v) == 0);
         let v1 = free.next()?;
@@ -293,10 +294,10 @@ impl Engine {
         }
     }
 
-    /// Sounds one note on channel `ch` (1-based) of `song`; note 0 is note-off.
+    /// Sounds one note on track `ch` (1-based) of `song`; note 0 is note-off.
     pub fn preview(&mut self, synth: &mut Synth, owner: u32, song: Arc<LoadedSong>, ch: i32, note: i32, inst: i32) {
         let Ok(ch) = usize::try_from(ch.saturating_sub(1)) else { return };
-        if ch >= CHANNELS {
+        if ch >= TRACKS {
             return;
         }
         let same = self.preview.as_ref().is_some_and(|p| p.owner == owner && Arc::ptr_eq(p.player.song(), &song));
@@ -318,7 +319,7 @@ impl Engine {
         if note <= 0 {
             p.player.note_off(synth, ch);
         } else {
-            p.player.trigger(synth, ch, note, None, inst.clamp(0, 255) as u8);
+            p.player.trigger(synth, ch, note, inst.clamp(0, 255) as u8);
         }
     }
 
@@ -359,15 +360,22 @@ mod tests {
         Arc::new(compile(src).unwrap())
     }
 
-    /// All four channels play a detuned two-voice C-4 for two rows.
-    fn four(donor: u8) -> String {
+    /// Tracks 1-4 play C-4 for two rows; tracks 5-8 are empty.
+    fn four() -> String {
+        let c = "C-4 01 . .. | C-4 01 . .. | C-4 01 . .. | C-4 01 . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . ..";
         format!(
-            "acid-track 1\ntitle t\nspeed 2\nsfx-donor {donor}\ninstrument 01 \"Lead\"  wave saw  adsr 0 0 100 0  duty 50  voice2 detune 6\norder 1  00 loop 0\norder 2  00 loop 0\norder 3  00 loop 0\norder 4  00 loop 0\n\npattern 00 2\nC-4 01 . .. ...\n... .. . .. ...\n"
+            "acid-track 2\ntitle t\nspeed 2\ninstrument 01 \"Lead\"  wave saw  adsr 0 0 100 0  duty 50\norder 00 loop 0\n\npattern 00 2\n{c}\n{}\n",
+            c.replace("C-4 01", "... ..")
         )
     }
 
-    fn song(donor: u8) -> Arc<LoadedSong> {
-        Arc::new(LoadedSong::plain(parse(&four(donor)).unwrap()))
+    fn song() -> Arc<LoadedSong> {
+        Arc::new(LoadedSong::plain(parse(&four()).unwrap()))
+    }
+
+    /// Every track plays.
+    fn full_song() -> Arc<LoadedSong> {
+        Arc::new(LoadedSong::plain(parse(&four().replacen("... .. . ..", "C-4 01 . ..", 4)).unwrap()))
     }
 
     fn render(e: &mut Engine, s: &mut Synth, n: usize) {
@@ -458,31 +466,34 @@ mod tests {
     }
 
     #[test]
-    fn during_a_song_sounds_borrow_only_the_donor_voice() {
+    fn during_a_song_sounds_take_only_the_empty_tracks_voices() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
-        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         render(&mut e, &mut s, T);
         let p = prog("gate on\nwait 2");
-        assert!(e.play_sound(&mut s, 2, p.clone(), 0, 40, 0).is_some());
-        assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
-        assert_eq!(e.play_sound(&mut s, 2, p, 0, 40, 0), None, "everything else belongs to the song");
+        for _ in 0..4 {
+            assert!(e.play_sound(&mut s, 2, p.clone(), 0, 40, 0).is_some());
+        }
+        assert_eq!(e.song_player().unwrap().borrowed(), 0xF0, "tracks 5-8 have no notes");
+        assert_eq!(e.play_sound(&mut s, 2, p, 0, 40, 0), None, "tracks 1-4 belong to the song");
         render(&mut e, &mut s, 4 * T);
-        assert_eq!(e.song_player().unwrap().borrowed(), 0, "handed back when the sound ends");
+        assert_eq!(e.song_player().unwrap().borrowed(), 0, "handed back when the sounds end");
     }
 
     #[test]
-    fn sfx_donor_moves_the_borrowed_voice() {
+    fn a_song_on_every_track_leaves_no_voice_for_sounds() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
-        e.play_song(&mut s, 1, 1, song(1), 0, 0);
-        e.play_sound(&mut s, 2, prog("gate on\nwait 2"), 0, 40, 0).unwrap();
-        assert_eq!(e.song_player().unwrap().borrowed(), 1 << 1);
+        e.play_song(&mut s, 1, 1, full_song(), 0, 0);
+        assert_eq!(e.play_sound(&mut s, 2, prog("gate on\nwait 2"), 0, 40, 0), None);
+        e.stop_song(&mut s);
+        assert!(e.play_sound(&mut s, 2, prog("gate on\nwait 2"), 0, 40, 0).is_some(), "free again once it stops");
     }
 
     #[test]
     fn a_script_can_start_a_song() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
         let mut p = compile("song \"s.trk\"\nplay").unwrap();
-        p.songs = vec![Some(song(4))];
+        p.songs = vec![Some(song())];
         e.play_sound(&mut s, 3, Arc::new(p), 0, 40, 0).unwrap();
         render(&mut e, &mut s, 2 * T);
         assert_eq!(e.song_position(), Some((0, 0, 1)));
@@ -493,7 +504,7 @@ mod tests {
     fn a_script_can_mute_a_channel() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
         // A 2 s release keeps the muted voice in Release for the tick's samples.
-        let slow_release = Arc::new(LoadedSong::plain(parse(&four(4).replace("adsr 0 0 100 0", "adsr 0 0 100 2000")).unwrap()));
+        let slow_release = Arc::new(LoadedSong::plain(parse(&four().replace("adsr 0 0 100 0", "adsr 0 0 100 2000")).unwrap()));
         e.play_song(&mut s, 1, 1, slow_release, 0, 0);
         render(&mut e, &mut s, T);
         e.play_sound(&mut s, 1, prog("mute 1"), 0, 40, 0).unwrap();
@@ -505,11 +516,11 @@ mod tests {
     #[test]
     fn release_owner_stops_its_song_and_sounds() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
-        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         e.play_sound(&mut s, 1, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
         e.stop_song(&mut s);
         e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
-        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         render(&mut e, &mut s, T);
         e.release_owner(&mut s, 1);
         assert_eq!(e.song_position(), None);
@@ -519,25 +530,25 @@ mod tests {
     #[test]
     fn update_song_swaps_data_and_keeps_the_place() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
-        e.play_song(&mut s, 1, 5, song(4), 0, 0);
+        e.play_song(&mut s, 1, 5, song(), 0, 0);
         render(&mut e, &mut s, 3 * T);
         assert_eq!(e.song_position(), Some((0, 1, 1)));
-        let b = song(4);
+        let b = song();
         e.update_song(1, 5, b.clone());
         assert!(Arc::ptr_eq(e.song_player().unwrap().song(), &b));
         assert_eq!(e.song_position(), Some((0, 1, 1)));
-        e.update_song(1, 6, song(4));
+        e.update_song(1, 6, song());
         assert!(Arc::ptr_eq(e.song_player().unwrap().song(), &b), "another handle's update is ignored");
     }
 
     #[test]
     fn preview_sounds_a_note_while_stopped() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
-        e.preview(&mut s, 1, song(4), 1, 40, 1);
+        e.preview(&mut s, 1, song(), 1, 40, 1);
         assert_eq!(s.voice(0).envelope_stage, EnvStage::Attack);
-        e.preview(&mut s, 1, song(4), 1, 0, 0);
+        e.preview(&mut s, 1, song(), 1, 0, 0);
         assert_eq!(s.voice(0).envelope_stage, EnvStage::Release);
-        e.preview(&mut s, 1, song(4), 9, 40, 1);
+        e.preview(&mut s, 1, song(), 9, 40, 1);
     }
 
     #[test]
@@ -546,7 +557,7 @@ mod tests {
         let ex = [i32::MIN, i32::MAX];
         for &o in &ex {
             for &r in &ex {
-                e.play_song(&mut s, 1, 1, song(4), o, r);
+                e.play_song(&mut s, 1, 1, song(), o, r);
             }
         }
         for &c in &ex {
@@ -554,21 +565,21 @@ mod tests {
             e.mute(&mut s, c, false);
             for &n in &ex {
                 for &i in &ex {
-                    e.preview(&mut s, 1, song(4), c, n, i);
+                    e.preview(&mut s, 1, song(), c, n, i);
                 }
             }
         }
         for &n in &ex {
             let _ = e.play_sound(&mut s, 1, prog("gate on\nwait 2"), 0, n, 0);
         }
-        e.play_song(&mut s, 1, 1, song(4), i32::MAX, i32::MAX);
+        e.play_song(&mut s, 1, 1, song(), i32::MAX, i32::MAX);
         render(&mut e, &mut s, T);
     }
 
     #[test]
     fn script_song_commands_only_touch_the_callers_own_song() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
-        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         render(&mut e, &mut s, T);
         e.play_sound(&mut s, 2, prog("mute 1"), 0, 40, 0).unwrap();
         render(&mut e, &mut s, T);
@@ -587,7 +598,7 @@ mod tests {
     #[test]
     fn stop_sound_hands_the_voice_back() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
-        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         let id = e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
         assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
         e.stop_sound(&mut s, 2, id);
@@ -598,11 +609,11 @@ mod tests {
     fn songs_play_with_headroom() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
         assert_eq!(s.mix_shift(), 0);
-        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         assert_eq!(s.mix_shift(), SONG_MIX_SHIFT as u32);
         e.stop_song(&mut s);
         assert_eq!(s.mix_shift(), 0);
-        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         e.release_owner(&mut s, 1);
         assert_eq!(s.mix_shift(), 0);
     }
@@ -610,7 +621,7 @@ mod tests {
     #[test]
     fn release_owner_of_a_sound_hands_back_a_song_it_does_not_own() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
-        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
         assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
         e.release_owner(&mut s, 2);
@@ -622,7 +633,7 @@ mod tests {
     fn a_song_started_during_a_sound_starts_with_its_voice_lent() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
         e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
-        e.play_song(&mut s, 1, 1, song(4), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
     }
 
@@ -636,20 +647,15 @@ mod tests {
         assert!(ids.iter().all(|&id| i32::try_from(id).is_ok_and(|i| i > 0)));
     }
 
-    fn ring_song() -> Arc<LoadedSong> {
-        Arc::new(LoadedSong::plain(parse(&four(4).replace("voice2 detune 6", "voice2 ring")).unwrap()))
-    }
-
     #[test]
     fn a_lent_voice_stops_ring_modulating_the_song() {
         let (mut e, mut s) = (Engine::new(), Synth::new());
-        e.play_song(&mut s, 1, 1, ring_song(), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         render(&mut e, &mut s, T);
-        assert_eq!(s.voice(6).ring_partner, 7, "channel 4 rings voice 6 with 7");
+        s.set_ring_partner(0, 7);
         e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
         assert_eq!(e.song_player().unwrap().borrowed(), 1 << 7);
-        assert_eq!(s.voice(6).ring_partner, -1, "the song's voice isn't modulated by the sound");
-        assert_eq!(s.voice(7).ring_partner, -1);
+        assert_eq!(s.voice(0).ring_partner, -1, "the song's voice isn't modulated by the sound");
     }
 
     #[test]
@@ -657,10 +663,10 @@ mod tests {
         let (mut e, mut s) = (Engine::new(), Synth::new());
         e.play_sound(&mut s, 2, prog("gate on\nwait 50"), 0, 40, 0).unwrap();
         s.set_ring_partner(6, 7);
-        e.play_song(&mut s, 1, 1, ring_song(), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         assert_eq!(s.voice(6).ring_partner, -1);
         s.set_ring_partner(6, 7);
-        e.preview(&mut s, 1, ring_song(), 1, 0, 0);
+        e.preview(&mut s, 1, song(), 1, 0, 0);
         assert_eq!(s.voice(6).ring_partner, -1, "the same for a new preview");
     }
 
@@ -670,7 +676,7 @@ mod tests {
         e.play_sound(&mut s, 2, prog("both gate on\nv2 ring on\nwait 50"), 0, 40, 0).unwrap();
         render(&mut e, &mut s, T);
         assert_eq!(s.voice(6).ring_partner, 7);
-        e.play_song(&mut s, 1, 1, ring_song(), 0, 0);
+        e.play_song(&mut s, 1, 1, song(), 0, 0);
         assert_eq!(s.voice(6).ring_partner, 7);
     }
 }

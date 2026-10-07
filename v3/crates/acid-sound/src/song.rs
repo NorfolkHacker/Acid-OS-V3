@@ -1,6 +1,10 @@
 //! The .trk song format: a versioned text file in the house style of
 //! .spr. `parse` is strict and is the one reader of record (games and the
 //! tracker both use it); `write` emits the canonical form.
+//!
+//! A song is one order list of patterns, ProTracker style. Every pattern
+//! holds all TRACKS tracks, so its length is every track's length. Track
+//! n plays synth voice n.
 
 use alloc::collections::BTreeMap;
 use alloc::format;
@@ -10,9 +14,12 @@ use core::fmt;
 
 use crate::pitch::{note_name, parse_note};
 
-pub const CHANNELS: usize = 4;
+pub const TRACKS: usize = 8;
 pub const MAX_ROWS: usize = 64;
-pub const MAX_PATTERN: u8 = 0x7F;
+/// Patterns are numbered 00..=3F: 64 of them.
+pub const MAX_PATTERN: u8 = 0x3F;
+/// The longest order list.
+pub const MAX_ORDER: usize = 128;
 pub const MAX_INSTRUMENT: u8 = 0x3F;
 pub const NOTE_NONE: u8 = 0;
 pub const NOTE_OFF: u8 = 0xFF;
@@ -20,29 +27,21 @@ pub const NOTE_OFF: u8 = 0xFF;
 pub const COMMANDS: &[u8] = b"123489AF";
 /// Waveform names, in synth order.
 pub const WAVES: [&str; 4] = ["pulse", "saw", "tri", "noise"];
+/// What separates a row's tracks in the file.
+const SEP: &str = " | ";
 
-/// One row of one channel. `note`/`note2` are ona (or NOTE_NONE/NOTE_OFF);
+/// One track's part of a row. `note` is ona (or NOTE_NONE/NOTE_OFF);
 /// `cmd` is 0 or the command's ASCII letter.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Row {
+pub struct Cell {
     pub note: u8,
     pub inst: u8,
     pub cmd: u8,
     pub param: u8,
-    pub note2: u8,
 }
 
-/// What a built-in instrument does with the channel's second voice when
-/// the row has no second note.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Voice2 {
-    Off,
-    /// Fine steps (1/64 semitone).
-    Detune(i32),
-    Octave,
-    Fifth,
-    Ring,
-}
+/// One row of a pattern: a cell for every track.
+pub type Row = [Cell; TRACKS];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BuiltIn {
@@ -57,12 +56,11 @@ pub struct BuiltIn {
     pub arp: Vec<i32>,
     /// Mode mask, cutoff, resonance.
     pub filter: Option<(i32, i32, i32)>,
-    pub voice2: Voice2,
 }
 
 impl Default for BuiltIn {
     fn default() -> Self {
-        Self { wave: 0, adsr: [2, 40, 80, 40], duty: 50, pwm: 0, vib: (0, 0), arp: Vec::new(), filter: None, voice2: Voice2::Off }
+        Self { wave: 0, adsr: [2, 40, 80, 40], duty: 50, pwm: 0, vib: (0, 0), arp: Vec::new(), filter: None }
     }
 }
 
@@ -79,26 +77,33 @@ pub struct Instrument {
     pub kind: Kind,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OrderEntry {
-    pub pattern: u8,
-    pub transpose: i8,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct OrderList {
-    pub entries: Vec<OrderEntry>,
-    pub loop_to: usize,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Song {
     pub title: String,
     pub speed: u8,
-    pub sfx_donor: u8,
     pub instruments: BTreeMap<u8, Instrument>,
-    pub orders: [OrderList; CHANNELS],
+    /// Pattern numbers, played in turn; after the last, play goes back to `loop_to`.
+    pub order: Vec<u8>,
+    pub loop_to: usize,
     pub patterns: BTreeMap<u8, Vec<Row>>,
+}
+
+impl Song {
+    /// The tracks that play a note somewhere in the order: a bit per track.
+    /// The others' voices are free for sound effects while the song plays.
+    pub fn used_tracks(&self) -> u8 {
+        let mut m = 0u8;
+        for p in &self.order {
+            for row in self.patterns.get(p).into_iter().flatten() {
+                for (t, c) in row.iter().enumerate() {
+                    if c.note != NOTE_NONE {
+                        m |= 1 << t;
+                    }
+                }
+            }
+        }
+        m
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -254,16 +259,6 @@ fn parse_instrument(f: &[Field]) -> Result<(u8, Instrument), String> {
                 }
                 b.filter = Some((mode, cut, res));
             }
-            "voice2" => {
-                b.voice2 = match c.word().unwrap_or("") {
-                    "off" => Voice2::Off,
-                    "detune" => Voice2::Detune(c.ranged("detune", -768, 768)?),
-                    "octave" => Voice2::Octave,
-                    "fifth" => Voice2::Fifth,
-                    "ring" => Voice2::Ring,
-                    m => return Err(format!("unknown voice2 mode '{m}'")),
-                };
-            }
             "script" => return Err("'script' must come right after the name".into()),
             k => return Err(format!("unknown instrument field '{k}'")),
         }
@@ -271,43 +266,38 @@ fn parse_instrument(f: &[Field]) -> Result<(u8, Instrument), String> {
     Ok((num, Instrument { name, kind: Kind::BuiltIn(b) }))
 }
 
-fn parse_entry(s: &str) -> Option<OrderEntry> {
-    let (p, transpose) = match s.find(['+', '-']) {
-        Some(k) => (&s[..k], s[k..].parse::<i8>().ok()?),
-        None => (s, 0),
-    };
-    Some(OrderEntry { pattern: hex2(p).filter(|n| *n <= MAX_PATTERN)?, transpose })
-}
-
-fn parse_order(f: &[Field]) -> Result<(usize, OrderList), String> {
-    let ch: usize = f
-        .get(1)
-        .and_then(|x| x.text.parse().ok())
-        .filter(|c| (1..=CHANNELS).contains(c))
-        .ok_or("order channel must be 1 to 4")?;
-    let mut entries = Vec::new();
-    let mut i = 2;
+/// `order 00 01 00 loop 0`
+fn parse_order(f: &[Field]) -> Result<(Vec<u8>, usize), String> {
+    let mut order = Vec::new();
+    let mut i = 1;
     while i < f.len() && f[i].text != "loop" {
-        entries.push(parse_entry(&f[i].text).ok_or_else(|| format!("bad order entry '{}'", f[i].text))?);
+        let p = hex2(&f[i].text)
+            .filter(|n| *n <= MAX_PATTERN)
+            .ok_or_else(|| format!("bad order entry '{}'", f[i].text))?;
+        order.push(p);
         i += 1;
     }
-    if entries.is_empty() {
-        return Err(format!("order {ch} is empty"));
+    if order.is_empty() {
+        return Err("the order is empty".into());
+    }
+    if order.len() > MAX_ORDER {
+        return Err(format!("the order has more than {MAX_ORDER} entries"));
     }
     if i + 2 != f.len() {
-        return Err(format!("order {ch} must end with 'loop N'"));
+        return Err("the order must end with 'loop N'".into());
     }
-    let loop_to: usize = f[i + 1].text.parse().map_err(|_| format!("order {ch} must end with 'loop N'"))?;
-    if loop_to >= entries.len() {
-        return Err(format!("loop {loop_to} is past the end of order {ch}"));
+    let loop_to: usize = f[i + 1].text.parse().map_err(|_| String::from("the order must end with 'loop N'"))?;
+    if loop_to >= order.len() {
+        return Err(format!("loop {loop_to} is past the end of the order"));
     }
-    Ok((ch - 1, OrderList { entries, loop_to }))
+    Ok((order, loop_to))
 }
 
-fn parse_row(line: &str) -> Result<Row, String> {
-    let f: Vec<&str> = line.split_whitespace().collect();
-    if f.len() != 5 {
-        return Err("expected a row like 'C-4 01 . .. ...'".into());
+/// One track's cell, e.g. "C-4 01 4 22".
+fn parse_cell(text: &str) -> Result<Cell, String> {
+    let f: Vec<&str> = text.split_whitespace().collect();
+    if f.len() != 4 {
+        return Err("expected a cell like 'C-4 01 . ..'".into());
     }
     let note = match f[0] {
         "..." => NOTE_NONE,
@@ -328,11 +318,20 @@ fn parse_row(line: &str) -> Result<Row, String> {
         ".." => 0,
         s => hex2(s).ok_or_else(|| format!("bad parameter '{s}'"))?,
     };
-    let note2 = match f[4] {
-        "..." => NOTE_NONE,
-        n => parse_note(n).ok_or_else(|| format!("bad note '{n}'"))? as u8,
-    };
-    Ok(Row { note, inst, cmd, param, note2 })
+    Ok(Cell { note, inst, cmd, param })
+}
+
+/// A row: TRACKS cells separated by '|'.
+fn parse_row(line: &str) -> Result<Row, String> {
+    let parts: Vec<&str> = line.split('|').collect();
+    if parts.len() != TRACKS {
+        return Err(format!("a row has {TRACKS} tracks split by '|', not {}", parts.len()));
+    }
+    let mut row = [Cell::default(); TRACKS];
+    for (cell, text) in row.iter_mut().zip(parts) {
+        *cell = parse_cell(text)?;
+    }
+    Ok(row)
 }
 
 /// A single integer field `f[i]`, the last on its line, in lo..=hi.
@@ -350,7 +349,8 @@ pub fn parse(text: &str) -> Result<Song, SongError> {
         i += 1;
     }
     match lines.get(i).map(|l| l.trim()).unwrap_or("").strip_prefix("acid-track ") {
-        Some("1") => {}
+        Some("2") => {}
+        Some("1") => return Err(SongError::new(i + 1, "version 1 songs (4 channels) no longer load")),
         Some(v) => return Err(SongError::new(i + 1, format!("unsupported version {}", v.trim()))),
         None => return Err(SongError::new(i + 1, "not an acid-track file")),
     }
@@ -358,13 +358,13 @@ pub fn parse(text: &str) -> Result<Song, SongError> {
     let mut song = Song {
         title: String::new(),
         speed: 6,
-        sfx_donor: 4,
         instruments: BTreeMap::new(),
-        orders: Default::default(),
+        order: Vec::new(),
+        loop_to: 0,
         patterns: BTreeMap::new(),
     };
-    // The line each channel's order came from; 0 = none yet.
-    let mut order_line = [0usize; CHANNELS];
+    // The line the order came from; 0 = none yet.
+    let mut order_line = 0usize;
     while i < lines.len() {
         let n = i + 1;
         let line = lines[i].trim();
@@ -381,7 +381,6 @@ pub fn parse(text: &str) -> Result<Song, SongError> {
         let f = fields(line).map_err(err)?;
         match f[0].text.as_str() {
             "speed" => song.speed = last_int(&f, 1, 1, 31).ok_or_else(|| err("speed must be 1 to 31".into()))? as u8,
-            "sfx-donor" => song.sfx_donor = last_int(&f, 1, 1, 4).ok_or_else(|| err("sfx-donor must be 1 to 4".into()))? as u8,
             "instrument" => {
                 let (num, inst) = parse_instrument(&f).map_err(err)?;
                 if song.instruments.insert(num, inst).is_some() {
@@ -389,12 +388,11 @@ pub fn parse(text: &str) -> Result<Song, SongError> {
                 }
             }
             "order" => {
-                let (ch, list) = parse_order(&f).map_err(err)?;
-                if order_line[ch] != 0 {
-                    return Err(err(format!("order {} defined twice", ch + 1)));
+                if order_line != 0 {
+                    return Err(err("the order is defined twice".into()));
                 }
-                order_line[ch] = n;
-                song.orders[ch] = list;
+                (song.order, song.loop_to) = parse_order(&f).map_err(err)?;
+                order_line = n;
             }
             "pattern" => {
                 if f.len() != 3 {
@@ -424,41 +422,41 @@ pub fn parse(text: &str) -> Result<Song, SongError> {
             w => return Err(err(format!("unknown line '{w}'"))),
         }
     }
-    let last = lines.len().max(1);
-    for (ch, &line_no) in order_line.iter().enumerate().take(CHANNELS) {
-        if line_no == 0 {
-            return Err(SongError::new(last, format!("no order for channel {}", ch + 1)));
-        }
-        for e in &song.orders[ch].entries {
-            if !song.patterns.contains_key(&e.pattern) {
-                return Err(SongError::new(line_no, format!("order {} uses missing pattern {:02X}", ch + 1, e.pattern)));
-            }
-        }
+    if order_line == 0 {
+        return Err(SongError::new(lines.len().max(1), "the song has no order"));
+    }
+    if let Some(p) = song.order.iter().find(|p| !song.patterns.contains_key(p)) {
+        return Err(SongError::new(order_line, format!("the order uses missing pattern {p:02X}")));
     }
     Ok(song)
 }
 
-/// One row as the file writes it, e.g. "C-4 01 4 22 E-4".
-pub fn row_text(r: &Row) -> String {
-    let note = |n: u8| match n {
+/// One track's cell as the file writes it, e.g. "C-4 01 4 22".
+pub fn cell_text(c: &Cell) -> String {
+    let note = match c.note {
         NOTE_NONE => String::from("..."),
         NOTE_OFF => String::from("==="),
         n => note_name(n as i32),
     };
-    let inst = if r.inst == 0 { String::from("..") } else { format!("{:02X}", r.inst) };
-    let cmd = if r.cmd == 0 { '.' } else { r.cmd as char };
-    let param = if r.cmd == 0 && r.param == 0 { String::from("..") } else { format!("{:02X}", r.param) };
-    format!("{} {} {} {} {}", note(r.note), inst, cmd, param, note(r.note2))
+    let inst = if c.inst == 0 { String::from("..") } else { format!("{:02X}", c.inst) };
+    let cmd = if c.cmd == 0 { '.' } else { c.cmd as char };
+    let param = if c.cmd == 0 && c.param == 0 { String::from("..") } else { format!("{:02X}", c.param) };
+    format!("{note} {inst} {cmd} {param}")
+}
+
+/// One row as the file writes it: every track's cell, split by " | ".
+pub fn row_text(r: &Row) -> String {
+    let cells: Vec<String> = r.iter().map(cell_text).collect();
+    cells.join(SEP)
 }
 
 /// The canonical text: parse(write(s)) == s, and write(parse(t)) == t
 /// for any canonical t.
 pub fn write(song: &Song) -> String {
     let mut s = String::new();
-    s += "acid-track 1\n";
+    s += "acid-track 2\n";
     s += &format!("title {}\n", song.title);
     s += &format!("speed {}\n", song.speed);
-    s += &format!("sfx-donor {}\n", song.sfx_donor);
     for (num, inst) in &song.instruments {
         s += &format!("instrument {num:02X} \"{}\"", inst.name.replace('"', "'"));
         match &inst.kind {
@@ -488,27 +486,15 @@ pub fn write(song: &Song) -> String {
                     };
                     s += &format!("  filter {mode} {c} {r}");
                 }
-                match b.voice2 {
-                    Voice2::Off => {}
-                    Voice2::Detune(n) => s += &format!("  voice2 detune {n}"),
-                    Voice2::Octave => s += "  voice2 octave",
-                    Voice2::Fifth => s += "  voice2 fifth",
-                    Voice2::Ring => s += "  voice2 ring",
-                }
             }
         }
         s.push('\n');
     }
-    for (ch, o) in song.orders.iter().enumerate() {
-        s += &format!("order {} ", ch + 1);
-        for e in &o.entries {
-            s += &format!(" {:02X}", e.pattern);
-            if e.transpose != 0 {
-                s += &format!("{:+}", e.transpose);
-            }
-        }
-        s += &format!(" loop {}\n", o.loop_to);
+    s += "order";
+    for p in &song.order {
+        s += &format!(" {p:02X}");
     }
+    s += &format!(" loop {}\n", song.loop_to);
     for (num, rows) in &song.patterns {
         s += &format!("\npattern {num:02X} {}\n", rows.len());
         for r in rows {
@@ -524,8 +510,16 @@ mod tests {
     use super::*;
     use alloc::string::ToString;
 
-    /// Line numbers: 5 instrument, 6-9 orders, 11 pattern, 12-13 rows.
-    pub(crate) const MIN: &str = "acid-track 1\ntitle t\nspeed 6\nsfx-donor 4\ninstrument 01 \"Lead\"  wave saw  adsr 0 8 70 20  duty 50\norder 1  00 loop 0\norder 2  00 loop 0\norder 3  00 loop 0\norder 4  00 loop 0\n\npattern 00 2\nC-4 01 . .. ...\n=== .. 4 22 E-4\n";
+    /// Seven empty cells: what follows track 1 in a row.
+    pub(crate) const REST: &str = " | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . .. | ... .. . ..";
+
+    /// Line numbers: 4 instrument, 5 order, 7 pattern, 8-9 rows.
+    fn min() -> String {
+        format!(
+            "acid-track 2\ntitle t\nspeed 6\ninstrument 01 \"Lead\"  wave saw  adsr 0 8 70 20  duty 50\norder 00 loop 0\n\npattern 00 2\nC-4 01 . ..{REST}\n=== .. 4 22 | E-4 01 . ..{}\n",
+            &REST[14..]
+        )
+    }
 
     fn err(text: &str) -> String {
         parse(text).unwrap_err().to_string()
@@ -533,27 +527,26 @@ mod tests {
 
     #[test]
     fn parses_the_minimal_song() {
-        let s = parse(MIN).unwrap();
-        assert_eq!((s.title.as_str(), s.speed, s.sfx_donor), ("t", 6, 4));
+        let s = parse(&min()).unwrap();
+        assert_eq!((s.title.as_str(), s.speed), ("t", 6));
         let lead = &s.instruments[&1];
         assert_eq!(lead.name, "Lead");
         let Kind::BuiltIn(b) = &lead.kind else { panic!("built-in") };
         assert_eq!((b.wave, b.adsr, b.duty), (1, [0, 8, 70, 20], 50));
-        assert_eq!(s.orders[0].entries, vec![OrderEntry { pattern: 0, transpose: 0 }]);
-        assert_eq!(
-            s.patterns[&0],
-            vec![
-                Row { note: 40, inst: 1, cmd: 0, param: 0, note2: 0 },
-                Row { note: NOTE_OFF, inst: 0, cmd: b'4', param: 0x22, note2: 44 },
-            ]
-        );
+        assert_eq!((s.order.as_slice(), s.loop_to), (&[0u8][..], 0));
+        let rows = &s.patterns[&0];
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0][0], Cell { note: 40, inst: 1, cmd: 0, param: 0 });
+        assert_eq!(rows[1][0], Cell { note: NOTE_OFF, inst: 0, cmd: b'4', param: 0x22 });
+        assert_eq!(rows[1][1], Cell { note: 44, inst: 1, cmd: 0, param: 0 });
+        assert_eq!(rows[1][7], Cell::default());
     }
 
     #[test]
     fn every_instrument_field() {
-        let text = MIN.replace(
+        let text = min().replace(
             "instrument 01 \"Lead\"  wave saw  adsr 0 8 70 20  duty 50\n",
-            "instrument 01 \"Pad Two\"  wave tri  adsr 1 2 3 4  duty 30  pwm 2  vib 4 3  arp 4 7  filter bp 100 5  voice2 detune -6\ninstrument 02 \"S\"  script \"Home/s.snd\" bass\n",
+            "instrument 01 \"Pad Two\"  wave tri  adsr 1 2 3 4  duty 30  pwm 2  vib 4 3  arp 4 7  filter bp 100 5\ninstrument 02 \"S\"  script \"Home/s.snd\" bass\n",
         );
         let s = parse(&text).unwrap();
         assert_eq!(s.instruments[&1].name, "Pad Two");
@@ -561,71 +554,92 @@ mod tests {
             s.instruments[&1].kind,
             Kind::BuiltIn(BuiltIn {
                 wave: 2, adsr: [1, 2, 3, 4], duty: 30, pwm: 2, vib: (4, 3), arp: alloc::vec![4, 7],
-                filter: Some((2, 100, 5)), voice2: Voice2::Detune(-6),
+                filter: Some((2, 100, 5)),
             })
         );
         assert_eq!(s.instruments[&2].kind, Kind::Script { path: "Home/s.snd".into(), block: "bass".into() });
     }
 
     #[test]
-    fn order_entries_transpose() {
-        let s = parse(&MIN.replace("order 1  00 loop 0", "order 1  00 00+12 00-3 loop 2")).unwrap();
-        let t: Vec<i8> = s.orders[0].entries.iter().map(|e| e.transpose).collect();
-        assert_eq!(t, [0, 12, -3]);
-        assert_eq!(s.orders[0].loop_to, 2);
+    fn the_order_loops() {
+        let s = parse(&min().replace("order 00 loop 0", "order 00 00 00 loop 2")).unwrap();
+        assert_eq!((s.order.len(), s.loop_to), (3, 2));
     }
 
     #[test]
     fn errors_name_the_line() {
+        let m = min();
         assert_eq!(err("hello"), "1: not an acid-track file");
-        assert_eq!(err("acid-track 2"), "1: unsupported version 2");
-        assert_eq!(err(&MIN.replace("speed 6", "speed 0")), "3: speed must be 1 to 31");
-        assert_eq!(err(&MIN.replace("sfx-donor 4", "sfx-donor 5")), "4: sfx-donor must be 1 to 4");
-        assert_eq!(err(&MIN.replace("duty 50", "duty 50  wobble 3")), "5: unknown instrument field 'wobble'");
-        assert_eq!(err(&MIN.replace("order 1  00 loop 0", "order 1  00 loop 1")), "6: loop 1 is past the end of order 1");
-        assert_eq!(err(&MIN.replace("order 2  00", "order 2  05")), "7: order 2 uses missing pattern 05");
-        assert_eq!(err(&MIN.replace("order 4  00 loop 0\n", "")), "12: no order for channel 4");
-        assert_eq!(err(&MIN.replace("pattern 00 2", "pattern 00 3")), "11: pattern 00 has 2 rows, expected 3");
-        assert_eq!(err(&MIN.replace("C-4 01", "C-9 01")), "12: bad note 'C-9'");
-        assert_eq!(err(&MIN.replace("=== .. 4", "=== .. S")), "13: command S is reserved");
-        assert_eq!(err(&MIN.replace("22 E-4", "22 ===")), "13: bad note '==='");
-        assert_eq!(err(&alloc::format!("{MIN}tempo 4\n")), "14: unknown line 'tempo'");
+        assert_eq!(err("acid-track 3"), "1: unsupported version 3");
+        assert_eq!(err("acid-track 1\nsfx-donor 4"), "1: version 1 songs (4 channels) no longer load");
+        assert_eq!(err(&m.replace("speed 6", "speed 0")), "3: speed must be 1 to 31");
+        assert_eq!(err(&m.replace("duty 50", "duty 50  wobble 3")), "4: unknown instrument field 'wobble'");
+        assert_eq!(err(&m.replace("duty 50", "duty 50  voice2 octave")), "4: unknown instrument field 'voice2'");
+        assert_eq!(err(&m.replace("order 00 loop 0", "order 00 loop 1")), "5: loop 1 is past the end of the order");
+        assert_eq!(err(&m.replace("order 00 loop 0", "order 00 05 loop 0")), "5: the order uses missing pattern 05");
+        assert_eq!(err(&m.replace("order 00 loop 0", "order 40 loop 0")), "5: bad order entry '40'");
+        assert_eq!(err(&m.replace("order 00 loop 0", "order 00+5 loop 0")), "5: bad order entry '00+5'");
+        assert_eq!(err(&m.replace("order 00 loop 0", "order loop 0")), "5: the order is empty");
+        let long = format!("order{} loop 0", " 00".repeat(MAX_ORDER + 1));
+        assert_eq!(err(&m.replace("order 00 loop 0", &long)), "5: the order has more than 128 entries");
+        assert_eq!(err(&m.replace("order 00 loop 0\n", "")), "8: the song has no order");
+        assert_eq!(err(&m.replace("pattern 00 2", "pattern 40 2")), "7: bad pattern number '40'");
+        assert_eq!(err(&m.replace("pattern 00 2", "pattern 00 3")), "7: pattern 00 has 2 rows, expected 3");
+        assert_eq!(err(&m.replace("pattern 00 2", "pattern 00 65")), "7: pattern length must be 1 to 64");
+        assert_eq!(err(&m.replace("C-4 01", "C-9 01")), "8: bad note 'C-9'");
+        assert_eq!(err(&m.replace("=== .. 4", "=== .. S")), "9: command S is reserved");
+        assert_eq!(err(&m.replace("C-4 01 . .. | ", "C-4 01 . .. ")), "8: a row has 8 tracks split by '|', not 7");
+        assert_eq!(err(&m.replace("C-4 01 . ..", "C-4 01 .")), "8: expected a cell like 'C-4 01 . ..'");
+        assert_eq!(err(&m.replace("C-4 01 . ..", "C-4 01 . .. | ... .. . ..")), "8: a row has 8 tracks split by '|', not 9");
+        assert_eq!(err(&format!("{m}tempo 4\n")), "10: unknown line 'tempo'");
     }
 
-    const ROUND: &str = "acid-track 1
+    fn round() -> String {
+        let row = |cells: &[&str]| {
+            let mut all: Vec<&str> = cells.to_vec();
+            all.resize(TRACKS, "... .. . ..");
+            all.join(" | ")
+        };
+        let mut s = String::from(
+            "acid-track 2
 title Round Trip
 speed 6
-sfx-donor 4
-instrument 01 \"Lead\"  wave saw  adsr 0 8 70 20  duty 50  pwm 2  vib 4 2  arp 4 7  filter lp 120 4  voice2 detune 6
+instrument 01 \"Lead\"  wave saw  adsr 0 8 70 20  duty 50  pwm 2  vib 4 2  arp 4 7  filter lp 120 4
 instrument 02 \"Bass\"  script \"Home/sounds/demo.snd\" bass
-instrument 03 \"Hat\"  wave noise  adsr 0 2 0 2  duty 50  voice2 octave
-order 1  00 00+12 loop 1
-order 2  01 01-5 loop 0
-order 3  01 loop 0
-order 4  01 loop 0
+instrument 03 \"Hat\"  wave noise  adsr 0 2 0 2  duty 50
+order 00 01 00 loop 1
 
 pattern 00 4
-C-4 01 . .. ...
-... .. 4 22 ...
-=== .. . .. ...
-D#3 02 F 03 G-3
-
-pattern 01 2
-A-0 03 9 20 ...
-... .. A FF ...
-";
+",
+        );
+        for r in [
+            row(&["C-4 01 . ..", "A-0 03 9 20"]),
+            row(&["... .. 4 22"]),
+            row(&["=== .. . ..", "... .. . ..", "... .. . ..", "... .. . ..", "... .. . ..", "... .. . ..", "... .. . ..", "C-8 02 1 00"]),
+            row(&["D#3 02 F 03"]),
+        ] {
+            s += &r;
+            s.push('\n');
+        }
+        s += "\npattern 3F 2\n";
+        s += &row(&["... .. A FF"]);
+        s += "\n";
+        s += &row(&[]);
+        s += "\n";
+        s.replace("order 00 01 00", "order 00 3F 00")
+    }
 
     #[test]
     fn canonical_text_round_trips_byte_for_byte() {
-        assert_eq!(write(&parse(ROUND).unwrap()), ROUND);
-        assert_eq!(write(&parse(MIN).unwrap()), MIN);
+        assert_eq!(write(&parse(&round()).unwrap()), round());
+        assert_eq!(write(&parse(&min()).unwrap()), min());
     }
 
     #[test]
     fn a_written_song_parses_back_the_same() {
-        let mut s = parse(ROUND).unwrap();
+        let mut s = parse(&round()).unwrap();
         s.title = "Edited".into();
-        s.patterns.get_mut(&1).unwrap()[1] = Row { note: 88, inst: 1, cmd: b'1', param: 0, note2: 1 };
+        s.patterns.get_mut(&0x3F).unwrap()[1][5] = Cell { note: 88, inst: 1, cmd: b'1', param: 0 };
         assert_eq!(parse(&write(&s)).unwrap(), s);
         for t in ["a \"quoted\" one", "say \"hi"] {
             s.title = t.into();
@@ -634,54 +648,62 @@ A-0 03 9 20 ...
     }
 
     #[test]
-    fn row_text_shows_empty_fields_as_dots() {
-        assert_eq!(row_text(&Row::default()), "... .. . .. ...");
-        assert_eq!(row_text(&Row { note: 40, inst: 0x1F, cmd: b'A', param: 0, note2: 52 }), "C-4 1F A 00 C-5");
+    fn cells_and_rows_show_empty_fields_as_dots() {
+        assert_eq!(cell_text(&Cell::default()), "... .. . ..");
+        assert_eq!(cell_text(&Cell { note: 40, inst: 0x1F, cmd: b'A', param: 0 }), "C-4 1F A 00");
+        let mut r = [Cell::default(); TRACKS];
+        r[0].note = NOTE_OFF;
+        assert_eq!(row_text(&r), format!("=== .. . ..{REST}"));
+    }
+
+    #[test]
+    fn used_tracks_are_those_with_notes_in_the_order() {
+        let s = parse(&round()).unwrap();
+        assert_eq!(s.used_tracks(), 0b1000_0011);
+        let only_00 = parse(&round().replace("order 00 3F 00 loop 1", "order 00 loop 0")).unwrap();
+        assert_eq!(only_00.used_tracks(), 0b1000_0011, "pattern 3F has no notes anyway");
+        let m = parse(&min()).unwrap();
+        assert_eq!(m.used_tracks(), 0b11);
     }
 
     #[test]
     fn a_title_is_free_text() {
-        assert_eq!(parse(&MIN.replace("title t", "title a \"quoted\" one")).unwrap().title, "a \"quoted\" one");
-        assert_eq!(parse(&MIN.replace("title t", "title say \"hi")).unwrap().title, "say \"hi");
-        assert_eq!(parse(&MIN.replace("title t", "title")).unwrap().title, "");
+        let m = min();
+        assert_eq!(parse(&m.replace("title t", "title a \"quoted\" one")).unwrap().title, "a \"quoted\" one");
+        assert_eq!(parse(&m.replace("title t", "title say \"hi")).unwrap().title, "say \"hi");
+        assert_eq!(parse(&m.replace("title t", "title")).unwrap().title, "");
     }
 
     #[test]
     fn out_of_range_instrument_numbers_are_errors() {
         let cases = [
-            ("adsr -5 8 70 20", "5: adsr must be 0 to 100000"),
-            ("adsr 0 200000 70 20", "5: adsr must be 0 to 100000"),
-            ("adsr 0 8 70 2147483647", "5: adsr must be 0 to 100000"),
-            ("adsr 0 8 70 20  pwm 51", "5: pwm must be -50 to 50"),
-            ("adsr 0 8 70 20  pwm -2147483648", "5: pwm must be -50 to 50"),
-            ("adsr 0 8 70 20  vib 16 1", "5: vib must be 0 to 15"),
-            ("adsr 0 8 70 20  vib 1 -1", "5: vib must be 0 to 15"),
-            ("adsr 0 8 70 20  voice2 detune 769", "5: detune must be -768 to 768"),
-            ("adsr 0 8 70 20  voice2 detune -769", "5: detune must be -768 to 768"),
-            ("adsr 0 8 70 20  arp 4 49", "5: arp must be -48 to 48"),
-            ("adsr 0 8 70 20  arp -49", "5: arp must be -48 to 48"),
-            ("adsr 0 8 70 20  duty 0", "5: duty must be 1 to 99"),
-            ("adsr 0 8 70 20  duty 100", "5: duty must be 1 to 99"),
+            ("adsr -5 8 70 20", "4: adsr must be 0 to 100000"),
+            ("adsr 0 200000 70 20", "4: adsr must be 0 to 100000"),
+            ("adsr 0 8 70 2147483647", "4: adsr must be 0 to 100000"),
+            ("adsr 0 8 70 20  pwm 51", "4: pwm must be -50 to 50"),
+            ("adsr 0 8 70 20  pwm -2147483648", "4: pwm must be -50 to 50"),
+            ("adsr 0 8 70 20  vib 16 1", "4: vib must be 0 to 15"),
+            ("adsr 0 8 70 20  vib 1 -1", "4: vib must be 0 to 15"),
+            ("adsr 0 8 70 20  arp 4 49", "4: arp must be -48 to 48"),
+            ("adsr 0 8 70 20  arp -49", "4: arp must be -48 to 48"),
+            ("adsr 0 8 70 20  duty 0", "4: duty must be 1 to 99"),
+            ("adsr 0 8 70 20  duty 100", "4: duty must be 1 to 99"),
         ];
         for (fields, want) in cases {
-            assert_eq!(err(&MIN.replace("adsr 0 8 70 20  duty 50", fields)), want, "{fields}");
+            assert_eq!(err(&min().replace("adsr 0 8 70 20  duty 50", fields)), want, "{fields}");
         }
     }
 
     #[test]
     fn instrument_numbers_at_their_limits_load() {
-        let text = MIN.replace(
-            "adsr 0 8 70 20  duty 50",
-            "adsr 0 100000 50 3  vib 15 0  pwm 50  arp 48 -48  voice2 detune 768  duty 99",
-        );
+        let text = min().replace("adsr 0 8 70 20  duty 50", "adsr 0 100000 50 3  vib 15 0  pwm 50  arp 48 -48  duty 99");
         let s = parse(&text).unwrap();
         let Kind::BuiltIn(b) = &s.instruments[&1].kind else { panic!("built-in") };
         assert_eq!(b.adsr, [0, 100_000, 50, 3]);
         assert_eq!((b.vib, b.pwm, b.duty), ((15, 0), 50, 99));
         assert_eq!(b.arp, alloc::vec![48, -48]);
-        assert_eq!(b.voice2, Voice2::Detune(768));
-        let low = MIN.replace("adsr 0 8 70 20  duty 50", "adsr 0 8 70 20  pwm -50  voice2 detune -768  duty 1");
+        let low = min().replace("adsr 0 8 70 20  duty 50", "adsr 0 8 70 20  pwm -50  duty 1");
         let Kind::BuiltIn(b) = &parse(&low).unwrap().instruments[&1].kind else { panic!("built-in") };
-        assert_eq!((b.pwm, b.voice2, b.duty), (-50, Voice2::Detune(-768), 1));
+        assert_eq!((b.pwm, b.duty), (-50, 1));
     }
 }
