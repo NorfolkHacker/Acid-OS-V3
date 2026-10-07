@@ -52,7 +52,7 @@ limits or errors, then what a cart gets (if that differs).
 
 **Audio** — [`acid_play_note`](#acid_play_note) · [`acid_stop_note`](#acid_stop_note) · [`acid_configure_voice`](#acid_configure_voice) · [`acid_configure_osc`](#acid_configure_osc) · [`acid_configure_filter`](#acid_configure_filter) · [`acid_set_ring_partner`](#acid_set_ring_partner) · [`acid_trigger_arp`](#acid_trigger_arp) · [`acid_set_volume`](#acid_set_volume) · [`acid_get_volume`](#acid_get_volume) · [`acid_active_voice_count`](#acid_active_voice_count)
 
-**Songs and sounds** — [`acid_sound_load`](#acid_sound_load) · [`acid_sound_load_file`](#acid_sound_load_file) · [`acid_sound_play`](#acid_sound_play) · [`acid_sound_stop`](#acid_sound_stop) · [`acid_sound_free`](#acid_sound_free) · [`acid_song_load`](#acid_song_load) · [`acid_song_parse`](#acid_song_parse) · [`acid_song_update`](#acid_song_update) · [`acid_song_free`](#acid_song_free) · [`acid_song_play`](#acid_song_play) · [`acid_song_stop`](#acid_song_stop) · [`acid_song_position`](#acid_song_position) · [`acid_song_mute`](#acid_song_mute) · [`acid_song_preview`](#acid_song_preview)
+**Songs and sounds** — [`acid_sound_load`](#acid_sound_load) · [`acid_sound_load_file`](#acid_sound_load_file) · [`acid_sound_play`](#acid_sound_play) · [`acid_sound_stop`](#acid_sound_stop) · [`acid_sound_free`](#acid_sound_free) · [`acid_song_load`](#acid_song_load) · [`acid_song_parse`](#acid_song_parse) · [`acid_song_update`](#acid_song_update) · [`acid_song_free`](#acid_song_free) · [`acid_song_play`](#acid_song_play) · [`acid_song_stop`](#acid_song_stop) · [`acid_song_position`](#acid_song_position) · [`acid_song_mute`](#acid_song_mute) · [`acid_song_preview`](#acid_song_preview) · [`acid_song_text`](#acid_song_text)
 
 **Windows** — [`acid_window_max`](#acid_window_max) · [`acid_screen_size`](#acid_screen_size) · [`acid_window_size`](#acid_window_size) · [`acid_font_size`](#acid_font_size) · [`acid_get_font_scale`](#acid_get_font_scale) · [`acid_set_font_scale`](#acid_set_font_scale) · [`acid_window_info`](#acid_window_info) · [`acid_activate_window`](#acid_activate_window) · [`acid_close_window`](#acid_close_window) · [`acid_send_self_to_back`](#acid_send_self_to_back) · [`acid_am_i_focused`](#acid_am_i_focused)
 
@@ -992,6 +992,16 @@ acid_song_stop()
 ```
 
 Stops the playing song, if your app started it.
+
+### `acid_song_text`
+
+```lua snippet
+local text = acid_song_text(song)
+```
+
+The song as `.trk` text in today's format, or `nil` for a song handle your app doesn't hold. An old
+four-channel song (`acid-track 1`) loads as eight tracks, and this is that converted text. Acid
+Tracker uses it to open old songs.
 
 ### `acid_song_update`
 

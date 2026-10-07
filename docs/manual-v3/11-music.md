@@ -138,7 +138,10 @@ changes it everywhere it is used. Each row of a pattern has all eight
 tracks, split by `|`.
 
 Songs from before tracks (`acid-track 1`, four channels of two voices)
-don't load any more.
+still load: they're turned into tracks as they open. Channel *n* goes on
+track *n* and its second-note column on track 4+*n*, order transposes are
+worked into the notes, and `voice2` settings are dropped. Acid Tracker
+says so when it opens one; save it with `:w` to keep the new form.
 
 A **built-in instrument** has these fields:
 
@@ -295,6 +298,7 @@ end
 | `acid_sound_play(prog[, name[, note]])` | A sound id, or `nil` when no voice is free, the name isn't a `sound` block, or 16 sounds are already running |
 | `acid_sound_stop(id)`, `acid_sound_free(prog)` | Nothing |
 | `acid_song_load(path)`, `acid_song_parse(text)` | A song and a table of warnings, or `nil, "LINE: message"` |
+| `acid_song_text(song)` | The song as `.trk` text in today's format |
 | `acid_song_update(song, text)` | The warnings, or `nil, err`. A playing copy keeps its place. |
 | `acid_song_play(song[, order[, row]])`, `acid_song_stop()`, `acid_song_mute(ch, on)` | Nothing |
 | `acid_song_position()` | `order, row, tick`, or nothing when your app's song isn't playing |

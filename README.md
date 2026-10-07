@@ -91,6 +91,7 @@ Add options after `--` at the end of the command.
 |---|---|
 | `--screen 640x480` | Skips the picker and uses that size. The others are `640x360` and `800x600`. |
 | `--app <name>` | Opens an app straight away, as well as the desktop. |
+| `--data <folder>` | Keeps your files in that folder instead of `~/.local/share/acid-os`. |
 
 These are the app names you can use with `--app`:
 
@@ -105,6 +106,23 @@ For example:
 ```sh
 cargo run --release --manifest-path v3/Cargo.toml -p acid-os -- --screen 800x600 --app tetris
 ```
+
+### Your files, and upgrading
+
+Everything you save inside Acid OS (songs, sprites, notes, installed carts)
+is kept in your **user folder**, `~/.local/share/acid-os/`, not in the
+repository. The terminal shows the folder's path when Acid OS starts. To
+upgrade, pull the new version and run it again:
+
+```sh
+git pull
+cargo run --release --manifest-path v3/Cargo.toml -p acid-os
+```
+
+Your files are left as they were. New sample files are added to your Home,
+but a file you've changed or deleted is never replaced or brought back.
+Songs from older versions open as they did before. To back up your work,
+copy the user folder. Add `-- --data FOLDER` to keep it somewhere else.
 
 ### Quitting and restarting
 

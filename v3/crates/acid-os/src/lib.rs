@@ -94,6 +94,21 @@ pub fn app_arg(args: impl IntoIterator<Item = String>) -> Option<String> {
     None
 }
 
+/// The folder after `--data` on the command line, if any: where the user's
+/// own files live instead of the default (acid_platform's userdata).
+pub fn data_arg(args: impl IntoIterator<Item = String>) -> Result<Option<String>, String> {
+    let mut it = args.into_iter();
+    while let Some(a) = it.next() {
+        if a == "--data" {
+            return it.next().filter(|v| !v.is_empty()).map(Some).ok_or_else(|| String::from("--data needs a folder"));
+        }
+        if let Some(v) = a.strip_prefix("--data=") {
+            return if v.is_empty() { Err(String::from("--data needs a folder")) } else { Ok(Some(v.to_string())) };
+        }
+    }
+    Ok(None)
+}
+
 /// The size after `--screen` on the command line, if any. Only the presets
 /// are accepted; anything else is an error naming them.
 pub fn screen_arg(args: impl IntoIterator<Item = String>) -> Result<Option<Screen>, String> {
@@ -117,7 +132,7 @@ pub fn screen_arg(args: impl IntoIterator<Item = String>) -> Result<Option<Scree
 
 #[cfg(test)]
 mod tests {
-    use super::{app_arg, screen_arg};
+    use super::{app_arg, data_arg, screen_arg};
     use acid_kernel::layout::Screen;
 
     fn args(v: &[&str]) -> Vec<String> {
@@ -146,5 +161,14 @@ mod tests {
         assert_eq!(app_arg(args(&["-x", "--app", "piano"])), Some("piano".into()));
         assert_eq!(app_arg(args(&[])), None);
         assert_eq!(app_arg(args(&["--app"])), None, "a flag with no name is ignored");
+    }
+
+    #[test]
+    fn data_arg_names_the_user_folder() {
+        assert_eq!(data_arg(args(&["--data", "/tmp/a"])), Ok(Some("/tmp/a".into())));
+        assert_eq!(data_arg(args(&["--screen", "640x480", "--data=b"])), Ok(Some("b".into())));
+        assert_eq!(data_arg(args(&["--app", "tetris"])), Ok(None));
+        assert!(data_arg(args(&["--data"])).is_err());
+        assert!(data_arg(args(&["--data="])).is_err());
     }
 }

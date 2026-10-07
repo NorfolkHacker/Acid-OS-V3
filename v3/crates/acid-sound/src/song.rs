@@ -113,7 +113,7 @@ pub struct SongError {
 }
 
 impl SongError {
-    fn new(line: usize, message: impl Into<String>) -> Self {
+    pub(crate) fn new(line: usize, message: impl Into<String>) -> Self {
         Self { line: line as u32, message: message.into() }
     }
 }
@@ -124,20 +124,20 @@ impl fmt::Display for SongError {
     }
 }
 
-fn hex2(s: &str) -> Option<u8> {
+pub(crate) fn hex2(s: &str) -> Option<u8> {
     if s.len() != 2 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
     u8::from_str_radix(s, 16).ok()
 }
 
-struct Field {
-    text: String,
-    quoted: bool,
+pub(crate) struct Field {
+    pub(crate) text: String,
+    pub(crate) quoted: bool,
 }
 
 /// Splits on whitespace; "..." is one field (quotes removed).
-fn fields(line: &str) -> Result<Vec<Field>, String> {
+pub(crate) fn fields(line: &str) -> Result<Vec<Field>, String> {
     let mut out = Vec::new();
     let mut rest = line.trim_start();
     while !rest.is_empty() {
@@ -207,7 +207,7 @@ impl<'a> Cur<'a> {
     }
 }
 
-fn parse_instrument(f: &[Field]) -> Result<(u8, Instrument), String> {
+pub(crate) fn parse_instrument(f: &[Field]) -> Result<(u8, Instrument), String> {
     let mut c = Cur { f, i: 1 };
     let num = c.word().and_then(hex2).filter(|n| (1..=MAX_INSTRUMENT).contains(n)).ok_or("bad instrument number")?;
     let name = c.quoted("the instrument's name")?;
@@ -294,7 +294,7 @@ fn parse_order(f: &[Field]) -> Result<(Vec<u8>, usize), String> {
 }
 
 /// One track's cell, e.g. "C-4 01 4 22".
-fn parse_cell(text: &str) -> Result<Cell, String> {
+pub(crate) fn parse_cell(text: &str) -> Result<Cell, String> {
     let f: Vec<&str> = text.split_whitespace().collect();
     if f.len() != 4 {
         return Err("expected a cell like 'C-4 01 . ..'".into());
@@ -335,7 +335,7 @@ fn parse_row(line: &str) -> Result<Row, String> {
 }
 
 /// A single integer field `f[i]`, the last on its line, in lo..=hi.
-fn last_int(f: &[Field], i: usize, lo: i32, hi: i32) -> Option<i32> {
+pub(crate) fn last_int(f: &[Field], i: usize, lo: i32, hi: i32) -> Option<i32> {
     if f.len() != i + 1 {
         return None;
     }
@@ -350,7 +350,7 @@ pub fn parse(text: &str) -> Result<Song, SongError> {
     }
     match lines.get(i).map(|l| l.trim()).unwrap_or("").strip_prefix("acid-track ") {
         Some("2") => {}
-        Some("1") => return Err(SongError::new(i + 1, "version 1 songs (4 channels) no longer load")),
+        Some("1") => return crate::song_v1::upgrade(text),
         Some(v) => return Err(SongError::new(i + 1, format!("unsupported version {}", v.trim()))),
         None => return Err(SongError::new(i + 1, "not an acid-track file")),
     }
@@ -571,7 +571,7 @@ mod tests {
         let m = min();
         assert_eq!(err("hello"), "1: not an acid-track file");
         assert_eq!(err("acid-track 3"), "1: unsupported version 3");
-        assert_eq!(err("acid-track 1\nsfx-donor 4"), "1: version 1 songs (4 channels) no longer load");
+        assert_eq!(err("acid-track 1\nsfx-donor 5"), "2: sfx-donor must be 1 to 4");
         assert_eq!(err(&m.replace("speed 6", "speed 0")), "3: speed must be 1 to 31");
         assert_eq!(err(&m.replace("duty 50", "duty 50  wobble 3")), "4: unknown instrument field 'wobble'");
         assert_eq!(err(&m.replace("duty 50", "duty 50  voice2 octave")), "4: unknown instrument field 'voice2'");

@@ -106,11 +106,21 @@ pub struct HostedPlatform {
 
 impl HostedPlatform {
     pub fn new(root: &str) -> Arc<Self> {
+        Self::with_fs(root, StdFs::new(root))
+    }
+
+    /// Like `new`, with the user's own files in `user` (see
+    /// acid_platform::std_impl::userdata), outside the repository.
+    pub fn with_user_dir(root: &str, user: &std::path::Path) -> Arc<Self> {
+        Self::with_fs(root, StdFs::with_user_dir(root, user))
+    }
+
+    fn with_fs(root: &str, fs: StdFs) -> Arc<Self> {
         Arc::new(Self {
             start: Instant::now(),
             input: HostedInput::default(),
             display: HostedDisplay::default(),
-            fs: StdFs::new(root),
+            fs,
             carts: HostCarts::from_env(root),
         })
     }

@@ -312,6 +312,11 @@ function acid_song_update(song, text)
   return copy_list(SONG_WARNINGS)
 end
 function acid_song_free(song) SONGS[song] = nil; push(SOUND_CALLS, { "free", song }) end
+SONG_TEXT = nil       -- what acid_song_text answers instead of the song's own text
+function acid_song_text(song)
+  if SONG_TEXT then return SONG_TEXT end
+  return SONGS[song]
+end
 function acid_song_play(song, order, row)
   push(SOUND_CALLS, { "play", song, order or 0, row or 0 })
   SONG_POS = { order or 0, row or 0, 0 }

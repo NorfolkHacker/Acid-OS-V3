@@ -20,6 +20,7 @@ pub use compile::compile;
 
 pub mod vm;
 pub mod song;
+mod song_v1;
 pub mod player;
 pub mod engine;
 pub mod load;

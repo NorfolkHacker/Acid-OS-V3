@@ -55,16 +55,19 @@ end
 -- Songs ------------------------------------------------------------------
 
 -- Text goes to the kernel's parser first (the reader of record); only then
--- is the Lua model read from it.
+-- is the Lua model read, from the kernel's own text of it. That is the
+-- same text for a current song, and the converted one for an old
+-- four-channel song (the fourth result is then true).
 function TrackerApp:load_text(text)
   local handle, warnings = acid_song_parse(text)
   if not handle then return nil, warnings end
-  local song, err = TrkSong.parse(text)
+  local canon = acid_song_text(handle) or text
+  local song, err = TrkSong.parse(canon)
   if not song then
     acid_song_free(handle)
     return nil, err
   end
-  return handle, song, warnings
+  return handle, song, warnings, canon ~= text and not text:match("^%s*acid%-track 2")
 end
 
 function TrackerApp:adopt(handle, song, warnings)
@@ -91,10 +94,14 @@ end
 function TrackerApp:open_path(path)
   local text, err = acid_fs_read(path)
   if text then
-    local handle, song, warnings = self:load_text(text)
+    local handle, song, warnings, converted = self:load_text(text)
     if handle then
       self:adopt(handle, song, warnings)
       self.path = path
+      if converted then
+        self.E.dirty = true
+        self.message = "a 4-channel song, now 8 tracks: :w saves it that way"
+      end
       return
     end
     err = song

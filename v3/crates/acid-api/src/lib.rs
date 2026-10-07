@@ -170,6 +170,9 @@ pub trait AcidApi: Send + Sync {
     /// Re-parses into the same handle; a playing copy keeps its place.
     fn song_update(&self, _song: i32, _text: &str) -> Result<Vec<String>, String> { Err(String::from("unsupported")) }
     fn song_free(&self, _song: i32) {}
+    /// The song as the current .trk text would write it: an old
+    /// four-channel song comes back as tracks.
+    fn song_text(&self, _song: i32) -> Option<String> { None }
     fn song_play(&self, _song: i32, _order: i32, _row: i32) {}
     fn song_stop(&self) {}
     fn song_position(&self) -> Option<(i32, i32, i32)> { None }
@@ -685,6 +688,10 @@ impl AcidApi for KernelApi {
 
     fn song_free(&self, song: i32) {
         self.sound.lock().songs.remove(&song);
+    }
+
+    fn song_text(&self, song: i32) -> Option<String> {
+        self.sound.lock().songs.get(&song).map(|s| acid_sound::song::write(&s.song))
     }
 
     fn song_play(&self, song: i32, order: i32, row: i32) {
@@ -1796,6 +1803,8 @@ mod tests {
         let a = api_at(&k, &rx, 0, 30, 10, 10);
         let (s, warnings) = a.song_parse(FOUR_SONG).unwrap();
         assert!(warnings.is_empty());
+        assert_eq!(a.song_text(s).as_deref(), Some(FOUR_SONG), "the text comes back canonical");
+        assert_eq!(a.song_text(s + 1), None);
         a.song_play(s, 0, 0);
         k.render_audio(&mut [0u8; 441]);
         assert_eq!(a.song_position(), Some((0, 0, 1)));

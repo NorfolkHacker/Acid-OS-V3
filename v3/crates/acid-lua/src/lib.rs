@@ -795,6 +795,8 @@ fn register_api(lua: &Lua, api: Arc<dyn AcidApi>, last_poll: Arc<AtomicU64>) -> 
     let a = api.clone();
     g.set("acid_song_free", lua.create_function(move |_, s: i32| { a.song_free(s); Ok(()) })?)?;
     let a = api.clone();
+    g.set("acid_song_text", lua.create_function(move |_, s: i32| Ok(a.song_text(s)))?)?;
+    let a = api.clone();
     g.set("acid_song_play", lua.create_function(move |_, (s, o, r): (i32, Option<i32>, Option<i32>)| {
         a.song_play(s, o.unwrap_or(0), r.unwrap_or(0));
         Ok(())

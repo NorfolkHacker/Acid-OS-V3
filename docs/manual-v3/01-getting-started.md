@@ -49,6 +49,29 @@ Config's RESTART (press it twice) brings the OS back to the size picker; every o
 
 The File Manager shows the OS's file system: **Apps** (user apps and built-in utilities), **Games** (games and demos), **Source** (the OS's own code, locked unless Developer Mode is on in Config), **Home** (your files), **Help** and **Tmp**.
 
+### Where your files are kept
+
+Your own files aren't kept in the repository, so upgrading Acid OS
+(`git pull`, or a fresh clone) never touches them. They live in a **user
+folder**, `~/.local/share/acid-os/` by default, and the terminal you start
+Acid OS from prints where it is:
+
+| In the user folder | What it holds | Seen in Acid OS as |
+|---|---|---|
+| `Home/` | Everything you save: songs, sprites, notes, scripts | **Home** |
+| `Tmp/` | Scratch files | **Tmp** |
+| `apps/` | Carts installed with Load Cart, and apps you add yourself | **Apps** and **Games**, with the built-in ones |
+
+The first time it runs, Acid OS copies the starter files from the
+repository's `v3/fsroot/Home` into your `Home`. After an upgrade it copies
+in only the starter files that are new. It never replaces a file you've
+changed, and never brings back one you've deleted. Carts installed into
+`v3/apps` by older versions are copied into `apps/` the same way.
+
+To keep the user folder somewhere else, start Acid OS with
+`-- --data FOLDER`, or set `ACID_OS_DATA`. To back up everything you've
+made, copy the user folder.
+
 Try **Acid Spin**: spinning 3D shapes. It isn't in the Menu. Open File
 Manager, go into the **Apps** folder and click its name. Left and Right
 change the shape, Up and Down the speed, Space cycles wire, solid and both, and
@@ -142,6 +165,12 @@ be small and polite.** [§8](08-cookbook.md) covers the conventions.
 
 An app is **two files** in `v3/apps/` with the same base name: a Lua script and
 a manifest.
+
+`v3/apps/` is the OS's own folder in the repository. Acid OS also shows
+the files in your user folder's `apps/` there
+([§1.1](#where-your-files-are-kept)), so to keep an app safe from
+upgrades, put its two files in `~/.local/share/acid-os/apps/` instead. It
+appears in the Menu just the same. The examples below use `v3/apps/`.
 
 ### The script
 

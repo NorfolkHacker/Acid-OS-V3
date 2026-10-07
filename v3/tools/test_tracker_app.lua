@@ -192,6 +192,13 @@ G.synced = false
 G:sync()
 command("w broken")
 eq({ G.message, FS["v3/fsroot/Home/broken.trk"] ~= nil }, { "saved broken.trk", true }, "once it loads again, it saves")
+FS["v3/fsroot/Home/old.trk"] = "acid-track 1\n(old)"
+SONG_TEXT = TrkSong.write(TrkSong.new())
+command("o old")
+SONG_TEXT = nil
+eq({ G.message, G.E.dirty, G.path }, { "a 4-channel song, now 8 tracks: :w saves it that way", true, "v3/fsroot/Home/old.trk" },
+  "an old song opens as tracks, unsaved until written back")
+G.E.dirty = false
 
 group("smallest window")
 resize_app(420, 240)
