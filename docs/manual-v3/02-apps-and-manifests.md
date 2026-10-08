@@ -242,7 +242,7 @@ then joins the Menu at the next boot.
 
 ### The header
 
-All five keys are optional. The rules for reading them:
+Every key is optional. The rules for reading them:
 
 - Only the **first comment block** in the file is read. It ends at the first
   line that is neither blank nor a `--` comment. So a `-- name:` further down,
@@ -258,6 +258,9 @@ All five keys are optional. The rules for reading them:
 | `h` | 160, clamped to 48 to the screen height less the 24 px strip (456 at the default 640×480) |
 | `desc` | Empty. At most 40 characters. |
 | `libs` | None. Only entries naming modules that exist in `v3/apps/lib/` (written `lib/<file>.lua`) are kept, and at most eight. |
+| `resizable` | A fixed size. Only `true`, in lower case, makes the window resizable; any other value is ignored. |
+| `min_w`, `min_h` | The manifest defaults. Clamped like `w` and `h`, and ignored without `resizable`. |
+| `category` | `app`. Only `game` (any case) files the cart under **Games**; any other value is ignored. |
 | `menu` | Listed. Only `false` (any case) hides the cart from the Menu; any other value is ignored. |
 
 A few more rules keep installs safe:
