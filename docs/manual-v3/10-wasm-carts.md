@@ -531,12 +531,14 @@ budget.
 
 ## 10.7 Building
 
-You need Rust's standard library for the `wasm32-unknown-unknown` target. On
-Arch:
+You need Rust's standard library for the `wasm32-unknown-unknown` target:
 
 ```sh
-sudo pacman -S rust-wasm
+rustup target add wasm32-unknown-unknown
 ```
+
+If your Rust came from Arch's `rust` package instead of rustup, run
+`sudo pacman -S rust-wasm` instead.
 
 From the top folder of the repository, build the example and copy it to where
 Load Cart looks:

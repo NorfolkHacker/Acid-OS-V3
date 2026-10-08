@@ -147,8 +147,9 @@ cargo test --manifest-path v3/Cargo.toml --workspace
 ```
 
 The tests build the example WASM cart from source, so you also need the
-`wasm32-unknown-unknown` target installed (on Arch, `sudo pacman -S rust-wasm`).
-Without it, that one test fails and tells you why.
+`wasm32-unknown-unknown` target installed (`rustup target add
+wasm32-unknown-unknown`, or `sudo pacman -S rust-wasm` if your Rust came from
+Arch's `rust` package). Without it, that one test fails and tells you why.
 
 This manual is tested too. `cargo test --manifest-path v3/Cargo.toml -p acid-os
 --test manual` runs every complete example in these chapters and checks that

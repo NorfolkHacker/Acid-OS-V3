@@ -374,7 +374,9 @@ fn the_example_cart_builds_from_source() {
     let sysroot = PathBuf::from(String::from_utf8(sysroot.stdout).unwrap().trim());
     assert!(
         sysroot.join("lib/rustlib/wasm32-unknown-unknown").is_dir(),
-        "install rust-wasm: sudo pacman -S rust-wasm"
+        "no wasm32-unknown-unknown std in {}: run `rustup target add wasm32-unknown-unknown`, \
+         or `sudo pacman -S rust-wasm` if your Rust came from Arch's `rust` package",
+        sysroot.display()
     );
     let target = TempTree::new("build");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
