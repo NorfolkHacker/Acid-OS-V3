@@ -57,7 +57,14 @@ Keys go to the focused window, so activate first:
 wid=$(xdotool search --name "Acid OS" | head -1)
 xdotool windowactivate --sync "$wid"
 xdotool key --delay 120 Up Left Left Down Down     # XTEST, reaches the app
+xdotool type --delay 70 "typed into the Editor"    # for text apps
 ```
+
+Only some keys reach an app at all: printable characters, the arrows, Enter,
+Backspace, Escape, Tab and Delete. `Home`, `End`, the function keys, Ctrl and
+Alt are dropped before an app sees them (chapter 1, "Driving the window"), so
+`End` appearing to do nothing is the design, not a broken send. Steer with the
+arrows.
 
 **Prefer `--app <name>` over clicking the `Menu` button.** A synthetic single
 click on `Menu` did not open the menu in testing (it opened once during a
@@ -102,6 +109,20 @@ through `mlua`, the vendored-C crate most likely to be broken. Don't key the
 check to one counter: Tetris's `SCORE` only moves when a line clears, so it can
 sit at 0 through a run that worked perfectly.
 
+An in-OS window is only a couple of hundred pixels across inside an 800x600
+screen, which is too small to read reliably. Crop to it and upscale with
+nearest-neighbour, so the pixel art stays sharp instead of being blurred into
+guesswork:
+
+```sh
+ffmpeg -i after.png -vf "crop=430:290:35:45,scale=1290:870:flags=neighbor" -y zoom.png
+```
+
+Pick the strongest possible evidence: steer to an outcome **gravity alone could
+not produce**. A piece flush against the left wall, then the next one flush
+right, in the order you sent the commands, cannot be coincidence — whereas
+"blocks moved" can be the game playing itself.
+
 ## Cleaning up
 
 ```sh
@@ -123,6 +144,8 @@ itself while still matching the app.
 | App task reports exit 144 | Signal-killed. Expected after your own cleanup `pkill`. |
 | `Menu` click does nothing | Known: synthetic clicks on it are unreliable. Use `--app` instead. |
 | An app you were driving vanished | Stray click hit a window's close dot. |
+| `End`/`Home`/function keys do nothing | Never delivered to apps by design. Use the arrows. |
+| Before/after shots look identical | Window is too small at native size. Crop and upscale with `flags=neighbor`. |
 | Build fails at `fatal error: limits.h` | SteamOS ships no libc headers. Run `scripts/refresh-sysroot.sh`. |
 | `xdotool` lists no windows at all | You passed `--onlyvisible`; it filters out everything here. |
 | Desktop opens but no app does | Launched from `v3/` instead of the repository root. |
