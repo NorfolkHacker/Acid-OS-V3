@@ -51,6 +51,18 @@ On **Arch**:
 sudo pacman -S --needed base-devel alsa-lib git curl
 ```
 
+On **SteamOS / Steam Deck**, those packages are already installed, but the OS
+image ships without the C library headers, so the bundled Lua can't compile and
+the build stops at `fatal error: limits.h: No such file or directory`. The
+repository carries a fix for it. Run this once, after step 2:
+
+```sh
+./scripts/refresh-sysroot.sh
+```
+
+It puts the headers in your home folder, where a SteamOS update can't wipe them
+again, and needs no root.
+
 Then install Rust with [rustup](https://rustup.rs). Skip this if `cargo --version`
 already says 1.85 or newer.
 
@@ -155,6 +167,10 @@ cargo test --manifest-path v3/Cargo.toml --workspace
   top folder of the repository, not from inside `v3/`.
 - **The build fails mentioning `alsa`, `pkg-config` or `cc`.** One of the
   packages in step 1 is missing.
+- **The build fails with `limits.h: No such file or directory`.** You're on
+  SteamOS, which ships without the C library headers. Run
+  `./scripts/refresh-sysroot.sh` from the top folder of the repository, then
+  build again.
 - **There's no sound.** If no audio device is available, Acid OS prints
   `running silently` and carries on without it.
 - **`cargo` is not found.** Open a new terminal, or run

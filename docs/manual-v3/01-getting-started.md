@@ -27,9 +27,16 @@ sudo apt install build-essential pkg-config libasound2-dev
 sudo pacman -S base-devel alsa-lib
 ```
 
-That's it. There are no submodules and no C toolchain to set up. The Lua VM
-and the WebAssembly runtime are both Rust crates, so Cargo fetches and builds
-them for you.
+There are no submodules, so Cargo fetches everything else for you. The
+WebAssembly runtime is a pure Rust crate; the Lua VM compiles the bundled Lua
+5.4 C sources, which is what the C compiler in those packages is for.
+
+On SteamOS the two packages above are already present, but the OS image ships
+without the C library headers, so that Lua build fails with
+`limits.h: No such file or directory`. Run `scripts/refresh-sysroot.sh` from
+the top of the repository: it puts the headers in your home folder, where an OS
+update cannot wipe them, and writes the `.cargo/config.toml` that points the
+compiler at them.
 
 ### Build and run
 
