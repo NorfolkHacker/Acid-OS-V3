@@ -83,10 +83,10 @@ delivered at all.
 [driving-input.md](driving-input.md).** Read it before sending any click. The
 pointer is exposed to the kernel as a state snapshot rather than a queue, so
 `xdotool click` is literally too short to be seen (measured 0/5 against 5/5 for
-a held press), early presses after launch get eaten by the window manager, and
-coordinates go stale when KWin moves the window. The rule that falls out of all
-three: press, verify from a capture, retry — never assume a click landed. It
-also carries the Menu dropdown row table and geometry.
+a held press), and a press on an unfocused window is consumed to focus it, so
+you must `windowactivate` once before driving. It also carries the Menu
+dropdown row table and geometry, and the two ways a capture can come back
+looking like a screenshot of the app without being one.
 
 ## Confirming it actually ran
 
@@ -143,13 +143,16 @@ any later wait loop in that command spins until it times out.
 | Cleanup+relaunch in one call dies, then a wait loop times out | `pkill` matched the launch path in the same command. Separate calls. |
 | App task reports exit 144 | Signal-killed. Expected after your own cleanup `pkill`. |
 | `Menu` click does nothing | `xdotool click` is sub-tick and gets missed. Hold the button 150ms. |
-| Clicks silently do nothing early on | Early presses get eaten. Retry until a capture shows the change. |
+| Clicks silently do nothing | Window not focused; the press was spent focusing it. `windowactivate --sync` once first. |
+| NO press ever lands, app alive and redrawing | Correlates with monitor layout changes. Check `xrandr`; drive by keyboard. |
 | An app you were driving vanished | Stray click hit a window's close dot. |
 | `End`/`Home`/function keys do nothing | Never delivered to apps by design. Use the arrows. |
 | Before/after shots look identical | Window is too small at native size. Crop and upscale with `flags=neighbor`. |
+| Capture silently shows the wrong region | Window partly off-screen; `ffmpeg crop` clamps rather than erroring. |
+| Captures suddenly wrong for no reason | Display layout changed under the window. Check `xrandr --listmonitors`. |
 | Build fails at `fatal error: limits.h` | SteamOS ships no libc headers. Run `scripts/refresh-sysroot.sh`. |
 | `xdotool` lists no windows at all | You passed `--onlyvisible`; it filters out everything here. |
 | Desktop opens but no app does | Launched from `v3/` instead of the repository root. |
-| Clicks ignored while keys work | `click` is too fast for the pointer snapshot; also re-read geometry. |
+| Clicks ignored while keys work | `click` is sub-tick, or the window is unfocused. Keys are queued; presses are not. |
 | A drag moved the whole app window | Clicked into KWin's 28px titlebar above the client origin. |
-| Capture shows another window's content | X11 geometry has diverged from the painted window. Relaunch; see driving-input.md. |
+| Capture shows another window's content | The app was underneath it. Raise it before grabbing. |

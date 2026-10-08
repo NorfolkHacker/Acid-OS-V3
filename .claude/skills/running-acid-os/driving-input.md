@@ -56,71 +56,76 @@ goes down. Use xdotool's internal `sleep`, never the shell's — foreground
 `sleep` is blocked in this harness; to wait on a condition, background an
 `until` loop.
 
-## Early presses get lost — verify and retry, don't count
+## Activate the window once before driving it
 
-The first press after launch is normally eaten: the window starts unfocused and
-KWin spends it on focusing. Waiting does not help — a press 3s after the window
-appeared failed just the same, while the *second* press succeeded either way.
-
-But **it is not reliably exactly one**. On a freshly launched instance a press
-was still lost after a throwaway had already been spent, and the one after that
-worked. A measured 5/5 for single presses was taken on an instance already
-warmed up by many interactions, so don't read determinism into it.
-
-So never assume a press landed. Press, check, press again — and make the check
-the thing you actually want, not a press count:
+KDE consumes a press that lands on an **unfocused** window to focus it, so
+early presses appear to vanish. Raising is not enough — raising changes stacking,
+not focus. Activate once, before the first press:
 
 ```sh
-open_menu() {                 # press Menu until the dropdown is actually open
-  local wid i
-  wid=$(xdotool search --name "Acid OS" | head -1)
-  for i in 1 2 3 4 5; do
-    eval "$(xdotool getwindowgeometry --shell "$wid")"
-    xdotool mousemove $((X+20)) $((Y+11)) sleep 0.4 mousedown 1 sleep 0.15 mouseup 1 sleep 0.5
-    menu_is_open && return 0
-  done
-  echo "menu never opened after 5 presses" >&2; return 1
-}
+xdotool windowactivate --sync "$wid"
 ```
 
-`menu_is_open` is yours to define from a capture — the simplest reliable test
-is that the `Menu` button has become `Back` (see below), or that the region
-below the strip stopped matching a known closed-state baseline. Make that test
-able to fail loudly: if it cannot tell "open" from "the capture is misaligned",
-a retry loop will happily press empty space (see the limitation above).
+Measured on one instance: a single hold-press on `Menu` opened the dropdown
+**0/3** and then **2/3** without this, and **4/4** straight after activating.
+Do it once up front, not inside a capture helper — see the warning in
+`capture.sh` about why activating during a capture is harmful.
 
-The retry is safe here only because the menu *toggles*: an extra press that did
-land just closes it again, which `menu_is_open` then catches. Don't blind-retry
-an action that is not idempotent or reversible — re-sending a row selection
-could spawn a second app.
+Activating is necessary but, on the evidence here, **not always sufficient**:
+see the next section before concluding your press was wrong.
 
-Keyboard input needs none of this — `poll_key` is queued.
+## If no press lands at all, check the display layout
 
-## Known limitation: X11 coordinates can diverge from the painted window
+Pointer injection on this setup is sensitive to the monitor configuration, and
+this is **not understood** — only correlated, cleanly, across one long session:
 
-**Unresolved. Check for it before trusting any click.** Under XWayland, the
-geometry X11 reports is not guaranteed to be where KWin actually paints the
-window. Observed on a freshly launched instance: `xdotool getwindowgeometry`
-and `xwininfo` both agreed the window was at `+1013,147` and both were wrong —
-a crop at those coordinates showed a *different application's* content in its
-left third. Click coordinates computed the same way miss the app entirely,
-which looks exactly like input being ignored.
+- With an external monitor attached (`DP-1 1920x1080` plus the internal panel),
+  every hold-press landed. The Menu dropdown and row selection worked
+  repeatedly, on many fresh instances.
+- After that monitor was disconnected, leaving only `eDP-1 1280x800`, no press
+  landed again — on fresh instances, on warm ones, with and without
+  `windowactivate`, at the spawn position and after moving the window.
 
-It behaves while the window is left where it spawned, and it is reliably
-reproducible after the host window has been moved — including moved
-accidentally, by a press that landed in KWin's titlebar.
+Before blaming your press, rule out the app and the capture:
 
-Guard against it, cheaply: a correct capture of this app always has the dark
-top strip with `Menu` at its left edge. If a capture shows anything else —
-another window's content, a shifted image, an improbable colour count for a
-limited palette — the coordinates have diverged. Do not retry the click;
-nothing is wrong with your press. **Relaunch the app** and avoid dragging the
-host window.
+```sh
+xrandr --listmonitors          # did the layout change under you?
+# app alive? capture twice a minute apart -- the clock in the strip must differ
+```
 
-Do not use a press-retry loop as a workaround for this. A lost press and a
-mis-aimed press look identical from outside, so a retry loop on diverged
-coordinates just presses empty space five times and reports failure, which is
-how this was found.
+In the failing state the app was provably live (clock advancing, process up)
+and captures were correct — the presses simply never arrived. Keyboard input
+is a separate path (`poll_key` is queued) and is the reliable fallback, along
+with `--app <name>` to open an app without touching the menu.
+
+If you can explain this, replace this section. Until then, treat "no press ever
+lands" as an environment question, not a coordinates question — hunting
+coordinates here cost a long debugging detour and produced three wrong
+explanations before the display layout was even checked.
+
+## When a capture isn't the app at all
+
+Two ways to get a convincing 800x600 PNG that is not a picture of the app.
+Both were originally misread as the window having "moved" or X11 geometry
+diverging from where KWin paints. Neither is true: geometry is honest, and
+`xdotool windowmove 900 400` on a 1280x800 screen reports back `+479,149`
+because KWin clamped it and said so.
+
+**The window was underneath something.** The grab reads whatever is painted at
+those screen coordinates, so an obscured window yields the window on top of
+it. `capture.sh` now raises first. If you grab the screen yourself, raise it
+yourself.
+
+**The crop ran off the edge of the screen.** `ffmpeg`'s `crop` filter **clamps
+out-of-range rectangles instead of erroring**: asking for 800x600 at x=1013 of
+a 1280-wide grab silently returns 800x600 taken from x=480 — verified
+byte-identical to an explicit crop at 480. `capture.sh` now bounds-checks and
+refuses.
+
+A window ends up off-screen most easily when the **display layout changes under
+it** — unplug a monitor mid-session and the X11 screen shrinks (here
+1920x1880 to 1280x800) while existing windows stay where they were. Re-check
+`xrandr --listmonitors` if captures start looking wrong for no reason.
 
 ## Coordinates
 
