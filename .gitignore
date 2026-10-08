@@ -1,0 +1,3 @@
+# Machine-specific: absolute path to this machine's libc header sysroot.
+# See .cargo/config.toml and scripts/refresh-sysroot.sh
+.cargo/config.toml
