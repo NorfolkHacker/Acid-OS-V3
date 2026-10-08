@@ -15,6 +15,8 @@ Header (all lines optional, first comment block only):
   -- libs: lib/acid_palette.lua  modules from v3/apps/lib, comma separated
   -- category: game              listed under Games in the File Manager;
                                  anything else (or none) is listed under Apps
+  -- menu: false                 left out of the Menu dropdown; still opens
+                                 from File Manager and Terminal's `run`
 
 An installed cart joins the Menu dropdown at the next boot; Load Cart's
 RUN button starts it immediately in the meantime.

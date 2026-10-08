@@ -323,7 +323,7 @@ fn editor_scroll() {
 
 #[test]
 fn cartfile() {
-    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/cart/cartfile.lua", "v3/tools/test_cart.lua"], 152);
+    run_suite(&["v3/tools/game_test_env.lua", "v3/apps/cart/cartfile.lua", "v3/tools/test_cart.lua"], 160);
 }
 
 #[test]

@@ -165,6 +165,17 @@ eq(has(GMANI, "category = game\n"), true, "the manifest carries category = game"
 eq(GMANI:find("category = game", 1, true) < GMANI:find("source = cart", 1, true), true, "before source = cart")
 eq(has(BARE, "category"), false, "no category means no category line")
 
+group("manifest_text: menu = false")
+local MSPEC = Cartfile.from_cart("m.cart", "-- name: M\n-- menu: false\n", LIBS)
+eq(MSPEC.menu, false, "menu: false is read")
+eq(Cartfile.from_cart("m.cart", "-- menu:  FaLsE \n", LIBS).menu, false, "case and spaces don't matter")
+eq(Cartfile.from_cart("m.cart", "-- menu: true\n", LIBS).menu, nil, "true is the default, so nothing is kept")
+eq(Cartfile.from_cart("m.cart", "-- menu: no\n", LIBS).menu, nil, "only false opts out")
+local MMANI = Cartfile.manifest_text(MSPEC)
+eq(has(MMANI, "menu = false\n"), true, "the manifest carries menu = false")
+eq(MMANI:find("menu = false", 1, true) < MMANI:find("source = cart", 1, true), true, "before source = cart")
+eq(has(BARE, "menu"), false, "no menu line means no menu line in the manifest")
+
 -- -------------------------------------------------------- replaceable
 
 group("replaceable: what a cart may overwrite")
@@ -339,3 +350,6 @@ eq(Cartfile.manifest_text(WSPEC), "name = Wasm Thing\nw = 300\nh = 100\nruntime 
 eq(SPEC.runtime, "lua", "a .cart has the lua runtime")
 local GWASM = Cartfile.from_cart("g.wasm", WASM_HEAD .. custom("acid", "name: G\ncategory: game\n"), LIBS)
 eq(GWASM.category, "game", "a wasm cart's acid section can say category: game")
+local MWASM = Cartfile.from_cart("m.wasm", WASM_HEAD .. custom("acid", "name: M\nmenu: false\n"), LIBS)
+eq(Cartfile.manifest_text(MWASM), "name = M\nw = 220\nh = 160\nmenu = false\nruntime = wasm\nsource = cart\n",
+   "a wasm cart's acid section can say menu: false")

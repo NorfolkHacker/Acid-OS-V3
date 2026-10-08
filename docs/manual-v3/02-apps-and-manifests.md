@@ -232,7 +232,8 @@ Installing a cart writes `v3/apps/<slug>.lua`, plus a generated
 `v3/apps/<slug>.app.toml` that includes `source = cart`. (The slug is the
 installed file's base name; see below.) A cart whose header says
 `-- category: game` also gets `category = game`, so it shows in the File
-Manager's **Games** folder; any other cart shows in **Apps**. There's a sample at
+Manager's **Games** folder; any other cart shows in **Apps**. A header saying
+`-- menu: false` gets `menu = false`, so the cart stays out of the Menu. There's a sample at
 `v3/carts/hello_acid.cart`, and `v3/carts/README.txt` describes the format.
 The sample ships already installed, as Hello Acid. Its manifest says
 `menu = false`, so open it from File Manager (**Apps** → Hello Acid).
@@ -257,6 +258,7 @@ All five keys are optional. The rules for reading them:
 | `h` | 160, clamped to 48 to the screen height less the 24 px strip (456 at the default 640×480) |
 | `desc` | Empty. At most 40 characters. |
 | `libs` | None. Only entries naming modules that exist in `v3/apps/lib/` (written `lib/<file>.lua`) are kept, and at most eight. |
+| `menu` | Listed. Only `false` (any case) hides the cart from the Menu; any other value is ignored. |
 
 A few more rules keep installs safe:
 

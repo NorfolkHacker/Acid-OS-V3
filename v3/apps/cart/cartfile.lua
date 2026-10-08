@@ -56,7 +56,7 @@ Cartfile.DEFAULT_H = 160
 -- The only header keys that mean anything. Anything else in the comment
 -- block is a comment, including keys we might add later -- an unknown
 -- key never reaches the generated manifest.
-Cartfile.HEADER_KEYS = { "name", "w", "h", "desc", "libs", "resizable", "min_w", "min_h", "category" }
+Cartfile.HEADER_KEYS = { "name", "w", "h", "desc", "libs", "resizable", "min_w", "min_h", "category", "menu" }
 
 local function includes(list, value)
   for _, v in ipairs(list) do
@@ -332,6 +332,9 @@ function Cartfile.manifest_text(fields)
   if fields.min_h then lines[#lines + 1] = "min_h = " .. str(fields.min_h) end
   -- The File Manager's Games view; anything else is an app by default.
   if fields.category == "game" then lines[#lines + 1] = "category = game" end
+  -- desktop.lua leaves the app out of the Menu dropdown; File Manager and
+  -- Terminal's `run` still reach it.
+  if fields.menu == false then lines[#lines + 1] = "menu = false" end
   -- Spec §15.4: tells the launchers to run <stem>.wasm, not <stem>.lua.
   -- Before `source = cart`, which must stay last (later key wins).
   if fields.runtime == "wasm" then lines[#lines + 1] = "runtime = wasm" end
@@ -439,6 +442,10 @@ function Cartfile.from_cart(filename, bytes, available_libs)
   local wasm = Cartfile.wasm_ext(Cartfile.basename(filename))
   local fields
   if wasm then fields = Cartfile.wasm_header(bytes) else fields = Cartfile.parse_header(bytes) end
+  -- Opt-out of the Menu: only `false` means anything, since listed is the
+  -- default. An `if`, because `cond and false or nil` is always nil.
+  local menu = nil
+  if fields["menu"] and strip(fields["menu"]):lower() == "false" then menu = false end
   return {
     slug = s,
     name = fields["name"] or Cartfile.default_name(s),
@@ -452,6 +459,7 @@ function Cartfile.from_cart(filename, bytes, available_libs)
     -- Only `game` means anything: `app` is the default, so it and any
     -- unknown value are dropped.
     category = fields["category"] and strip(fields["category"]):lower() == "game" and "game" or nil,
+    menu = menu,
     libs = wasm and {} or Cartfile.filter_libs(fields["libs"], available_libs),
     runtime = wasm and "wasm" or "lua",
     script_path = Cartfile.APPS_DIR .. "/" .. s .. (wasm and Cartfile.WASM_EXT or ".lua"),
