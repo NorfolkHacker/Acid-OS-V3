@@ -21,8 +21,12 @@ fi
 
 # Sets WINDOW, X, Y, WIDTH, HEIGHT, SCREEN. X/Y are desktop coordinates, which
 # is what we crop by -- spectacle's fullscreen grab spans all monitors.
+# Deliberately does NOT activate or raise the window. Activating asks KWin to
+# re-stack it, which can move it between this geometry read and the grab below
+# -- misaligning the crop, and shifting the coordinates any caller computed for
+# a click. A capture must not perturb what it is measuring. Raise the window
+# yourself, once, before you start driving if it is obscured.
 eval "$(xdotool getwindowgeometry --shell "$wid")"
-xdotool windowactivate --sync "$wid" 2>/dev/null || true
 
 full="$(mktemp -u --suffix=.png)"
 trap 'rm -f "$full"' EXIT

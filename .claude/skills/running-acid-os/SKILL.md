@@ -25,6 +25,7 @@ Verify the capture has colour before concluding anything about the app.
 | Keep test files out of your real ones | `-- --data /tmp/acid-test` |
 | Screenshot | `.claude/skills/running-acid-os/capture.sh out.png` |
 | Window id / geometry | `xdotool search --name "Acid OS"` |
+| Send it keyboard or mouse input | see [driving-input.md](driving-input.md) |
 
 **Always run from the repository root**, never from inside `v3/`. The desktop
 resolves apps by paths relative to the root, so from elsewhere no app launches.
@@ -47,133 +48,45 @@ yourself with a live process and zero matching windows, this is why.
 
 **Launch it as a background task's own foreground process** — no trailing `&`,
 no wrapper. The app then stays up across tool calls and its stdout lands in the
-task's output file.
+task's output file. Run it from the repository root: a relative
+`./v3/target/release/...` fails with exit 127 from anywhere else, and the
+session's working directory is not always where you left it.
 
-**The first mouse press after launch is swallowed.** The window starts
-unfocused, so KWin spends that press on focusing it and the app never sees it.
-Waiting longer does not help — a press 3s after the window appeared failed just
-the same, while the *second* press succeeded either way. Spend one throwaway
-press on empty desktop background, then drive normally:
+Then wait for the window with a **bounded** loop, so a launch that failed
+reports it instead of hanging:
 
 ```sh
-until wid=$(xdotool search --name "Acid OS" 2>/dev/null | head -1); [ -n "$wid" ]; do :; done
-eval "$(xdotool getwindowgeometry --shell "$wid")"
-xdotool mousemove $((X+600)) $((Y+300)) sleep 0.3 mousedown 1 sleep 0.15 mouseup 1 sleep 0.4
+for _ in $(seq 100); do
+  wid=$(xdotool search --name "Acid OS" 2>/dev/null | head -1)
+  [ -n "$wid" ] && break
+  xdotool sleep 0.1
+done
+[ -n "$wid" ] || { echo "no window — check the launch task's output" >&2; exit 1; }
 ```
 
-Aim it at bare background, away from any window or the top strip, so absorbing
-it changes nothing. Keyboard input does not need this — `poll_key` is queued.
+An unbounded `until` loop here turns a failed launch into a tool-call timeout
+several minutes later, with nothing explaining why.
 
 ## Driving it
-
-Keys go to the focused window, so activate first:
 
 ```sh
 wid=$(xdotool search --name "Acid OS" | head -1)
 xdotool windowactivate --sync "$wid"
 xdotool key --delay 120 Up Left Left Down Down     # queued, always arrives
-xdotool type --delay 70 "typed into the Editor"    # for text apps
 ```
 
-Only some keys reach an app at all: printable characters, the arrows, Enter,
-Backspace, Escape, Tab and Delete. `Home`, `End`, the function keys, Ctrl and
-Alt are dropped before an app sees them (chapter 1, "Driving the window"), so
-`End` appearing to do nothing is the design, not a broken send. Steer with the
-arrows.
+Keyboard is the easy half: key events are queued, so they always arrive. Only
+printable characters, the arrows, Enter, Backspace, Escape, Tab and Delete are
+delivered at all.
 
-### Never use `xdotool click` here — hold the button instead
-
-`click` sends press and release back to back, and this app will miss it. The
-host exposes the pointer as a **state snapshot** (`poll_touch` returns
-`*self.touch.lock()`), which the kernel samples once per ~16ms tick, so a press
-and release that both land inside one tick are never observed at all. Keys do
-not have this problem because `poll_key` pops from a queue, which is why
-keyboard driving is reliable and clicking appears to be flaky.
-
-Measured on this machine, clicking `Menu` 5 times each way:
-
-| Method | Menu opened |
-|---|---|
-| `xdotool ... click 1` | **0 / 5** |
-| `mousedown 1`, hold 150ms, `mouseup 1` | **5 / 5** |
-
-So every mouse action takes the form:
-
-```sh
-eval "$(xdotool getwindowgeometry --shell "$wid")"   # re-read: KWin moves it
-xdotool mousemove $((X+20)) $((Y+11)) sleep 0.4 \
-        mousedown 1 sleep 0.15 mouseup 1 sleep 0.4
-```
-
-150ms is comfortably more than one tick; don't trim it to the 16ms minimum.
-Re-read the geometry too — KWin repositions the host window on its own, and
-stale coordinates are a second, independent way to lose a click.
-
-`X`/`Y` are the **client** origin, so `X + rel`, `Y + rel` maps straight from
-what you see in a capture (confirm with `xwininfo -id $wid`: `Relative
-upper-left` is `0,0`). KWin's titlebar sits *above* it —
-`_NET_FRAME_EXTENTS = 1,1,28,1` — so never use a negative relative y, or you
-grab the decoration and drag the whole host window instead.
-
-Always confirm a mouse action by capture. A mis-aimed click is not inert here:
-the dot at a window's top-right closes it, so a stray click can shut the very
-app you meant to drive.
-
-### Driving the Menu dropdown
-
-With the hold method the menu works fully, including launching apps. Both
-presses re-read the geometry, so each block stands on its own:
-
-```sh
-wid=$(xdotool search --name "Acid OS" | head -1)
-
-# open it: the Menu slot is x < 60, y < 24
-eval "$(xdotool getwindowgeometry --shell "$wid")"
-xdotool mousemove $((X+20)) $((Y+11)) sleep 0.4 mousedown 1 sleep 0.15 mouseup 1 sleep 0.5
-
-# pick row N from the table below; x must be < 150 (DROPDOWN_W)
-N=6
-eval "$(xdotool getwindowgeometry --shell "$wid")"
-xdotool mousemove $((X+40)) $((Y+24+N*18+9)) sleep 0.4 mousedown 1 sleep 0.15 mouseup 1 sleep 0.8
-```
-
-While the dropdown is open the `Menu` button itself reads a highlighted
-`Back` — a cheap way to confirm the open state from a capture.
-
-| N | Entry | N | Entry |
-|---|---|---|---|
-| 0 | About | 4 | File Manager |
-| 1 | Load Cart | 5 | Network |
-| 2 | Config | 6 | System Monitor |
-| 3 | Editor | 7 | Terminal |
-
-**That order is not alphabetical — it is `v3/apps/*.app.toml` sorted by
-filename**, with `menu = false` manifests dropped. `Load Cart` comes second
-because its manifest is `cart.app.toml`. Most display names happen to match
-their filenames, which makes the list look alphabetical and will mislead you on
-exactly the two that don't. Re-derive rather than guess if an app is added or
-renamed:
-
-```sh
-cd v3/apps && for f in $(ls *.app.toml | sort); do
-  grep -qE '^\s*menu\s*=\s*false' "$f" || { printf '%s -> ' "$f"; sed -n 's/^\s*name\s*=\s*//p' "$f" | head -1; }
-done | cat -n
-```
-
-`cat -n` counts from 1 and `N` is 0-based, so `N` is the printed number minus
-one — System Monitor prints as 7 and is row 6.
-
-`v3/apps/desktop.lua` (`scan_launchable_apps`, `STRIP_H`, `ITEM_H`,
-`DROPDOWN_W`) is the authority for all of this.
-
-`--app <name>` is still the quicker way to get a specific app up at launch;
-use the menu when the menu itself is what you're testing.
-
-Keep the `sleep 0.4` between the move and the press as well, so the pointer
-position is settled before the button goes down.
-
-Use xdotool's internal `sleep`, never the shell's — foreground `sleep` is
-blocked in this harness. To wait on a condition, background an `until` loop.
+**The mouse is the hard half, and has its own reference:
+[driving-input.md](driving-input.md).** Read it before sending any click. The
+pointer is exposed to the kernel as a state snapshot rather than a queue, so
+`xdotool click` is literally too short to be seen (measured 0/5 against 5/5 for
+a held press), early presses after launch get eaten by the window manager, and
+coordinates go stale when KWin moves the window. The rule that falls out of all
+three: press, verify from a capture, retry — never assume a click landed. It
+also carries the Menu dropdown row table and geometry.
 
 ## Confirming it actually ran
 
@@ -230,7 +143,7 @@ any later wait loop in that command spins until it times out.
 | Cleanup+relaunch in one call dies, then a wait loop times out | `pkill` matched the launch path in the same command. Separate calls. |
 | App task reports exit 144 | Signal-killed. Expected after your own cleanup `pkill`. |
 | `Menu` click does nothing | `xdotool click` is sub-tick and gets missed. Hold the button 150ms. |
-| First click after launch does nothing | KWin spent it focusing the window. Send one throwaway press first. |
+| Clicks silently do nothing early on | Early presses get eaten. Retry until a capture shows the change. |
 | An app you were driving vanished | Stray click hit a window's close dot. |
 | `End`/`Home`/function keys do nothing | Never delivered to apps by design. Use the arrows. |
 | Before/after shots look identical | Window is too small at native size. Crop and upscale with `flags=neighbor`. |
@@ -239,4 +152,4 @@ any later wait loop in that command spins until it times out.
 | Desktop opens but no app does | Launched from `v3/` instead of the repository root. |
 | Clicks ignored while keys work | `click` is too fast for the pointer snapshot; also re-read geometry. |
 | A drag moved the whole app window | Clicked into KWin's 28px titlebar above the client origin. |
-| Capture misaligned, shows the desktop behind | Window moved between the geometry read and the grab. Capture again. |
+| Capture shows another window's content | X11 geometry has diverged from the painted window. Relaunch; see driving-input.md. |
