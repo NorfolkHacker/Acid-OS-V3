@@ -121,19 +121,50 @@ app you meant to drive.
 
 ### Driving the Menu dropdown
 
-With the hold method the menu works fully, including launching apps:
+With the hold method the menu works fully, including launching apps. Both
+presses re-read the geometry, so each block stands on its own:
 
 ```sh
+wid=$(xdotool search --name "Acid OS" | head -1)
+
 # open it: the Menu slot is x < 60, y < 24
-xdotool mousemove $((X+20)) $((Y+11))  sleep 0.4 mousedown 1 sleep 0.15 mouseup 1 sleep 0.5
-# pick row N (0-based), x must be < 150
+eval "$(xdotool getwindowgeometry --shell "$wid")"
+xdotool mousemove $((X+20)) $((Y+11)) sleep 0.4 mousedown 1 sleep 0.15 mouseup 1 sleep 0.5
+
+# pick row N from the table below; x must be < 150 (DROPDOWN_W)
+N=6
+eval "$(xdotool getwindowgeometry --shell "$wid")"
 xdotool mousemove $((X+40)) $((Y+24+N*18+9)) sleep 0.4 mousedown 1 sleep 0.15 mouseup 1 sleep 0.8
 ```
 
-Rows are `STRIP_H=24 + N*ITEM_H=18`, dropdown width 150 — all from
-`v3/apps/desktop.lua`, which is the authority if the layout changes. The
-entries are alphabetical (About, Load Cart, Config, Editor, File Manager,
-Network, System Monitor, Terminal), and selecting one closes the menu.
+While the dropdown is open the `Menu` button itself reads a highlighted
+`Back` — a cheap way to confirm the open state from a capture.
+
+| N | Entry | N | Entry |
+|---|---|---|---|
+| 0 | About | 4 | File Manager |
+| 1 | Load Cart | 5 | Network |
+| 2 | Config | 6 | System Monitor |
+| 3 | Editor | 7 | Terminal |
+
+**That order is not alphabetical — it is `v3/apps/*.app.toml` sorted by
+filename**, with `menu = false` manifests dropped. `Load Cart` comes second
+because its manifest is `cart.app.toml`. Most display names happen to match
+their filenames, which makes the list look alphabetical and will mislead you on
+exactly the two that don't. Re-derive rather than guess if an app is added or
+renamed:
+
+```sh
+cd v3/apps && for f in $(ls *.app.toml | sort); do
+  grep -qE '^\s*menu\s*=\s*false' "$f" || { printf '%s -> ' "$f"; sed -n 's/^\s*name\s*=\s*//p' "$f" | head -1; }
+done | cat -n
+```
+
+`cat -n` counts from 1 and `N` is 0-based, so `N` is the printed number minus
+one — System Monitor prints as 7 and is row 6.
+
+`v3/apps/desktop.lua` (`scan_launchable_apps`, `STRIP_H`, `ITEM_H`,
+`DROPDOWN_W`) is the authority for all of this.
 
 `--app <name>` is still the quicker way to get a specific app up at launch;
 use the menu when the menu itself is what you're testing.
@@ -182,6 +213,13 @@ line of the very shell running it and kills *that* — your tool call dies with
 exit 144 and the app is left running. The bracket makes the pattern not match
 itself while still matching the app.
 
+**Give the cleanup its own tool call.** The bracket only stops the *pattern*
+from matching itself; it cannot help if the same command line also contains the
+real binary path. Combining cleanup with a relaunch —
+`pkill -f "[r]elease/acid-os"; ... ./v3/target/release/acid-os ...` — matches
+on the launch half, so the shell kills itself before the app ever starts, and
+any later wait loop in that command spins until it times out.
+
 ## Common mistakes
 
 | Symptom | Cause |
@@ -189,6 +227,7 @@ itself while still matching the app.
 | Screenshot is pure black, ~1.5 KB | `ffmpeg -f x11grab` under KWin. Use `capture.sh`. |
 | `xdotool search` finds nothing, process alive | Launched without `env -u WAYLAND_DISPLAY`; app is on native Wayland. |
 | Tool call exits 144, app still running | `pkill -f` matched its own shell. Use `pkill -f "[r]elease/acid-os"`. |
+| Cleanup+relaunch in one call dies, then a wait loop times out | `pkill` matched the launch path in the same command. Separate calls. |
 | App task reports exit 144 | Signal-killed. Expected after your own cleanup `pkill`. |
 | `Menu` click does nothing | `xdotool click` is sub-tick and gets missed. Hold the button 150ms. |
 | First click after launch does nothing | KWin spent it focusing the window. Send one throwaway press first. |
